@@ -31,9 +31,11 @@ public class AiMemoryService {
     private static final int IMAGE_MAX_SIZE = 1024;
 
     private final Context context;
+    private final SettingsStore settingsStore;
 
     public AiMemoryService(Context context) {
         this.context = context.getApplicationContext();
+        this.settingsStore = new SettingsStore(this.context);
     }
 
     public GenerationResult generateMemory(String userText, @Nullable Uri imageUri) {
@@ -49,26 +51,26 @@ public class AiMemoryService {
     }
 
     private boolean hasCloudConfig() {
-        return !TextUtils.isEmpty(BuildConfig.OPENAI_API_KEY)
-                && !TextUtils.isEmpty(BuildConfig.OPENAI_BASE_URL)
-                && !TextUtils.isEmpty(BuildConfig.OPENAI_MODEL);
+        return !TextUtils.isEmpty(settingsStore.resolvedApiKey())
+                && !TextUtils.isEmpty(settingsStore.resolvedApiBaseUrl())
+                && !TextUtils.isEmpty(settingsStore.resolvedApiModel());
     }
 
     private GenerationResult generateByCloud(String userText, @Nullable Uri imageUri) throws Exception {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(BuildConfig.OPENAI_BASE_URL + "/chat/completions");
+            URL url = new URL(settingsStore.resolvedApiBaseUrl() + "/chat/completions");
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             connection.setReadTimeout(READ_TIMEOUT_MS);
             connection.setDoOutput(true);
-            connection.setRequestProperty("Authorization", "Bearer " + BuildConfig.OPENAI_API_KEY);
+            connection.setRequestProperty("Authorization", "Bearer " + settingsStore.resolvedApiKey());
             connection.setRequestProperty("Content-Type", "application/json");
 
             JSONObject payload = new JSONObject();
-            payload.put("model", BuildConfig.OPENAI_MODEL);
-            payload.put("temperature", 0.4);
+            payload.put("model", settingsStore.resolvedApiModel());
+            payload.put("temperature", 0.35);
             payload.put("response_format", new JSONObject().put("type", "json_object"));
             payload.put("messages", buildMessages(userText, imageUri));
 
@@ -94,15 +96,28 @@ public class AiMemoryService {
                     .optString("content", "");
 
             JSONObject resultJson = parseStrictJson(content);
+            String title = resultJson.optString("title", "").trim();
+            String summary = resultJson.optString("summary", "").trim();
             String analysis = resultJson.optString("analysis", "").trim();
             String memory = resultJson.optString("memory", "").trim();
+            String suggestedCategoryCode = resultJson.optString("suggestedCategoryCode", "").trim();
+
             if (TextUtils.isEmpty(memory)) {
                 throw new IllegalStateException("Cloud AI returned empty memory");
             }
-            if (TextUtils.isEmpty(analysis)) {
-                analysis = "云端分析完成。";
+            if (TextUtils.isEmpty(title)) {
+                title = cropSingleLine(memory, 18);
             }
-            return new GenerationResult(analysis, memory, "cloud");
+            if (TextUtils.isEmpty(summary)) {
+                summary = cropSingleLine(userText, 36);
+            }
+            if (TextUtils.isEmpty(analysis)) {
+                analysis = "AI 已完成内容整理";
+            }
+            if (TextUtils.isEmpty(suggestedCategoryCode)) {
+                suggestedCategoryCode = classifyCategoryCode(userText, imageUri != null);
+            }
+            return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "cloud");
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -115,12 +130,15 @@ public class AiMemoryService {
         messages.put(new JSONObject()
                 .put("role", "system")
                 .put("content",
-                        "You are a memory assistant. Analyze user input and output strict JSON with keys " +
-                                "analysis and memory. Keep each value concise and in Chinese."));
+                        "You are a memory assistant. Analyze user input and respond with strict JSON only. " +
+                                "Required keys: title, summary, analysis, memory, suggestedCategoryCode. " +
+                                "All text values must be concise Chinese. suggestedCategoryCode must be one of: " +
+                                "QUICK_NOTE, LIFE_PICKUP, LIFE_DELIVERY, LIFE_CARD, LIFE_TICKET, WORK_TODO, WORK_SCHEDULE."));
 
         JSONArray userContent = new JSONArray();
         String textForModel = "User text:\n" + (TextUtils.isEmpty(userText) ? "(none)" : userText) + "\n\n" +
-                "If screenshot exists, include important visual cues in analysis.";
+                "If screenshot exists, include important visual cues. " +
+                "Return a short title and a short summary suitable for a memory card.";
         userContent.put(new JSONObject()
                 .put("type", "text")
                 .put("text", textForModel));
@@ -205,39 +223,87 @@ public class AiMemoryService {
     private GenerationResult generateByRules(String userText, @Nullable Uri imageUri) {
         boolean hasText = !TextUtils.isEmpty(userText);
         boolean hasImage = imageUri != null;
+        String suggestedCategoryCode = classifyCategoryCode(userText, hasImage);
 
         String analysis;
         if (hasText && hasImage) {
-            analysis = "已同时记录文字与截图，这是一个信息完整的记忆点。";
+            analysis = "已同时记录文字和截图，这是一条信息较完整的记忆。";
         } else if (hasText) {
-            analysis = "已记录文字要点，关键词：" + buildTags(userText);
+            analysis = "已提取文字要点，关键词：" + buildTags(userText);
         } else if (hasImage) {
-            analysis = "已记录截图，建议稍后补充一句文字，方便回忆。";
+            analysis = "已保存截图，建议之后补一句说明，便于回看。";
         } else {
-            analysis = "未检测到可用内容。";
+            analysis = "未检测到可分析内容。";
+        }
+
+        String title;
+        String summary;
+        if (hasText) {
+            title = cropSingleLine(userText, 18);
+            summary = cropSingleLine(userText, 40);
+        } else if (hasImage) {
+            title = "截图记忆";
+            summary = "保存了一张截图，可稍后补充说明。";
+        } else {
+            title = "空白记忆";
+            summary = "当前没有可用内容。";
         }
 
         String timeText = new SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
                 .format(new Date());
         String memory;
         if (hasText) {
-            String shortText = userText.length() > 100 ? userText.substring(0, 100) + "..." : userText;
-            memory = timeText + " 记下：" + shortText;
+            memory = timeText + " 记录了一条内容：" + cropSingleLine(userText, 56);
         } else if (hasImage) {
-            memory = timeText + " 保存了一张截图记忆，已标记为待回看。";
+            memory = timeText + " 保存了一张截图记忆。";
         } else {
             memory = timeText + " 创建了一条空白记忆草稿。";
         }
 
-        return new GenerationResult(analysis, memory, "local");
+        return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "local");
+    }
+
+    private String classifyCategoryCode(String text, boolean hasImage) {
+        String source = text == null ? "" : text.toLowerCase(Locale.ROOT);
+        if (containsAny(source, "待办", "todo", "完成", "处理", "跟进", "提交")) {
+            return CategoryCatalog.CODE_WORK_TODO;
+        }
+        if (containsAny(source, "会议", "日程", "calendar", "预约", "时间")) {
+            return CategoryCatalog.CODE_WORK_SCHEDULE;
+        }
+        if (containsAny(source, "快递", "包裹", "取件")) {
+            return CategoryCatalog.CODE_LIFE_DELIVERY;
+        }
+        if (containsAny(source, "取餐", "外卖", "奶茶", "餐", "饭")) {
+            return CategoryCatalog.CODE_LIFE_PICKUP;
+        }
+        if (containsAny(source, "卡", "证", "身份证", "门禁", "驾照")) {
+            return CategoryCatalog.CODE_LIFE_CARD;
+        }
+        if (containsAny(source, "票", "车票", "机票", "电影票", "券")) {
+            return CategoryCatalog.CODE_LIFE_TICKET;
+        }
+        if (hasImage && TextUtils.isEmpty(source)) {
+            return CategoryCatalog.CODE_LIFE_TICKET;
+        }
+        return CategoryCatalog.CODE_QUICK_NOTE;
+    }
+
+    private boolean containsAny(String source, String... keywords) {
+        for (String keyword : keywords) {
+            if (source.contains(keyword)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private String buildTags(String text) {
-        String[] words = text.split("[\\s,.;:!?()\\[\\]{}\"'`]+");
+        String[] words = text.split("[\\s,.;:!?()\\[\\]{}\"'`，。；：！？（）]+");
         LinkedHashSet<String> tags = new LinkedHashSet<>();
         for (String word : words) {
             String trimmed = word.trim();
-            if (trimmed.length() < 3) {
+            if (trimmed.length() < 2) {
                 continue;
             }
             tags.add(trimmed.toLowerCase(Locale.ROOT));
@@ -246,20 +312,52 @@ public class AiMemoryService {
             }
         }
         if (tags.isEmpty()) {
-            return "无明显关键词";
+            return "暂无明显关键词";
         }
-        return TextUtils.join(", ", tags);
+        return TextUtils.join("、", tags);
+    }
+
+    private String cropSingleLine(String text, int maxLength) {
+        if (TextUtils.isEmpty(text)) {
+            return "";
+        }
+        String singleLine = text.replace('\n', ' ').trim();
+        if (singleLine.length() <= maxLength) {
+            return singleLine;
+        }
+        return singleLine.substring(0, maxLength) + "...";
     }
 
     public static class GenerationResult {
+        private final String title;
+        private final String summary;
         private final String analysis;
         private final String memory;
+        private final String suggestedCategoryCode;
         private final String engine;
 
-        public GenerationResult(String analysis, String memory, String engine) {
+        public GenerationResult(
+                String title,
+                String summary,
+                String analysis,
+                String memory,
+                String suggestedCategoryCode,
+                String engine
+        ) {
+            this.title = title;
+            this.summary = summary;
             this.analysis = analysis;
             this.memory = memory;
+            this.suggestedCategoryCode = suggestedCategoryCode;
             this.engine = engine;
+        }
+
+        public String getTitle() {
+            return title;
+        }
+
+        public String getSummary() {
+            return summary;
         }
 
         public String getAnalysis() {
@@ -268,6 +366,10 @@ public class AiMemoryService {
 
         public String getMemory() {
             return memory;
+        }
+
+        public String getSuggestedCategoryCode() {
+            return suggestedCategoryCode;
         }
 
         public String getEngine() {

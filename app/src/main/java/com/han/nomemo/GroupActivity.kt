@@ -1,9 +1,13 @@
 package com.han.nomemo
 
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
+import androidx.core.content.ContextCompat
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,13 +17,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -27,8 +29,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -39,21 +41,37 @@ import androidx.compose.ui.unit.sp
 
 class GroupActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
+    private lateinit var aiResultFeedbackStore: AiResultFeedbackStore
     private var selectedCategoryCode by mutableStateOf<String?>(null)
     private var allRecords by mutableStateOf<List<MemoryRecord>>(emptyList())
+    private var aiResultPreview by mutableStateOf<AiResultPreview?>(null)
+    private var memoryChangeRegistered = false
+
+    private val memoryChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            refreshContent()
+            if (intent?.action == MemoryStoreNotifier.ACTION_AI_RESULT_READY) {
+                presentPendingAiResult()
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
+        aiResultFeedbackStore = AiResultFeedbackStore(this)
         setContent {
             GroupContent(
                 allRecords = allRecords,
                 selectedCategoryCode = selectedCategoryCode,
+                aiResultPreview = aiResultPreview,
                 onSelectCategory = { selectedCategoryCode = it },
                 onDeleteRecord = { record -> deleteRecord(record) },
+                onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenReminder = { openReminderPage() },
-                onAddClick = { openAddMemoryPage() }
+                onAddClick = { openAddMemoryPage() },
+                onDismissAiResult = { dismissAiResult() }
             )
         }
         refreshContent()
@@ -62,25 +80,62 @@ class GroupActivity : BaseComposeActivity() {
     override fun onResume() {
         super.onResume()
         refreshContent()
+        presentPendingAiResult()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        registerMemoryChangeReceiver()
+    }
+
+    override fun onStop() {
+        unregisterMemoryChangeReceiver()
+        super.onStop()
     }
 
     private fun refreshContent() {
-        allRecords = memoryStore.loadRecords()
+        allRecords = memoryStore.loadActiveRecords()
+    }
+
+    private fun registerMemoryChangeReceiver() {
+        if (memoryChangeRegistered) {
+            return
+        }
+        val filter = IntentFilter().apply {
+            addAction(MemoryStoreNotifier.ACTION_RECORDS_CHANGED)
+            addAction(MemoryStoreNotifier.ACTION_AI_RESULT_READY)
+        }
+        ContextCompat.registerReceiver(
+            this,
+            memoryChangeReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        memoryChangeRegistered = true
+    }
+
+    private fun unregisterMemoryChangeReceiver() {
+        if (!memoryChangeRegistered) {
+            return
+        }
+        unregisterReceiver(memoryChangeReceiver)
+        memoryChangeRegistered = false
     }
 
     private fun openMemoryPage() {
-        val intent = Intent(this, MainActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-        }
-        startActivity(intent)
-        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
-        finish()
+        openTopLevelPage(
+            MainActivity::class.java,
+            R.anim.page_back_enter,
+            R.anim.page_back_exit
+        )
     }
 
     private fun openReminderPage() {
-        startActivity(Intent(this, ReminderActivity::class.java))
-        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
-        finish()
+        openTopLevelPage(
+            ReminderActivity::class.java,
+            R.anim.page_forward_enter,
+            R.anim.page_forward_exit
+        )
     }
 
     private fun openAddMemoryPage() {
@@ -88,23 +143,43 @@ class GroupActivity : BaseComposeActivity() {
         overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
     }
 
+    private fun openDetailPage(recordId: String) {
+        startActivity(MemoryDetailActivity.createIntent(this, recordId))
+        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+    }
+
     private fun deleteRecord(record: MemoryRecord) {
         val deleted = memoryStore.deleteRecord(record.recordId)
         if (deleted) {
             refreshContent()
-            Toast.makeText(this, "已删除记忆", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.delete_success, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun presentPendingAiResult() {
+        if (aiResultPreview != null) {
+            return
+        }
+        aiResultPreview = aiResultFeedbackStore.consumeNext()
+    }
+
+    private fun dismissAiResult() {
+        aiResultPreview = null
+        presentPendingAiResult()
     }
 
     @Composable
     private fun GroupContent(
         allRecords: List<MemoryRecord>,
         selectedCategoryCode: String?,
+        aiResultPreview: AiResultPreview?,
         onSelectCategory: (String?) -> Unit,
         onDeleteRecord: (MemoryRecord) -> Unit,
+        onOpenDetail: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenReminder: () -> Unit,
-        onAddClick: () -> Unit
+        onAddClick: () -> Unit,
+        onDismissAiResult: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -122,15 +197,14 @@ class GroupActivity : BaseComposeActivity() {
         }
 
         fun countByCode(code: String): Int = allRecords.count { it.categoryCode == code }
+        val quickCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_QUICK }
         val lifeCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_LIFE }
         val workCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_WORK }
-        val summary = getString(R.string.group_summary_format, lifeCount, workCount, allRecords.size)
+        val summary = getString(R.string.group_summary_format, quickCount, lifeCount, workCount, allRecords.size)
 
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
-                Box(
-                    modifier = Modifier.fillMaxSize()
-                ) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -155,8 +229,8 @@ class GroupActivity : BaseComposeActivity() {
                                 fontWeight = FontWeight.Bold
                             )
                             GlassIconCircleButton(
-                                iconRes = android.R.drawable.ic_menu_delete,
-                                contentDescription = "删除已选项",
+                                iconRes = R.drawable.ic_nm_delete,
+                                contentDescription = stringResource(R.string.action_delete),
                                 onClick = { if (selectedRecord != null) showDeleteConfirm = true },
                                 size = if (spec.isNarrow) 44.dp else 48.dp
                             )
@@ -169,54 +243,37 @@ class GroupActivity : BaseComposeActivity() {
                                 .padding(top = 12.dp)
                                 .horizontalScroll(rememberScrollState())
                         ) {
-                            GroupChip(
-                                text = stringResource(R.string.filter_all),
-                                selected = selectedCategoryCode == null,
-                                onClick = { onSelectCategory(null) },
-                                chipTextSize = spec.chipTextSize
-                            )
+                            GroupChip(stringResource(R.string.filter_all), selectedCategoryCode == null, spec.chipTextSize) {
+                                onSelectCategory(null)
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(
-                                text = buildChipText(getString(R.string.cat_pickup), countByCode(CategoryCatalog.CODE_LIFE_PICKUP)),
-                                selected = selectedCategoryCode == CategoryCatalog.CODE_LIFE_PICKUP,
-                                onClick = { onSelectCategory(CategoryCatalog.CODE_LIFE_PICKUP) },
-                                chipTextSize = spec.chipTextSize
-                            )
+                            GroupChip(buildChipText(stringResource(R.string.cat_quick), countByCode(CategoryCatalog.CODE_QUICK_NOTE)), selectedCategoryCode == CategoryCatalog.CODE_QUICK_NOTE, spec.chipTextSize) {
+                                onSelectCategory(CategoryCatalog.CODE_QUICK_NOTE)
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(
-                                text = buildChipText(getString(R.string.cat_delivery), countByCode(CategoryCatalog.CODE_LIFE_DELIVERY)),
-                                selected = selectedCategoryCode == CategoryCatalog.CODE_LIFE_DELIVERY,
-                                onClick = { onSelectCategory(CategoryCatalog.CODE_LIFE_DELIVERY) },
-                                chipTextSize = spec.chipTextSize
-                            )
+                            GroupChip(buildChipText(stringResource(R.string.cat_pickup), countByCode(CategoryCatalog.CODE_LIFE_PICKUP)), selectedCategoryCode == CategoryCatalog.CODE_LIFE_PICKUP, spec.chipTextSize) {
+                                onSelectCategory(CategoryCatalog.CODE_LIFE_PICKUP)
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(
-                                text = buildChipText(getString(R.string.cat_card), countByCode(CategoryCatalog.CODE_LIFE_CARD)),
-                                selected = selectedCategoryCode == CategoryCatalog.CODE_LIFE_CARD,
-                                onClick = { onSelectCategory(CategoryCatalog.CODE_LIFE_CARD) },
-                                chipTextSize = spec.chipTextSize
-                            )
+                            GroupChip(buildChipText(stringResource(R.string.cat_delivery), countByCode(CategoryCatalog.CODE_LIFE_DELIVERY)), selectedCategoryCode == CategoryCatalog.CODE_LIFE_DELIVERY, spec.chipTextSize) {
+                                onSelectCategory(CategoryCatalog.CODE_LIFE_DELIVERY)
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(
-                                text = buildChipText(getString(R.string.cat_ticket), countByCode(CategoryCatalog.CODE_LIFE_TICKET)),
-                                selected = selectedCategoryCode == CategoryCatalog.CODE_LIFE_TICKET,
-                                onClick = { onSelectCategory(CategoryCatalog.CODE_LIFE_TICKET) },
-                                chipTextSize = spec.chipTextSize
-                            )
+                            GroupChip(buildChipText(stringResource(R.string.cat_card), countByCode(CategoryCatalog.CODE_LIFE_CARD)), selectedCategoryCode == CategoryCatalog.CODE_LIFE_CARD, spec.chipTextSize) {
+                                onSelectCategory(CategoryCatalog.CODE_LIFE_CARD)
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(
-                                text = buildChipText(getString(R.string.cat_todo), countByCode(CategoryCatalog.CODE_WORK_TODO)),
-                                selected = selectedCategoryCode == CategoryCatalog.CODE_WORK_TODO,
-                                onClick = { onSelectCategory(CategoryCatalog.CODE_WORK_TODO) },
-                                chipTextSize = spec.chipTextSize
-                            )
+                            GroupChip(buildChipText(stringResource(R.string.cat_ticket), countByCode(CategoryCatalog.CODE_LIFE_TICKET)), selectedCategoryCode == CategoryCatalog.CODE_LIFE_TICKET, spec.chipTextSize) {
+                                onSelectCategory(CategoryCatalog.CODE_LIFE_TICKET)
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(
-                                text = buildChipText(getString(R.string.cat_schedule), countByCode(CategoryCatalog.CODE_WORK_SCHEDULE)),
-                                selected = selectedCategoryCode == CategoryCatalog.CODE_WORK_SCHEDULE,
-                                onClick = { onSelectCategory(CategoryCatalog.CODE_WORK_SCHEDULE) },
-                                chipTextSize = spec.chipTextSize
-                            )
+                            GroupChip(buildChipText(stringResource(R.string.cat_todo), countByCode(CategoryCatalog.CODE_WORK_TODO)), selectedCategoryCode == CategoryCatalog.CODE_WORK_TODO, spec.chipTextSize) {
+                                onSelectCategory(CategoryCatalog.CODE_WORK_TODO)
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            GroupChip(buildChipText(stringResource(R.string.cat_schedule), countByCode(CategoryCatalog.CODE_WORK_SCHEDULE)), selectedCategoryCode == CategoryCatalog.CODE_WORK_SCHEDULE, spec.chipTextSize) {
+                                onSelectCategory(CategoryCatalog.CODE_WORK_SCHEDULE)
+                            }
                         }
 
                         if (filtered.isEmpty()) {
@@ -237,8 +294,16 @@ class GroupActivity : BaseComposeActivity() {
                                     record = record,
                                     selected = selectedRecordId == record.recordId,
                                     onClick = {
-                                        if (selectedRecordId == record.recordId) {
-                                            selectedRecordId = null
+                                        when {
+                                            selectedRecordId == record.recordId -> {
+                                                selectedRecordId = null
+                                            }
+                                            selectedRecordId != null -> {
+                                                selectedRecordId = record.recordId
+                                            }
+                                            else -> {
+                                                onOpenDetail(record)
+                                            }
                                         }
                                     },
                                     onLongPress = { selectedRecordId = record.recordId }
@@ -267,8 +332,8 @@ class GroupActivity : BaseComposeActivity() {
                     if (showDeleteConfirm && selectedRecord != null) {
                         AlertDialog(
                             onDismissRequest = { showDeleteConfirm = false },
-                            title = { Text("确认删除") },
-                            text = { Text("确定删除这条记忆吗？") },
+                            title = { Text(stringResource(R.string.delete_selected_title)) },
+                            text = { Text(stringResource(R.string.delete_selected_message)) },
                             confirmButton = {
                                 TextButton(
                                     onClick = {
@@ -277,14 +342,21 @@ class GroupActivity : BaseComposeActivity() {
                                         showDeleteConfirm = false
                                     }
                                 ) {
-                                    Text("删除")
+                                    Text(stringResource(R.string.action_delete))
                                 }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showDeleteConfirm = false }) {
-                                    Text("取消")
+                                    Text(stringResource(R.string.cancel))
                                 }
                             }
+                        )
+                    }
+
+                    if (aiResultPreview != null) {
+                        AiResultDialog(
+                            preview = aiResultPreview,
+                            onDismiss = onDismissAiResult
                         )
                     }
                 }
@@ -293,7 +365,12 @@ class GroupActivity : BaseComposeActivity() {
     }
 
     @Composable
-    private fun GroupChip(text: String, selected: Boolean, onClick: () -> Unit, chipTextSize: androidx.compose.ui.unit.TextUnit) {
+    private fun GroupChip(
+        text: String,
+        selected: Boolean,
+        chipTextSize: androidx.compose.ui.unit.TextUnit,
+        onClick: () -> Unit
+    ) {
         GlassChip(
             text = text,
             selected = selected,

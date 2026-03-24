@@ -5,9 +5,11 @@ import java.util.Collections;
 import java.util.List;
 
 public final class CategoryCatalog {
+    public static final String GROUP_QUICK = "QUICK";
     public static final String GROUP_LIFE = "LIFE";
     public static final String GROUP_WORK = "WORK";
 
+    public static final String CODE_QUICK_NOTE = "QUICK_NOTE";
     public static final String CODE_LIFE_PICKUP = "LIFE_PICKUP";
     public static final String CODE_LIFE_DELIVERY = "LIFE_DELIVERY";
     public static final String CODE_LIFE_CARD = "LIFE_CARD";
@@ -27,11 +29,16 @@ public final class CategoryCatalog {
         }
     }
 
+    private static final List<CategoryOption> QUICK_CATEGORIES;
     private static final List<CategoryOption> LIFE_CATEGORIES;
     private static final List<CategoryOption> WORK_CATEGORIES;
     private static final List<CategoryOption> ALL_CATEGORIES;
 
     static {
+        List<CategoryOption> quick = new ArrayList<>();
+        quick.add(new CategoryOption(GROUP_QUICK, CODE_QUICK_NOTE, "小记"));
+        QUICK_CATEGORIES = Collections.unmodifiableList(quick);
+
         List<CategoryOption> life = new ArrayList<>();
         life.add(new CategoryOption(GROUP_LIFE, CODE_LIFE_PICKUP, "取餐"));
         life.add(new CategoryOption(GROUP_LIFE, CODE_LIFE_DELIVERY, "快递"));
@@ -45,12 +52,17 @@ public final class CategoryCatalog {
         WORK_CATEGORIES = Collections.unmodifiableList(work);
 
         List<CategoryOption> all = new ArrayList<>();
+        all.addAll(QUICK_CATEGORIES);
         all.addAll(LIFE_CATEGORIES);
         all.addAll(WORK_CATEGORIES);
         ALL_CATEGORIES = Collections.unmodifiableList(all);
     }
 
     private CategoryCatalog() {
+    }
+
+    public static List<CategoryOption> getQuickCategories() {
+        return QUICK_CATEGORIES;
     }
 
     public static List<CategoryOption> getLifeCategories() {
@@ -66,6 +78,9 @@ public final class CategoryCatalog {
     }
 
     public static List<CategoryOption> getCategoriesByGroup(String groupCode) {
+        if (GROUP_QUICK.equals(groupCode)) {
+            return QUICK_CATEGORIES;
+        }
         if (GROUP_WORK.equals(groupCode)) {
             return WORK_CATEGORIES;
         }
@@ -73,7 +88,13 @@ public final class CategoryCatalog {
     }
 
     public static String getGroupName(String groupCode) {
-        return GROUP_WORK.equals(groupCode) ? "工作" : "生活";
+        if (GROUP_QUICK.equals(groupCode)) {
+            return "小记";
+        }
+        if (GROUP_WORK.equals(groupCode)) {
+            return "工作";
+        }
+        return "生活";
     }
 
     public static String getCategoryName(String categoryCode) {
@@ -82,7 +103,7 @@ public final class CategoryCatalog {
                 return option.categoryName;
             }
         }
-        return "快递";
+        return "小记";
     }
 
     public static String getGroupByCategoryCode(String categoryCode) {
@@ -91,7 +112,7 @@ public final class CategoryCatalog {
                 return option.groupCode;
             }
         }
-        return GROUP_LIFE;
+        return GROUP_QUICK;
     }
 
     public static boolean isWorkCategoryCode(String categoryCode) {

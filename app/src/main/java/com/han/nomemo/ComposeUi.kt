@@ -221,21 +221,25 @@ fun rememberNoMemoAdaptiveSpec(): NoMemoAdaptiveSpec {
 
 @Composable
 fun rememberNoMemoPalette(): NoMemoPalette {
+    val context = LocalContext.current
+    val settingsStore = remember(context) { SettingsStore(context) }
+    val alphaMultiplier = settingsStore.glassAlphaMultiplier()
+    fun scaled(color: Color): Color = color.copy(alpha = (color.alpha * alphaMultiplier).coerceIn(0f, 1f))
     return NoMemoPalette(
         memoBgStart = colorResource(id = R.color.memo_bg_start),
         memoBgMid = colorResource(id = R.color.memo_bg_mid),
         memoBgEnd = colorResource(id = R.color.memo_bg_end),
-        glassFill = colorResource(id = R.color.glass_fill),
-        glassFillSoft = colorResource(id = R.color.glass_fill_soft),
-        glassStroke = colorResource(id = R.color.glass_stroke),
+        glassFill = scaled(colorResource(id = R.color.glass_fill)),
+        glassFillSoft = scaled(colorResource(id = R.color.glass_fill_soft)),
+        glassStroke = scaled(colorResource(id = R.color.glass_stroke)),
         accent = colorResource(id = R.color.accent_blue),
         onAccent = colorResource(id = R.color.on_accent),
         textPrimary = colorResource(id = R.color.text_primary),
         textSecondary = colorResource(id = R.color.text_secondary),
         textTertiary = colorResource(id = R.color.text_tertiary),
-        tagNoteBg = colorResource(id = R.color.tag_yellow_bg),
+        tagNoteBg = scaled(colorResource(id = R.color.tag_yellow_bg)),
         tagNoteText = colorResource(id = R.color.tag_yellow_text),
-        tagAiBg = colorResource(id = R.color.tag_ai_bg),
+        tagAiBg = scaled(colorResource(id = R.color.tag_ai_bg)),
         tagAiText = colorResource(id = R.color.tag_ai_text)
     )
 }
@@ -449,7 +453,7 @@ fun NoMemoBottomDock(
             verticalAlignment = Alignment.CenterVertically
         ) {
             DockNavItem(
-                iconRes = android.R.drawable.ic_menu_agenda,
+                iconRes = R.drawable.ic_nm_memory,
                 text = stringResource(R.string.nav_memory),
                 selected = selectedTab == NoMemoDockTab.MEMORY,
                 onClick = {
@@ -459,7 +463,7 @@ fun NoMemoBottomDock(
                 spec = spec
             )
             DockNavItem(
-                iconRes = android.R.drawable.ic_menu_sort_by_size,
+                iconRes = R.drawable.ic_nm_group,
                 text = stringResource(R.string.nav_group),
                 selected = selectedTab == NoMemoDockTab.GROUP,
                 onClick = {
@@ -469,7 +473,7 @@ fun NoMemoBottomDock(
                 spec = spec
             )
             DockNavItem(
-                iconRes = android.R.drawable.ic_menu_recent_history,
+                iconRes = R.drawable.ic_nm_reminder,
                 text = stringResource(R.string.nav_reminder),
                 selected = selectedTab == NoMemoDockTab.REMINDER,
                 onClick = {
@@ -574,6 +578,13 @@ fun RecordCard(
     val adaptive = rememberNoMemoAdaptiveSpec()
     val context = LocalContext.current
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    val titleText = record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
+    val summaryText = when {
+        !record.summary.isNullOrBlank() -> record.summary
+        !record.memory.isNullOrBlank() && record.memory != titleText -> record.memory
+        !record.sourceText.isNullOrBlank() -> record.sourceText
+        else -> ""
+    }
     val modeText = if (record.mode == MemoryRecord.MODE_AI) {
         context.getString(R.string.mode_label_ai)
     } else {
@@ -617,17 +628,17 @@ fun RecordCard(
         ) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = record.memory ?: "",
+                    text = titleText,
                     color = palette.textPrimary,
                     fontSize = adaptive.recordTitleSize,
                     fontWeight = FontWeight.Bold,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (!record.sourceText.isNullOrBlank()) {
+                if (!summaryText.isNullOrBlank()) {
                     Spacer(modifier = Modifier.height(6.dp))
                     Text(
-                        text = stringResource(R.string.record_source_prefix, record.sourceText),
+                        text = summaryText,
                         color = palette.textSecondary,
                         fontSize = if (compactCard) 13.sp else 14.sp,
                         maxLines = if (compactCard) 1 else 2,

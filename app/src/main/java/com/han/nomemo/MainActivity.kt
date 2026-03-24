@@ -1,24 +1,22 @@
 package com.han.nomemo
 
+import android.content.BroadcastReceiver
 import android.content.Intent
+import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,11 +26,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -45,46 +47,76 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
-
 class MainActivity : BaseComposeActivity() {
     companion object {
         private const val FILTER_ALL = "ALL"
+        private const val FILTER_QUICK = "QUICK"
         private const val FILTER_LIFE = "LIFE"
         private const val FILTER_WORK = "WORK"
         private const val FILTER_AI = "AI"
+        private const val FILTER_ARCHIVED = "ARCHIVED"
     }
 
     private lateinit var memoryStore: MemoryStore
+    private lateinit var aiResultFeedbackStore: AiResultFeedbackStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
+    private var aiResultPreview by mutableStateOf<AiResultPreview?>(null)
+    private var memoryChangeRegistered = false
+
+    private val memoryChangeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: android.content.Context?, intent: Intent?) {
+            refreshRecords()
+            if (intent?.action == MemoryStoreNotifier.ACTION_AI_RESULT_READY) {
+                presentPendingAiResult()
+            }
+        }
+    }
 
     private val addMemoryLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
             refreshRecords()
         }
 
+    private val settingsLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                recreate()
+            } else {
+                refreshRecords()
+            }
+        }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
+        aiResultFeedbackStore = AiResultFeedbackStore(this)
         setContent {
             MainContent(
                 records = records,
                 selectedFilter = selectedFilter,
+                aiResultPreview = aiResultPreview,
                 onFilterSelect = { filter ->
                     selectedFilter = filter
                     refreshRecords()
                 },
                 onDeleteRecord = { record -> deleteRecord(record) },
+                onArchiveRecord = { record -> toggleArchive(record) },
+                onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onAddClick = { openAddMemoryPage() },
                 onOpenGroup = { openGroupPage() },
-                onOpenReminder = { openReminderPage() }
+                onOpenReminder = { openReminderPage() },
+                onOpenSettings = { openSettingsPage() },
+                onDismissAiResult = { dismissAiResult() }
             )
         }
         refreshRecords()
@@ -93,19 +125,50 @@ class MainActivity : BaseComposeActivity() {
     override fun onResume() {
         super.onResume()
         refreshRecords()
+        presentPendingAiResult()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        registerMemoryChangeReceiver()
+    }
+
+    override fun onStop() {
+        unregisterMemoryChangeReceiver()
+        super.onStop()
     }
 
     private fun refreshRecords() {
-        val all = memoryStore.loadRecords()
-        val filtered = all.filter { record ->
-            when (selectedFilter) {
-                FILTER_LIFE -> CategoryCatalog.GROUP_LIFE == record.categoryGroupCode
-                FILTER_WORK -> CategoryCatalog.GROUP_WORK == record.categoryGroupCode
-                FILTER_AI -> MemoryRecord.MODE_AI == record.mode
-                else -> true
-            }
+        records = if (selectedFilter == FILTER_ARCHIVED) {
+            memoryStore.loadArchivedRecords()
+        } else {
+            memoryStore.loadActiveRecords()
         }
-        records = filtered
+    }
+
+    private fun registerMemoryChangeReceiver() {
+        if (memoryChangeRegistered) {
+            return
+        }
+        val filter = IntentFilter().apply {
+            addAction(MemoryStoreNotifier.ACTION_RECORDS_CHANGED)
+            addAction(MemoryStoreNotifier.ACTION_AI_RESULT_READY)
+        }
+        ContextCompat.registerReceiver(
+            this,
+            memoryChangeReceiver,
+            filter,
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        memoryChangeRegistered = true
+    }
+
+    private fun unregisterMemoryChangeReceiver() {
+        if (!memoryChangeRegistered) {
+            return
+        }
+        unregisterReceiver(memoryChangeReceiver)
+        memoryChangeRegistered = false
     }
 
     private fun openAddMemoryPage() {
@@ -114,45 +177,122 @@ class MainActivity : BaseComposeActivity() {
     }
 
     private fun openGroupPage() {
-        startActivity(Intent(this, GroupActivity::class.java))
-        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+        openTopLevelPage(
+            GroupActivity::class.java,
+            R.anim.page_forward_enter,
+            R.anim.page_forward_exit
+        )
     }
 
     private fun openReminderPage() {
-        startActivity(Intent(this, ReminderActivity::class.java))
+        openTopLevelPage(
+            ReminderActivity::class.java,
+            R.anim.page_forward_enter,
+            R.anim.page_forward_exit
+        )
+    }
+
+    private fun openSettingsPage() {
+        settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
         overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+    }
+
+    private fun openDetailPage(recordId: String) {
+        startActivity(MemoryDetailActivity.createIntent(this, recordId))
+        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+    }
+
+    private fun toggleArchive(record: MemoryRecord) {
+        val nextArchived = !record.isArchived
+        memoryStore.archiveRecord(record.recordId, nextArchived)
+        refreshRecords()
+        Toast.makeText(
+            this,
+            if (nextArchived) R.string.archive_success else R.string.unarchive_success,
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun deleteRecord(record: MemoryRecord) {
         val deleted = memoryStore.deleteRecord(record.recordId)
         if (deleted) {
             refreshRecords()
-            Toast.makeText(this, "已删除记忆", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.delete_success, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun presentPendingAiResult() {
+        if (aiResultPreview != null) {
+            return
+        }
+        aiResultPreview = aiResultFeedbackStore.consumeNext()
+    }
+
+    private fun dismissAiResult() {
+        aiResultPreview = null
+        presentPendingAiResult()
     }
 
     @Composable
     private fun MainContent(
         records: List<MemoryRecord>,
         selectedFilter: String,
+        aiResultPreview: AiResultPreview?,
         onFilterSelect: (String) -> Unit,
         onDeleteRecord: (MemoryRecord) -> Unit,
+        onArchiveRecord: (MemoryRecord) -> Unit,
+        onOpenDetail: (MemoryRecord) -> Unit,
         onAddClick: () -> Unit,
         onOpenGroup: () -> Unit,
-        onOpenReminder: () -> Unit
+        onOpenReminder: () -> Unit,
+        onOpenSettings: () -> Unit,
+        onDismissAiResult: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
+        val palette = rememberNoMemoPalette()
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
+        var searchEnabled by remember { mutableStateOf(false) }
+        var searchQuery by remember { mutableStateOf("") }
+
         val selectedRecord = remember(records, selectedRecordId) {
             records.firstOrNull { it.recordId == selectedRecordId }
         }
-        LaunchedEffect(records, selectedRecordId) {
-            if (selectedRecordId != null && selectedRecord == null) {
+        val filteredRecords = remember(records, selectedFilter, searchQuery) {
+            records.filter { record ->
+                val matchesFilter = when (selectedFilter) {
+                    FILTER_QUICK -> record.categoryGroupCode == CategoryCatalog.GROUP_QUICK
+                    FILTER_LIFE -> record.categoryGroupCode == CategoryCatalog.GROUP_LIFE
+                    FILTER_WORK -> record.categoryGroupCode == CategoryCatalog.GROUP_WORK
+                    FILTER_AI -> record.mode == MemoryRecord.MODE_AI
+                    else -> true
+                }
+                if (!matchesFilter) {
+                    return@filter false
+                }
+                val query = searchQuery.trim()
+                if (query.isBlank()) {
+                    return@filter true
+                }
+                val haystack = listOf(
+                    record.title,
+                    record.summary,
+                    record.memory,
+                    record.sourceText,
+                    record.analysis,
+                    record.categoryName
+                ).joinToString("\n") { it.orEmpty() }.lowercase()
+                haystack.contains(query.lowercase())
+            }
+        }
+
+        LaunchedEffect(filteredRecords, selectedRecordId) {
+            if (selectedRecordId != null && filteredRecords.none { it.recordId == selectedRecordId }) {
                 selectedRecordId = null
                 showDeleteConfirm = false
             }
         }
+
         var entered by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { entered = true }
         val listAlpha by animateFloatAsState(
@@ -172,11 +312,8 @@ class MainActivity : BaseComposeActivity() {
         )
 
         NoMemoBackground {
-            val palette = rememberNoMemoPalette()
             ResponsiveContentFrame(spec = adaptive) { spec ->
-                Box(
-                    modifier = Modifier.fillMaxSize()
-                ) {
+                Box(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -188,306 +325,284 @@ class MainActivity : BaseComposeActivity() {
                                 bottom = spec.pageBottomPadding
                             )
                     ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.page_title),
-                                color = palette.textPrimary,
-                                fontSize = spec.titleSize,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                text = stringResource(R.string.page_subtitle),
-                                color = palette.textSecondary,
-                                fontSize = spec.subtitleSize
-                            )
-                        }
-                        GlassIconCircleButton(
-                            iconRes = android.R.drawable.ic_menu_search,
-                            contentDescription = stringResource(R.string.action_search),
-                            onClick = {},
-                            modifier = Modifier.padding(end = 10.dp),
-                            size = spec.topActionButtonSize
-                        )
-                        GlassIconCircleButton(
-                            iconRes = if (selectedRecord != null) android.R.drawable.ic_menu_delete else android.R.drawable.ic_menu_more,
-                            contentDescription = if (selectedRecord != null) "删除已选项" else stringResource(R.string.action_more),
-                            onClick = {
-                                if (selectedRecord != null) {
-                                    showDeleteConfirm = true
+                        if (searchEnabled) {
+                            SearchBarCard(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                onClose = {
+                                    searchEnabled = false
+                                    searchQuery = ""
                                 }
-                            },
-                            size = spec.topActionButtonSize
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .padding(top = 14.dp)
-                            .horizontalScroll(rememberScrollState())
-                    ) {
-                        GlassChip(
-                            text = stringResource(R.string.filter_all),
-                            selected = selectedFilter == FILTER_ALL,
-                            onClick = { onFilterSelect(FILTER_ALL) },
-                            horizontalPadding = if (spec.isNarrow) 16.dp else 22.dp,
-                            textStyle = TextStyle(fontSize = spec.chipTextSize, fontWeight = FontWeight.Bold)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        GlassChip(
-                            text = stringResource(R.string.filter_life),
-                            selected = selectedFilter == FILTER_LIFE,
-                            onClick = { onFilterSelect(FILTER_LIFE) },
-                            horizontalPadding = if (spec.isNarrow) 16.dp else 22.dp,
-                            textStyle = TextStyle(fontSize = spec.chipTextSize, fontWeight = FontWeight.Bold)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        GlassChip(
-                            text = stringResource(R.string.filter_work),
-                            selected = selectedFilter == FILTER_WORK,
-                            onClick = { onFilterSelect(FILTER_WORK) },
-                            horizontalPadding = if (spec.isNarrow) 16.dp else 22.dp,
-                            textStyle = TextStyle(fontSize = spec.chipTextSize, fontWeight = FontWeight.Bold)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        GlassChip(
-                            text = stringResource(R.string.filter_ai),
-                            selected = selectedFilter == FILTER_AI,
-                            onClick = { onFilterSelect(FILTER_AI) },
-                            horizontalPadding = if (spec.isNarrow) 16.dp else 22.dp,
-                            textStyle = TextStyle(fontSize = spec.chipTextSize, fontWeight = FontWeight.Bold)
-                        )
-                    }
-
-                    Text(
-                        text = stringResource(R.string.history_title),
-                        color = palette.textPrimary,
-                        fontSize = spec.sectionTitleSize,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(top = 16.dp)
-                    )
-
-                    if (records.isEmpty()) {
-                        GlassPanelText(
-                            text = stringResource(R.string.no_records),
-                            modifier = Modifier.padding(top = 12.dp)
-                        )
-                    }
-
-                    LazyColumn(
-                        modifier = Modifier
-                            .weight(1f)
-                            .padding(top = 10.dp)
-                            .graphicsLayer {
-                                alpha = listAlpha
-                                translationY = listOffsetY
-                                scaleX = listScale
-                                scaleY = listScale
-                            },
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(records, key = { it.recordId }) { record ->
-                            RecordCard(
-                                record = record,
-                                selected = selectedRecordId == record.recordId,
-                                onClick = {
-                                    if (selectedRecordId == record.recordId) {
-                                        selectedRecordId = null
-                                    }
-                                },
-                                onLongPress = { selectedRecordId = record.recordId }
                             )
-                        }
-                    }
-                }
-
-                NoMemoBottomDock(
-                    selectedTab = NoMemoDockTab.MEMORY,
-                    spec = spec,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .navigationBarsPadding()
-                        .padding(
-                            start = spec.pageHorizontalPadding,
-                            end = spec.pageHorizontalPadding,
-                            bottom = if (spec.isNarrow) 10.dp else 14.dp
-                        ),
-                    onOpenMemory = {},
-                    onOpenGroup = onOpenGroup,
-                    onOpenReminder = onOpenReminder,
-                    onAddClick = onAddClick
-                )
-
-                if (showDeleteConfirm && selectedRecord != null) {
-                    AlertDialog(
-                        onDismissRequest = { showDeleteConfirm = false },
-                        title = { Text("确认删除") },
-                        text = { Text("确定删除这条记忆吗？") },
-                        confirmButton = {
-                            TextButton(
-                                onClick = {
-                                    onDeleteRecord(selectedRecord)
-                                    selectedRecordId = null
-                                    showDeleteConfirm = false
-                                }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("删除")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(onClick = { showDeleteConfirm = false }) {
-                                Text("取消")
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = stringResource(R.string.page_title),
+                                        color = palette.textPrimary,
+                                        fontSize = spec.titleSize,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = if (selectedFilter == FILTER_ARCHIVED) {
+                                            stringResource(R.string.filter_archived)
+                                        } else {
+                                            stringResource(R.string.page_subtitle)
+                                        },
+                                        color = palette.textSecondary,
+                                        fontSize = spec.subtitleSize
+                                    )
+                                }
+                                if (selectedRecord != null) {
+                                    GlassIconCircleButton(
+                                        iconRes = R.drawable.ic_sheet_calendar,
+                                        contentDescription = if (selectedRecord.isArchived) {
+                                            stringResource(R.string.action_unarchive)
+                                        } else {
+                                            stringResource(R.string.action_archive)
+                                        },
+                                        onClick = { onArchiveRecord(selectedRecord) },
+                                        modifier = Modifier.padding(end = 10.dp),
+                                        size = spec.topActionButtonSize
+                                    )
+                                    GlassIconCircleButton(
+                                        iconRes = R.drawable.ic_nm_delete,
+                                        contentDescription = stringResource(R.string.action_delete),
+                                        onClick = { showDeleteConfirm = true },
+                                        size = spec.topActionButtonSize
+                                    )
+                                } else {
+                                    GlassIconCircleButton(
+                                        iconRes = R.drawable.ic_nm_search,
+                                        contentDescription = stringResource(R.string.action_search),
+                                        onClick = { searchEnabled = true },
+                                        modifier = Modifier.padding(end = 10.dp),
+                                        size = spec.topActionButtonSize
+                                    )
+                                    GlassIconCircleButton(
+                                        iconRes = R.drawable.ic_nm_settings,
+                                        contentDescription = stringResource(R.string.action_settings),
+                                        onClick = onOpenSettings,
+                                        size = spec.topActionButtonSize
+                                    )
+                                }
                             }
                         }
+
+                        Row(
+                            modifier = Modifier
+                                .padding(top = 14.dp)
+                                .horizontalScroll(rememberScrollState())
+                        ) {
+                            FilterChip(spec, stringResource(R.string.filter_all), selectedFilter == FILTER_ALL) {
+                                onFilterSelect(FILTER_ALL)
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            FilterChip(spec, stringResource(R.string.filter_quick), selectedFilter == FILTER_QUICK) {
+                                onFilterSelect(FILTER_QUICK)
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            FilterChip(spec, stringResource(R.string.filter_life), selectedFilter == FILTER_LIFE) {
+                                onFilterSelect(FILTER_LIFE)
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            FilterChip(spec, stringResource(R.string.filter_work), selectedFilter == FILTER_WORK) {
+                                onFilterSelect(FILTER_WORK)
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            FilterChip(spec, stringResource(R.string.filter_ai), selectedFilter == FILTER_AI) {
+                                onFilterSelect(FILTER_AI)
+                            }
+                            Spacer(modifier = Modifier.width(10.dp))
+                            FilterChip(spec, stringResource(R.string.filter_archived), selectedFilter == FILTER_ARCHIVED) {
+                                onFilterSelect(FILTER_ARCHIVED)
+                            }
+                        }
+
+                        Text(
+                            text = stringResource(R.string.history_title),
+                            color = palette.textPrimary,
+                            fontSize = spec.sectionTitleSize,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
+
+                        if (filteredRecords.isEmpty()) {
+                            GlassPanelText(
+                                text = when {
+                                    searchQuery.isNotBlank() -> stringResource(R.string.search_empty)
+                                    selectedFilter == FILTER_ARCHIVED -> stringResource(R.string.no_archived_records)
+                                    else -> stringResource(R.string.no_records)
+                                },
+                                modifier = Modifier.padding(top = 12.dp)
+                            )
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(top = 10.dp)
+                                .graphicsLayer {
+                                    alpha = listAlpha
+                                    translationY = listOffsetY
+                                    scaleX = listScale
+                                    scaleY = listScale
+                                },
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(filteredRecords, key = { it.recordId }) { record ->
+                                RecordCard(
+                                    record = record,
+                                    selected = selectedRecordId == record.recordId,
+                                    onClick = {
+                                        when {
+                                            selectedRecordId == record.recordId -> {
+                                                selectedRecordId = null
+                                            }
+                                            selectedRecordId != null -> {
+                                                selectedRecordId = record.recordId
+                                            }
+                                            else -> {
+                                                onOpenDetail(record)
+                                            }
+                                        }
+                                    },
+                                    onLongPress = { selectedRecordId = record.recordId }
+                                )
+                            }
+                        }
+                    }
+
+                    NoMemoBottomDock(
+                        selectedTab = NoMemoDockTab.MEMORY,
+                        spec = spec,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(
+                                start = spec.pageHorizontalPadding,
+                                end = spec.pageHorizontalPadding,
+                                bottom = if (spec.isNarrow) 10.dp else 14.dp
+                            ),
+                        onOpenMemory = {},
+                        onOpenGroup = onOpenGroup,
+                        onOpenReminder = onOpenReminder,
+                        onAddClick = onAddClick
                     )
+
+                    if (showDeleteConfirm && selectedRecord != null) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirm = false },
+                            title = { Text(stringResource(R.string.delete_selected_title)) },
+                            text = { Text(stringResource(R.string.delete_selected_message)) },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        onDeleteRecord(selectedRecord)
+                                        selectedRecordId = null
+                                        showDeleteConfirm = false
+                                    }
+                                ) {
+                                    Text(stringResource(R.string.action_delete))
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirm = false }) {
+                                    Text(stringResource(R.string.cancel))
+                                }
+                            }
+                        )
+                    }
+
+                    if (aiResultPreview != null) {
+                        AiResultDialog(
+                            preview = aiResultPreview,
+                            onDismiss = onDismissAiResult
+                        )
+                    }
                 }
             }
         }
     }
-    }
 
     @Composable
-    private fun BottomBar(
+    private fun FilterChip(
         spec: NoMemoAdaptiveSpec,
-        modifier: Modifier,
-        onOpenGroup: () -> Unit,
-        onOpenReminder: () -> Unit,
-        onAddClick: () -> Unit
-    ) {
-        val palette = rememberNoMemoPalette()
-        val haloTransition = rememberInfiniteTransition(label = "haloTransition")
-        val haloScale by haloTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.08f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2100, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "haloScale"
-        )
-        val haloAlpha by haloTransition.animateFloat(
-            initialValue = 0.18f,
-            targetValue = 0.36f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2100, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "haloAlpha"
-        )
-
-        Row(
-            modifier = modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(spec.bottomNavHeight)
-                    .clip(RoundedCornerShape(42.dp))
-                    .background(palette.glassFill)
-                    .padding(horizontal = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                NavItem(
-                    iconRes = android.R.drawable.ic_menu_agenda,
-                    text = stringResource(R.string.nav_memory),
-                    selected = true,
-                    onClick = {}
-                )
-                NavItem(
-                    iconRes = android.R.drawable.ic_menu_sort_by_size,
-                    text = stringResource(R.string.nav_group),
-                    selected = false,
-                    onClick = onOpenGroup
-                )
-                NavItem(
-                    iconRes = android.R.drawable.ic_menu_recent_history,
-                    text = stringResource(R.string.nav_reminder),
-                    selected = false,
-                    onClick = onOpenReminder
-                )
-            }
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-            Box(
-                modifier = Modifier.size(spec.fabFrameSize),
-                contentAlignment = Alignment.Center
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(spec.fabFrameSize)
-                        .graphicsLayer {
-                            scaleX = haloScale
-                            scaleY = haloScale
-                            alpha = haloAlpha
-                        }
-                        .clip(RoundedCornerShape(39.dp))
-                        .background(palette.glassFillSoft)
-                )
-                PressScaleBox(
-                    onClick = onAddClick,
-                    pressedScale = 0.92f,
-                    modifier = Modifier
-                        .size(spec.fabButtonSize)
-                        .clip(RoundedCornerShape(34.dp))
-                        .background(palette.accent)
-                ) {
-                    Text(
-                        text = stringResource(R.string.save_record),
-                        color = palette.onAccent,
-                        fontSize = if (spec.isNarrow) 22.sp else 24.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.Center)
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun RowScope.NavItem(
-        iconRes: Int,
         text: String,
         selected: Boolean,
         onClick: () -> Unit
     ) {
-        val palette = rememberNoMemoPalette()
-        val adaptive = rememberNoMemoAdaptiveSpec()
-        val itemColor = if (selected) palette.accent else palette.textPrimary
-        val selectedBackground = if (selected) palette.glassFillSoft else androidx.compose.ui.graphics.Color.Transparent
-
-        PressScaleBox(
+        GlassChip(
+            text = text,
+            selected = selected,
             onClick = onClick,
+            horizontalPadding = if (spec.isNarrow) 16.dp else 22.dp,
+            textStyle = TextStyle(fontSize = spec.chipTextSize, fontWeight = FontWeight.Bold)
+        )
+    }
+
+    @Composable
+    private fun SearchBarCard(
+        value: String,
+        onValueChange: (String) -> Unit,
+        onClose: () -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        Card(
             modifier = Modifier
-                .weight(1f)
-                .height(adaptive.bottomNavItemHeight)
-                .clip(RoundedCornerShape(32.dp))
-                .background(selectedBackground)
+                .fillMaxWidth()
+                .padding(top = 8.dp),
+            shape = RoundedCornerShape(28.dp),
+            colors = CardDefaults.cardColors(containerColor = palette.glassFill),
+            border = androidx.compose.foundation.BorderStroke(1.dp, palette.glassStroke)
         ) {
-            Column(
-                modifier = Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 Icon(
-                    painter = androidx.compose.ui.res.painterResource(id = iconRes),
-                    contentDescription = text,
-                    tint = itemColor,
-                    modifier = Modifier.size(if (adaptive.isNarrow) 18.dp else 20.dp)
+                    painter = painterResource(R.drawable.ic_nm_search),
+                    contentDescription = stringResource(R.string.action_search),
+                    tint = palette.textSecondary,
+                    modifier = Modifier.size(20.dp)
                 )
-                Spacer(modifier = Modifier.height(4.dp))
-                Text(
-                    text = text,
-                    color = itemColor,
-                    fontSize = if (adaptive.isNarrow) 10.sp else 11.sp,
-                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1
-                )
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    textStyle = TextStyle(
+                        color = palette.textPrimary,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp)
+                ) { innerTextField ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .widthIn(min = 0.dp)
+                    ) {
+                        if (value.isBlank()) {
+                            Text(
+                                text = stringResource(R.string.search_placeholder),
+                                color = palette.textTertiary,
+                                fontSize = 15.sp
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+                TextButton(onClick = onClose) {
+                    Text(text = stringResource(R.string.cancel))
+                }
             }
         }
     }
