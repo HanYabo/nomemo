@@ -2,6 +2,7 @@ package com.han.nomemo
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -31,8 +32,10 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -78,6 +81,7 @@ class MainActivity : BaseComposeActivity() {
                     selectedFilter = filter
                     refreshRecords()
                 },
+                onDeleteRecord = { record -> deleteRecord(record) },
                 onAddClick = { openAddMemoryPage() },
                 onOpenGroup = { openGroupPage() },
                 onOpenReminder = { openReminderPage() }
@@ -111,12 +115,20 @@ class MainActivity : BaseComposeActivity() {
 
     private fun openGroupPage() {
         startActivity(Intent(this, GroupActivity::class.java))
-        overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
+        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
     }
 
     private fun openReminderPage() {
         startActivity(Intent(this, ReminderActivity::class.java))
-        overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
+        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+    }
+
+    private fun deleteRecord(record: MemoryRecord) {
+        val deleted = memoryStore.deleteRecord(record.recordId)
+        if (deleted) {
+            refreshRecords()
+            Toast.makeText(this, "已删除记忆", Toast.LENGTH_SHORT).show()
+        }
     }
 
     @Composable
@@ -124,11 +136,23 @@ class MainActivity : BaseComposeActivity() {
         records: List<MemoryRecord>,
         selectedFilter: String,
         onFilterSelect: (String) -> Unit,
+        onDeleteRecord: (MemoryRecord) -> Unit,
         onAddClick: () -> Unit,
         onOpenGroup: () -> Unit,
         onOpenReminder: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
+        var selectedRecordId by remember { mutableStateOf<String?>(null) }
+        var showDeleteConfirm by remember { mutableStateOf(false) }
+        val selectedRecord = remember(records, selectedRecordId) {
+            records.firstOrNull { it.recordId == selectedRecordId }
+        }
+        LaunchedEffect(records, selectedRecordId) {
+            if (selectedRecordId != null && selectedRecord == null) {
+                selectedRecordId = null
+                showDeleteConfirm = false
+            }
+        }
         var entered by remember { mutableStateOf(false) }
         LaunchedEffect(Unit) { entered = true }
         val listAlpha by animateFloatAsState(
@@ -151,11 +175,7 @@ class MainActivity : BaseComposeActivity() {
             val palette = rememberNoMemoPalette()
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pageSwipeNavigation(
-                            onSwipeLeft = onOpenGroup
-                        )
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     Column(
                         modifier = Modifier
@@ -195,9 +215,13 @@ class MainActivity : BaseComposeActivity() {
                             size = spec.topActionButtonSize
                         )
                         GlassIconCircleButton(
-                            iconRes = android.R.drawable.ic_menu_more,
-                            contentDescription = stringResource(R.string.action_more),
-                            onClick = {},
+                            iconRes = if (selectedRecord != null) android.R.drawable.ic_menu_delete else android.R.drawable.ic_menu_more,
+                            contentDescription = if (selectedRecord != null) "删除已选项" else stringResource(R.string.action_more),
+                            onClick = {
+                                if (selectedRecord != null) {
+                                    showDeleteConfirm = true
+                                }
+                            },
                             size = spec.topActionButtonSize
                         )
                     }
@@ -268,7 +292,16 @@ class MainActivity : BaseComposeActivity() {
                         verticalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
                         items(records, key = { it.recordId }) { record ->
-                            RecordCard(record = record)
+                            RecordCard(
+                                record = record,
+                                selected = selectedRecordId == record.recordId,
+                                onClick = {
+                                    if (selectedRecordId == record.recordId) {
+                                        selectedRecordId = null
+                                    }
+                                },
+                                onLongPress = { selectedRecordId = record.recordId }
+                            )
                         }
                     }
                 }
@@ -289,6 +322,30 @@ class MainActivity : BaseComposeActivity() {
                     onOpenReminder = onOpenReminder,
                     onAddClick = onAddClick
                 )
+
+                if (showDeleteConfirm && selectedRecord != null) {
+                    AlertDialog(
+                        onDismissRequest = { showDeleteConfirm = false },
+                        title = { Text("确认删除") },
+                        text = { Text("确定删除这条记忆吗？") },
+                        confirmButton = {
+                            TextButton(
+                                onClick = {
+                                    onDeleteRecord(selectedRecord)
+                                    selectedRecordId = null
+                                    showDeleteConfirm = false
+                                }
+                            ) {
+                                Text("删除")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(onClick = { showDeleteConfirm = false }) {
+                                Text("取消")
+                            }
+                        }
+                    )
+                }
             }
         }
     }

@@ -2,8 +2,8 @@ package com.han.nomemo
 
 import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.setContent
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,7 +11,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -20,18 +19,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.material3.Icon
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -51,7 +50,7 @@ class GroupActivity : BaseComposeActivity() {
                 allRecords = allRecords,
                 selectedCategoryCode = selectedCategoryCode,
                 onSelectCategory = { selectedCategoryCode = it },
-                onBack = { openMemoryPage() },
+                onDeleteRecord = { record -> deleteRecord(record) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenReminder = { openReminderPage() },
                 onAddClick = { openAddMemoryPage() }
@@ -74,13 +73,13 @@ class GroupActivity : BaseComposeActivity() {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         startActivity(intent)
-        overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
+        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
         finish()
     }
 
     private fun openReminderPage() {
         startActivity(Intent(this, ReminderActivity::class.java))
-        overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
+        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
         finish()
     }
 
@@ -89,19 +88,38 @@ class GroupActivity : BaseComposeActivity() {
         overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
     }
 
+    private fun deleteRecord(record: MemoryRecord) {
+        val deleted = memoryStore.deleteRecord(record.recordId)
+        if (deleted) {
+            refreshContent()
+            Toast.makeText(this, "已删除记忆", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     @Composable
     private fun GroupContent(
         allRecords: List<MemoryRecord>,
         selectedCategoryCode: String?,
         onSelectCategory: (String?) -> Unit,
-        onBack: () -> Unit,
+        onDeleteRecord: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenReminder: () -> Unit,
         onAddClick: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
+        var selectedRecordId by remember { mutableStateOf<String?>(null) }
+        var showDeleteConfirm by remember { mutableStateOf(false) }
         val filtered = allRecords.filter { selectedCategoryCode == null || selectedCategoryCode == it.categoryCode }
+        val selectedRecord = remember(filtered, selectedRecordId) {
+            filtered.firstOrNull { it.recordId == selectedRecordId }
+        }
+        LaunchedEffect(filtered, selectedRecordId) {
+            if (selectedRecordId != null && selectedRecord == null) {
+                selectedRecordId = null
+                showDeleteConfirm = false
+            }
+        }
 
         fun countByCode(code: String): Int = allRecords.count { it.categoryCode == code }
         val lifeCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_LIFE }
@@ -111,12 +129,7 @@ class GroupActivity : BaseComposeActivity() {
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .pageSwipeNavigation(
-                            onSwipeLeft = onOpenReminder,
-                            onSwipeRight = onOpenMemory
-                        )
+                    modifier = Modifier.fillMaxSize()
                 ) {
                     Column(
                         modifier = Modifier
@@ -132,30 +145,20 @@ class GroupActivity : BaseComposeActivity() {
                     ) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            PressScaleBox(
-                                onClick = onBack,
-                                modifier = Modifier
-                                    .size(if (spec.isNarrow) 40.dp else 44.dp)
-                                    .clip(RoundedCornerShape(22.dp))
-                                    .background(palette.glassFill)
-                            ) {
-                                Icon(
-                                    painter = painterResource(android.R.drawable.ic_media_previous),
-                                    contentDescription = stringResource(R.string.back),
-                                    tint = palette.textPrimary,
-                                    modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .size(22.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(12.dp))
                             Text(
                                 text = stringResource(R.string.group_page_title),
                                 color = palette.textPrimary,
                                 fontSize = if (spec.isNarrow) 22.sp else 24.sp,
                                 fontWeight = FontWeight.Bold
+                            )
+                            GlassIconCircleButton(
+                                iconRes = android.R.drawable.ic_menu_delete,
+                                contentDescription = "删除已选项",
+                                onClick = { if (selectedRecord != null) showDeleteConfirm = true },
+                                size = if (spec.isNarrow) 44.dp else 48.dp
                             )
                         }
 
@@ -230,7 +233,16 @@ class GroupActivity : BaseComposeActivity() {
                             verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 14.dp else 12.dp)
                         ) {
                             items(filtered, key = { it.recordId }) { record ->
-                                RecordCard(record = record)
+                                RecordCard(
+                                    record = record,
+                                    selected = selectedRecordId == record.recordId,
+                                    onClick = {
+                                        if (selectedRecordId == record.recordId) {
+                                            selectedRecordId = null
+                                        }
+                                    },
+                                    onLongPress = { selectedRecordId = record.recordId }
+                                )
                             }
                         }
                     }
@@ -251,6 +263,30 @@ class GroupActivity : BaseComposeActivity() {
                                 bottom = if (spec.isNarrow) 10.dp else 14.dp
                             )
                     )
+
+                    if (showDeleteConfirm && selectedRecord != null) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirm = false },
+                            title = { Text("确认删除") },
+                            text = { Text("确定删除这条记忆吗？") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        onDeleteRecord(selectedRecord)
+                                        selectedRecordId = null
+                                        showDeleteConfirm = false
+                                    }
+                                ) {
+                                    Text("删除")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirm = false }) {
+                                    Text("取消")
+                                }
+                            }
+                        )
+                    }
                 }
             }
         }

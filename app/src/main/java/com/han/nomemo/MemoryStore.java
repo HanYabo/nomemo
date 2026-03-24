@@ -61,6 +61,22 @@ public class MemoryStore {
         }
     }
 
+    public synchronized boolean deleteRecord(String recordId) {
+        List<MemoryRecord> records = loadRecords();
+        boolean changed = false;
+        for (int i = 0; i < records.size(); i++) {
+            if (records.get(i).getRecordId().equals(recordId)) {
+                records.remove(i);
+                changed = true;
+                break;
+            }
+        }
+        if (changed) {
+            persist(records);
+        }
+        return changed;
+    }
+
     public synchronized List<MemoryRecord> loadReminderRecords() {
         List<MemoryRecord> all = loadRecords();
         List<MemoryRecord> reminders = new ArrayList<>();

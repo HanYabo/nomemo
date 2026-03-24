@@ -1,10 +1,15 @@
 package com.han.nomemo
 
+import android.content.Intent
 import android.os.Bundle
+import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -19,17 +24,20 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -59,7 +67,7 @@ class ReminderActivity : BaseComposeActivity() {
             ReminderContent(
                 records = reminderRecords,
                 selectedFilter = selectedFilter,
-                onBack = { finish() },
+                onDeleteRecord = { record -> deleteRecord(record) },
                 onFilterSelected = { filter ->
                     selectedFilter = filter
                     refreshReminders()
@@ -67,7 +75,10 @@ class ReminderActivity : BaseComposeActivity() {
                 onDoneChanged = { record, done ->
                     memoryStore.updateReminderDone(record.recordId, done)
                     refreshReminders()
-                }
+                },
+                onOpenMemory = { openMemoryPage() },
+                onOpenGroup = { openGroupPage() },
+                onAddClick = { openAddMemoryPage() }
             )
         }
         refreshReminders()
@@ -89,107 +100,194 @@ class ReminderActivity : BaseComposeActivity() {
         }
     }
 
+    private fun openMemoryPage() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        startActivity(intent)
+        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
+        finish()
+    }
+
+    private fun openGroupPage() {
+        startActivity(Intent(this, GroupActivity::class.java))
+        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
+        finish()
+    }
+
+    private fun openAddMemoryPage() {
+        startActivity(Intent(this, AddMemoryActivity::class.java))
+        overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
+    }
+
+    private fun deleteRecord(record: MemoryRecord) {
+        val deleted = memoryStore.deleteRecord(record.recordId)
+        if (deleted) {
+            refreshReminders()
+            Toast.makeText(this, "已删除提醒事项", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     @Composable
     private fun ReminderContent(
         records: List<MemoryRecord>,
         selectedFilter: String,
-        onBack: () -> Unit,
+        onDeleteRecord: (MemoryRecord) -> Unit,
         onFilterSelected: (String) -> Unit,
-        onDoneChanged: (MemoryRecord, Boolean) -> Unit
+        onDoneChanged: (MemoryRecord, Boolean) -> Unit,
+        onOpenMemory: () -> Unit,
+        onOpenGroup: () -> Unit,
+        onAddClick: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
+        var selectedRecordId by remember { mutableStateOf<String?>(null) }
+        var showDeleteConfirm by remember { mutableStateOf(false) }
+        val selectedRecord = remember(records, selectedRecordId) {
+            records.firstOrNull { it.recordId == selectedRecordId }
+        }
+        LaunchedEffect(records, selectedRecordId) {
+            if (selectedRecordId != null && selectedRecord == null) {
+                selectedRecordId = null
+                showDeleteConfirm = false
+            }
+        }
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .padding(
-                            start = spec.pageHorizontalPadding,
-                            top = spec.pageTopPadding,
-                            end = spec.pageHorizontalPadding,
-                            bottom = 16.dp
-                        )
+                Box(
+                    modifier = Modifier.fillMaxSize()
                 ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    PressScaleBox(
-                        onClick = onBack,
+                    Column(
                         modifier = Modifier
-                            .size(if (spec.isNarrow) 40.dp else 44.dp)
-                            .clip(RoundedCornerShape(22.dp))
-                            .background(palette.glassFill)
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                            .padding(
+                                start = spec.pageHorizontalPadding,
+                                top = spec.pageTopPadding,
+                                end = spec.pageHorizontalPadding,
+                                bottom = spec.pageBottomPadding
+                            )
                     ) {
-                        Icon(
-                            painter = painterResource(android.R.drawable.ic_media_previous),
-                            contentDescription = stringResource(R.string.back),
-                            tint = palette.textPrimary,
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.reminder_page_title),
+                                color = palette.textPrimary,
+                                fontSize = if (spec.isNarrow) 22.sp else 24.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            GlassIconCircleButton(
+                                iconRes = android.R.drawable.ic_menu_delete,
+                                contentDescription = "删除已选项",
+                                onClick = { if (selectedRecord != null) showDeleteConfirm = true },
+                                size = if (spec.isNarrow) 44.dp else 48.dp
+                            )
+                        }
+
+                        Row(
                             modifier = Modifier
-                                .align(Alignment.Center)
-                                .size(22.dp)
-                        )
+                                .padding(top = 12.dp)
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.Start
+                        ) {
+                            ReminderChip(
+                                text = stringResource(R.string.reminder_filter_all),
+                                selected = selectedFilter == FILTER_ALL,
+                                onClick = { onFilterSelected(FILTER_ALL) },
+                                chipTextSize = spec.chipTextSize
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            ReminderChip(
+                                text = stringResource(R.string.reminder_filter_pending),
+                                selected = selectedFilter == FILTER_PENDING,
+                                onClick = { onFilterSelected(FILTER_PENDING) },
+                                chipTextSize = spec.chipTextSize
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            ReminderChip(
+                                text = stringResource(R.string.reminder_filter_done),
+                                selected = selectedFilter == FILTER_DONE,
+                                onClick = { onFilterSelected(FILTER_DONE) },
+                                chipTextSize = spec.chipTextSize
+                            )
+                        }
+
+                        if (records.isEmpty()) {
+                            GlassPanelText(
+                                text = stringResource(R.string.reminder_empty),
+                                modifier = Modifier.padding(top = 12.dp)
+                            )
+                        }
+
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(top = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp)
+                        ) {
+                            items(records, key = { it.recordId }) { record ->
+                                ReminderItem(
+                                    record = record,
+                                    selected = selectedRecordId == record.recordId,
+                                    onDoneChanged = onDoneChanged,
+                                    onLongPressSelect = { selectedRecordId = record.recordId },
+                                    onClickSelected = {
+                                        if (selectedRecordId == record.recordId) {
+                                            selectedRecordId = null
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
-                    Spacer(modifier = Modifier.width(12.dp))
-                    Text(
-                        text = stringResource(R.string.reminder_page_title),
-                        color = palette.textPrimary,
-                        fontSize = if (spec.isNarrow) 22.sp else 24.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
 
-                Row(
-                    modifier = Modifier
-                        .padding(top = 12.dp)
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.Start
-                ) {
-                    ReminderChip(
-                        text = stringResource(R.string.reminder_filter_all),
-                        selected = selectedFilter == FILTER_ALL,
-                        onClick = { onFilterSelected(FILTER_ALL) },
-                        chipTextSize = spec.chipTextSize
+                    NoMemoBottomDock(
+                        selectedTab = NoMemoDockTab.REMINDER,
+                        onOpenMemory = onOpenMemory,
+                        onOpenGroup = onOpenGroup,
+                        onOpenReminder = {},
+                        onAddClick = onAddClick,
+                        spec = spec,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(
+                                start = spec.pageHorizontalPadding,
+                                end = spec.pageHorizontalPadding,
+                                bottom = if (spec.isNarrow) 10.dp else 14.dp
+                            )
                     )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ReminderChip(
-                        text = stringResource(R.string.reminder_filter_pending),
-                        selected = selectedFilter == FILTER_PENDING,
-                        onClick = { onFilterSelected(FILTER_PENDING) },
-                        chipTextSize = spec.chipTextSize
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    ReminderChip(
-                        text = stringResource(R.string.reminder_filter_done),
-                        selected = selectedFilter == FILTER_DONE,
-                        onClick = { onFilterSelected(FILTER_DONE) },
-                        chipTextSize = spec.chipTextSize
-                    )
-                }
 
-                if (records.isEmpty()) {
-                    GlassPanelText(
-                        text = stringResource(R.string.reminder_empty),
-                        modifier = Modifier.padding(top = 12.dp)
-                    )
-                }
-
-                LazyColumn(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(top = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp)
-                ) {
-                    items(records, key = { it.recordId }) { record ->
-                        ReminderItem(record = record, onDoneChanged = onDoneChanged)
+                    if (showDeleteConfirm && selectedRecord != null) {
+                        AlertDialog(
+                            onDismissRequest = { showDeleteConfirm = false },
+                            title = { Text("确认删除") },
+                            text = { Text("确定删除这条提醒事项吗？") },
+                            confirmButton = {
+                                TextButton(
+                                    onClick = {
+                                        onDeleteRecord(selectedRecord)
+                                        selectedRecordId = null
+                                        showDeleteConfirm = false
+                                    }
+                                ) {
+                                    Text("删除")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showDeleteConfirm = false }) {
+                                    Text("取消")
+                                }
+                            }
+                        )
                     }
                 }
             }
         }
-    }
     }
 
     @Composable
@@ -209,7 +307,10 @@ class ReminderActivity : BaseComposeActivity() {
     @Composable
     private fun ReminderItem(
         record: MemoryRecord,
-        onDoneChanged: (MemoryRecord, Boolean) -> Unit
+        selected: Boolean,
+        onDoneChanged: (MemoryRecord, Boolean) -> Unit,
+        onLongPressSelect: () -> Unit,
+        onClickSelected: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -228,7 +329,18 @@ class ReminderActivity : BaseComposeActivity() {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(palette.glassFill)
+                .background(if (selected) palette.glassFillSoft else palette.glassFill)
+                .border(
+                    if (selected) 2.dp else 0.dp,
+                    if (selected) palette.accent else palette.glassStroke,
+                    RoundedCornerShape(20.dp)
+                )
+                .pointerInput(onLongPressSelect, onClickSelected) {
+                    detectTapGestures(
+                        onTap = { onClickSelected() },
+                        onLongPress = { onLongPressSelect() }
+                    )
+                }
                 .padding(if (adaptive.isNarrow) 10.dp else 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -237,7 +349,9 @@ class ReminderActivity : BaseComposeActivity() {
                 onCheckedChange = { onDoneChanged(record, it) }
             )
             Spacer(modifier = Modifier.width(8.dp))
-            Column(modifier = Modifier.weight(1f)) {
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
                 Text(
                     text = title ?: "",
                     color = palette.textPrimary.copy(alpha = if (record.isReminderDone) 0.55f else 1f),

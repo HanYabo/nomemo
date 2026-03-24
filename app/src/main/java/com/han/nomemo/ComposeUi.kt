@@ -12,6 +12,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -45,9 +47,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -181,8 +185,8 @@ fun rememberNoMemoAdaptiveSpec(): NoMemoAdaptiveSpec {
             topActionButtonSize = 46.dp,
             bottomNavHeight = 74.dp,
             bottomNavItemHeight = 56.dp,
-            fabFrameSize = 68.dp,
-            fabButtonSize = 58.dp,
+            fabFrameSize = 70.dp,
+            fabButtonSize = 60.dp,
             recordImageWidth = 64.dp,
             recordImageHeight = 88.dp,
             recordTitleSize = 17.sp,
@@ -204,8 +208,8 @@ fun rememberNoMemoAdaptiveSpec(): NoMemoAdaptiveSpec {
             topActionButtonSize = 48.dp,
             bottomNavHeight = 80.dp,
             bottomNavItemHeight = 60.dp,
-            fabFrameSize = 74.dp,
-            fabButtonSize = 64.dp,
+            fabFrameSize = 78.dp,
+            fabButtonSize = 68.dp,
             recordImageWidth = 84.dp,
             recordImageHeight = 112.dp,
             recordTitleSize = 19.sp,
@@ -396,6 +400,7 @@ fun NoMemoBottomDock(
     spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec()
 ) {
     val palette = rememberNoMemoPalette()
+    val haptic = LocalHapticFeedback.current
     val haloTransition = rememberInfiniteTransition(label = "dockHaloTransition")
     val haloScale by haloTransition.animateFloat(
         initialValue = 1f,
@@ -416,8 +421,22 @@ fun NoMemoBottomDock(
         label = "dockHaloAlpha"
     )
 
+    val dockSwipeModifier = when (selectedTab) {
+        NoMemoDockTab.MEMORY -> Modifier.pageSwipeNavigation(
+            onSwipeLeft = onOpenGroup
+        )
+        NoMemoDockTab.GROUP -> Modifier.pageSwipeNavigation(
+            onSwipeLeft = onOpenReminder,
+            onSwipeRight = onOpenMemory
+        )
+        NoMemoDockTab.REMINDER -> Modifier.pageSwipeNavigation(
+            onSwipeRight = onOpenGroup
+        )
+    }
     Row(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(dockSwipeModifier),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Row(
@@ -433,21 +452,30 @@ fun NoMemoBottomDock(
                 iconRes = android.R.drawable.ic_menu_agenda,
                 text = stringResource(R.string.nav_memory),
                 selected = selectedTab == NoMemoDockTab.MEMORY,
-                onClick = onOpenMemory,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenMemory()
+                },
                 spec = spec
             )
             DockNavItem(
                 iconRes = android.R.drawable.ic_menu_sort_by_size,
                 text = stringResource(R.string.nav_group),
                 selected = selectedTab == NoMemoDockTab.GROUP,
-                onClick = onOpenGroup,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenGroup()
+                },
                 spec = spec
             )
             DockNavItem(
                 iconRes = android.R.drawable.ic_menu_recent_history,
                 text = stringResource(R.string.nav_reminder),
                 selected = selectedTab == NoMemoDockTab.REMINDER,
-                onClick = onOpenReminder,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onOpenReminder()
+                },
                 spec = spec
             )
         }
@@ -470,7 +498,10 @@ fun NoMemoBottomDock(
                     .background(palette.glassFillSoft)
             )
             PressScaleBox(
-                onClick = onAddClick,
+                onClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onAddClick()
+                },
                 pressedScale = 0.92f,
                 modifier = Modifier
                     .size(spec.fabButtonSize)
@@ -534,7 +565,10 @@ private fun RowScope.DockNavItem(
 @Composable
 fun RecordCard(
     record: MemoryRecord,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null
 ) {
     val palette = rememberNoMemoPalette()
     val adaptive = rememberNoMemoAdaptiveSpec()
@@ -553,11 +587,27 @@ fun RecordCard(
     val compactCard = adaptive.widthClass == NoMemoWidthClass.COMPACT
     val showPreviewImage = !record.imageUri.isNullOrBlank() && !compactCard
 
+    val gestureModifier = if (onLongPress == null && onClick == null) {
+        Modifier
+    } else {
+        Modifier.pointerInput(onLongPress, onClick) {
+            detectTapGestures(
+                onTap = { onClick?.invoke() },
+                onLongPress = { onLongPress?.invoke() }
+            )
+        }
+    }
+
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(gestureModifier),
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = palette.glassFill),
-        border = BorderStroke(1.dp, palette.glassStroke)
+        border = BorderStroke(
+            if (selected) 2.dp else 1.dp,
+            if (selected) palette.accent else palette.glassStroke
+        )
     ) {
         Row(
             modifier = Modifier
