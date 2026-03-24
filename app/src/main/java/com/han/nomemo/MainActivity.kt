@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -287,7 +288,7 @@ class MainActivity : BaseComposeActivity() {
                             .statusBarsPadding()
                             .padding(
                                 start = spec.pageHorizontalPadding,
-                                top = spec.pageTopPadding,
+                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
                                 end = spec.pageHorizontalPadding,
                                 bottom = 0.dp
                             )
@@ -302,30 +303,21 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             )
                         } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = stringResource(R.string.page_title),
-                                        color = palette.textPrimary,
-                                        fontSize = spec.titleSize,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                    Text(
-                                        text = if (selectedFilter == FILTER_ARCHIVED) {
-                                            stringResource(R.string.filter_archived)
-                                        } else {
-                                            stringResource(R.string.page_subtitle)
-                                        },
-                                        color = palette.textSecondary,
-                                        fontSize = spec.subtitleSize
-                                    )
-                                }
-                                if (selectedRecord != null) {
+                            if (selectedRecord != null) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = stringResource(R.string.page_title),
+                                            color = palette.textPrimary,
+                                            fontSize = spec.titleSize,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
                                     GlassIconCircleButton(
                                         iconRes = R.drawable.ic_sheet_calendar,
                                         contentDescription = if (selectedRecord.isArchived) {
@@ -343,7 +335,16 @@ class MainActivity : BaseComposeActivity() {
                                         onClick = { showDeleteConfirm = true },
                                         size = spec.topActionButtonSize
                                     )
-                                } else {
+                                }
+                            } else {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 0.dp)
+                                        .offset(y = (-4).dp),
+                                    horizontalArrangement = Arrangement.End,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
                                     GlassIconCircleButton(
                                         iconRes = R.drawable.ic_nm_search,
                                         contentDescription = stringResource(R.string.action_search),
@@ -356,6 +357,19 @@ class MainActivity : BaseComposeActivity() {
                                         contentDescription = stringResource(R.string.action_settings),
                                         onClick = onOpenSettings,
                                         size = spec.topActionButtonSize
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 2.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.page_title),
+                                        color = palette.textPrimary,
+                                        fontSize = spec.titleSize,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
                             }

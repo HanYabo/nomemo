@@ -404,6 +404,8 @@ fun NoMemoBottomDock(
     spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec()
 ) {
     val palette = rememberNoMemoPalette()
+    val addButtonBackground = palette.accent.copy(alpha = 0.82f)
+    val addButtonSize = spec.fabButtonSize + 4.dp
     val haptic = LocalHapticFeedback.current
     val haloTransition = rememberInfiniteTransition(label = "dockHaloTransition")
     val haloScale by haloTransition.animateFloat(
@@ -508,9 +510,9 @@ fun NoMemoBottomDock(
                 },
                 pressedScale = 0.92f,
                 modifier = Modifier
-                    .size(spec.fabButtonSize)
+                    .size(addButtonSize)
                     .clip(RoundedCornerShape(34.dp))
-                    .background(palette.accent)
+                    .background(addButtonBackground)
             ) {
                 Text(
                     text = stringResource(R.string.save_record),

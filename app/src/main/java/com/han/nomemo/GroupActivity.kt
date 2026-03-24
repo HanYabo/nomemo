@@ -11,6 +11,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -172,8 +173,6 @@ class GroupActivity : BaseComposeActivity() {
         val quickCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_QUICK }
         val lifeCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_LIFE }
         val workCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_WORK }
-        val summary = getString(R.string.group_summary_format, quickCount, lifeCount, workCount, allRecords.size)
-
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -183,35 +182,42 @@ class GroupActivity : BaseComposeActivity() {
                             .statusBarsPadding()
                             .padding(
                                 start = spec.pageHorizontalPadding,
-                                top = spec.pageTopPadding,
+                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
                                 end = spec.pageHorizontalPadding,
                                 bottom = 0.dp
                             )
                     ) {
                         Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .offset(y = (-4).dp),
+                            horizontalArrangement = Arrangement.End,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = stringResource(R.string.group_page_title),
-                                color = palette.textPrimary,
-                                fontSize = if (spec.isNarrow) 22.sp else 24.sp,
-                                fontWeight = FontWeight.Bold
-                            )
                             GlassIconCircleButton(
                                 iconRes = R.drawable.ic_nm_delete,
                                 contentDescription = stringResource(R.string.action_delete),
                                 onClick = { if (selectedRecord != null) showDeleteConfirm = true },
-                                size = if (spec.isNarrow) 44.dp else 48.dp
+                                size = spec.topActionButtonSize
                             )
                         }
 
-                        GlassPanelText(text = summary, modifier = Modifier.padding(top = 12.dp))
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 2.dp)
+                        ) {
+                            Text(
+                                text = stringResource(R.string.group_page_title),
+                                color = palette.textPrimary,
+                                fontSize = spec.titleSize,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
 
                         Row(
                             modifier = Modifier
-                                .padding(top = 12.dp)
+                                .padding(top = 14.dp)
                                 .horizontalScroll(rememberScrollState())
                         ) {
                             GroupChip(stringResource(R.string.filter_all), selectedCategoryCode == null, spec.chipTextSize) {
