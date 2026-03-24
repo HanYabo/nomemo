@@ -13,7 +13,9 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
         android:theme="@style/Theme.NoMemo"
-        android:resizeableActivity="true">
+        android:resizeableActivity="true"
+        android:enableOnBackInvokedCallback="true"
+        android:fitsSystemWindows="true">
         <activity
             android:name=".AddMemoryActivity"
             android:exported="false"

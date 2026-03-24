@@ -211,12 +211,11 @@ class ReminderActivity : BaseComposeActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .statusBarsPadding()
-                            .navigationBarsPadding()
                             .padding(
                                 start = spec.pageHorizontalPadding,
                                 top = spec.pageTopPadding,
                                 end = spec.pageHorizontalPadding,
-                                bottom = spec.pageBottomPadding
+                                bottom = 0.dp
                             )
                     ) {
                         Row(
@@ -268,6 +267,9 @@ class ReminderActivity : BaseComposeActivity() {
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(top = 12.dp),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                bottom = spec.pageBottomPadding + 20.dp
+                            ),
                             verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp)
                         ) {
                             items(records, key = { it.recordId }) { record ->

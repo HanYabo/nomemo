@@ -253,14 +253,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         factory = { ctx ->
                                             ImageView(ctx).apply {
                                                 adjustViewBounds = true
-                                                scaleType = ImageView.ScaleType.CENTER_CROP
+                                                scaleType = ImageView.ScaleType.FIT_CENTER
+                                                setBackgroundColor(android.graphics.Color.TRANSPARENT)
                                             }
                                         },
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(top = 12.dp)
-                                            .clip(RoundedCornerShape(24.dp))
-                                            .background(palette.glassFillSoft),
+                                            .clip(RoundedCornerShape(24.dp)),
                                         update = { imageView ->
                                             try {
                                                 imageView.setImageURI(Uri.parse(currentRecord.imageUri))

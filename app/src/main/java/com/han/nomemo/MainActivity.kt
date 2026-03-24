@@ -289,7 +289,7 @@ class MainActivity : BaseComposeActivity() {
                                 start = spec.pageHorizontalPadding,
                                 top = spec.pageTopPadding,
                                 end = spec.pageHorizontalPadding,
-                                bottom = spec.pageBottomPadding
+                                bottom = 0.dp
                             )
                     ) {
                         if (searchEnabled) {
@@ -391,14 +391,6 @@ class MainActivity : BaseComposeActivity() {
                             }
                         }
 
-                        Text(
-                            text = stringResource(R.string.history_title),
-                            color = palette.textPrimary,
-                            fontSize = spec.sectionTitleSize,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 16.dp)
-                        )
-
                         if (filteredRecords.isEmpty()) {
                             GlassPanelText(
                                 text = when {
@@ -420,6 +412,9 @@ class MainActivity : BaseComposeActivity() {
                                     scaleX = listScale
                                     scaleY = listScale
                                 },
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                bottom = spec.pageBottomPadding + 20.dp
+                            ),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             items(filteredRecords, key = { it.recordId }) { record ->

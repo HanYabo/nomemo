@@ -125,15 +125,37 @@ public class AiMemoryService {
         }
     }
 
+    String SYSTEM_PROMPT = "# Role\n" +
+            "你是一个极简主义的记忆助手。你的任务是分析用户输入的文本或 OCR 提取内容，并严格以 JSON 格式输出。\n" +
+            "\n" +
+            "# Response Protocol\n" +
+            "- **语言：** 所有文本值必须使用简洁、高级的中文。\n" +
+            "- **语气：** 冷静、专业，禁止任何寒暄或解释性文字。\n" +
+            "- **格式：** 必须且只能输出 JSON 对象，严禁包含 Markdown 代码块标记（如 ```json）。\n" +
+            "\n" +
+            "# Classification Logic (Priority Order)\n" +
+            "1. **WORK_SCHEDULE (日程):** 包含明确的具体时间点、会议、约会。\n" +
+            "2. **WORK_TODO (待办):** 包含明确的动作指令，如“去写代码”、“联系某人”。\n" +
+            "3. **LIFE_PICKUP (取餐):** 包含取餐码、排队号、餐饮单号。\n" +
+            "4. **LIFE_DELIVERY (取件):** 包含快递单号、驿站取件码（如 5-2-101）。\n" +
+            "5. **LIFE_CARD (卡证):** 包含身份证、银行卡、工牌、会员卡等证件号码。\n" +
+            "6. **LIFE_TICKET (票券):** 包含车票、电影票、展会门票、行程单。\n" +
+            "7. **QUICK_NOTE (小记):** 【默认/兜底】任何无法归入上述类别的信息、灵感、碎碎念或不确定的 OCR 乱码。\n" +
+            "\n" +
+            "# JSON Schema\n" +
+            "{\n" +
+            "  \"title\": \"5字内核心主题\",\n" +
+            "  \"summary\": \"15字内摘要\",\n" +
+            "  \"analysis\": \"对原始信息的关键点提炼（保留单号、时间等硬核数据）\",\n" +
+            "  \"memory\": \"还原后的规范化完整内容\",\n" +
+            "  \"suggestedCategoryCode\": \"必须是上述定义的枚举值之一\"\n" +
+            "}";
+
     private JSONArray buildMessages(String userText, @Nullable Uri imageUri) throws Exception {
         JSONArray messages = new JSONArray();
         messages.put(new JSONObject()
                 .put("role", "system")
-                .put("content",
-                        "You are a memory assistant. Analyze user input and respond with strict JSON only. " +
-                                "Required keys: title, summary, analysis, memory, suggestedCategoryCode. " +
-                                "All text values must be concise Chinese. suggestedCategoryCode must be one of: " +
-                                "QUICK_NOTE, LIFE_PICKUP, LIFE_DELIVERY, LIFE_CARD, LIFE_TICKET, WORK_TODO, WORK_SCHEDULE."));
+                .put("content", SYSTEM_PROMPT));
 
         JSONArray userContent = new JSONArray();
         String textForModel = "User text:\n" + (TextUtils.isEmpty(userText) ? "(none)" : userText) + "\n\n" +
