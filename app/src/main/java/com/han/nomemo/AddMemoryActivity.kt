@@ -73,7 +73,6 @@ import java.util.Locale
 class AddMemoryActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
     private lateinit var aiMemoryService: AiMemoryService
-    private lateinit var aiResultFeedbackStore: AiResultFeedbackStore
 
     private var inputText by mutableStateOf("")
     private var selectedImageUri by mutableStateOf<Uri?>(null)
@@ -103,7 +102,6 @@ class AddMemoryActivity : BaseComposeActivity() {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
         aiMemoryService = AiMemoryService(this)
-        aiResultFeedbackStore = AiResultFeedbackStore(this)
         imageStatusText = getString(R.string.image_not_selected)
 
         setContent {
@@ -347,8 +345,6 @@ class AddMemoryActivity : BaseComposeActivity() {
                     false
                 )
                 memoryStore.updateRecord(record)
-                aiResultFeedbackStore.enqueue(record)
-                MemoryStoreNotifier.notifyAiResultReady(applicationContext, record.recordId)
             } catch (_: Exception) {
                 val fallbackMemory = if (input.isBlank()) getString(R.string.memory_saved_screenshot) else input
                 val fallbackRecord = MemoryRecord(
@@ -371,8 +367,6 @@ class AddMemoryActivity : BaseComposeActivity() {
                     false
                 )
                 memoryStore.updateRecord(fallbackRecord)
-                aiResultFeedbackStore.enqueue(fallbackRecord)
-                MemoryStoreNotifier.notifyAiResultReady(applicationContext, fallbackRecord.recordId)
             }
         }.start()
     }

@@ -41,37 +41,29 @@ import androidx.compose.ui.unit.sp
 
 class GroupActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
-    private lateinit var aiResultFeedbackStore: AiResultFeedbackStore
     private var selectedCategoryCode by mutableStateOf<String?>(null)
     private var allRecords by mutableStateOf<List<MemoryRecord>>(emptyList())
-    private var aiResultPreview by mutableStateOf<AiResultPreview?>(null)
     private var memoryChangeRegistered = false
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
             refreshContent()
-            if (intent?.action == MemoryStoreNotifier.ACTION_AI_RESULT_READY) {
-                presentPendingAiResult()
-            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
-        aiResultFeedbackStore = AiResultFeedbackStore(this)
         setContent {
             GroupContent(
                 allRecords = allRecords,
                 selectedCategoryCode = selectedCategoryCode,
-                aiResultPreview = aiResultPreview,
                 onSelectCategory = { selectedCategoryCode = it },
                 onDeleteRecord = { record -> deleteRecord(record) },
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenReminder = { openReminderPage() },
-                onAddClick = { openAddMemoryPage() },
-                onDismissAiResult = { dismissAiResult() }
+                onAddClick = { openAddMemoryPage() }
             )
         }
         refreshContent()
@@ -80,7 +72,6 @@ class GroupActivity : BaseComposeActivity() {
     override fun onResume() {
         super.onResume()
         refreshContent()
-        presentPendingAiResult()
     }
 
     override fun onStart() {
@@ -101,14 +92,10 @@ class GroupActivity : BaseComposeActivity() {
         if (memoryChangeRegistered) {
             return
         }
-        val filter = IntentFilter().apply {
-            addAction(MemoryStoreNotifier.ACTION_RECORDS_CHANGED)
-            addAction(MemoryStoreNotifier.ACTION_AI_RESULT_READY)
-        }
         ContextCompat.registerReceiver(
             this,
             memoryChangeReceiver,
-            filter,
+            IntentFilter(MemoryStoreNotifier.ACTION_RECORDS_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         memoryChangeRegistered = true
@@ -123,19 +110,18 @@ class GroupActivity : BaseComposeActivity() {
     }
 
     private fun openMemoryPage() {
-        openTopLevelPage(
-            MainActivity::class.java,
-            R.anim.page_back_enter,
-            R.anim.page_back_exit
-        )
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        startActivity(intent)
+        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
+        finish()
     }
 
     private fun openReminderPage() {
-        openTopLevelPage(
-            ReminderActivity::class.java,
-            R.anim.page_forward_enter,
-            R.anim.page_forward_exit
-        )
+        startActivity(Intent(this, ReminderActivity::class.java))
+        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+        finish()
     }
 
     private fun openAddMemoryPage() {
@@ -156,30 +142,16 @@ class GroupActivity : BaseComposeActivity() {
         }
     }
 
-    private fun presentPendingAiResult() {
-        if (aiResultPreview != null) {
-            return
-        }
-        aiResultPreview = aiResultFeedbackStore.consumeNext()
-    }
-
-    private fun dismissAiResult() {
-        aiResultPreview = null
-        presentPendingAiResult()
-    }
-
     @Composable
     private fun GroupContent(
         allRecords: List<MemoryRecord>,
         selectedCategoryCode: String?,
-        aiResultPreview: AiResultPreview?,
         onSelectCategory: (String?) -> Unit,
         onDeleteRecord: (MemoryRecord) -> Unit,
         onOpenDetail: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenReminder: () -> Unit,
-        onAddClick: () -> Unit,
-        onDismissAiResult: () -> Unit
+        onAddClick: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -350,13 +322,6 @@ class GroupActivity : BaseComposeActivity() {
                                     Text(stringResource(R.string.cancel))
                                 }
                             }
-                        )
-                    }
-
-                    if (aiResultPreview != null) {
-                        AiResultDialog(
-                            preview = aiResultPreview,
-                            onDismiss = onDismissAiResult
                         )
                     }
                 }

@@ -62,30 +62,23 @@ class ReminderActivity : BaseComposeActivity() {
     }
 
     private lateinit var memoryStore: MemoryStore
-    private lateinit var aiResultFeedbackStore: AiResultFeedbackStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
     private var reminderRecords by mutableStateOf<List<MemoryRecord>>(emptyList())
-    private var aiResultPreview by mutableStateOf<AiResultPreview?>(null)
     private var memoryChangeRegistered = false
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
             refreshReminders()
-            if (intent?.action == MemoryStoreNotifier.ACTION_AI_RESULT_READY) {
-                presentPendingAiResult()
-            }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
-        aiResultFeedbackStore = AiResultFeedbackStore(this)
         setContent {
             ReminderContent(
                 records = reminderRecords,
                 selectedFilter = selectedFilter,
-                aiResultPreview = aiResultPreview,
                 onDeleteRecord = { record -> deleteRecord(record) },
                 onFilterSelected = { filter ->
                     selectedFilter = filter
@@ -99,8 +92,7 @@ class ReminderActivity : BaseComposeActivity() {
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenGroup = { openGroupPage() },
-                onAddClick = { openAddMemoryPage() },
-                onDismissAiResult = { dismissAiResult() }
+                onAddClick = { openAddMemoryPage() }
             )
         }
         refreshReminders()
@@ -109,7 +101,6 @@ class ReminderActivity : BaseComposeActivity() {
     override fun onResume() {
         super.onResume()
         refreshReminders()
-        presentPendingAiResult()
     }
 
     override fun onStart() {
@@ -137,14 +128,10 @@ class ReminderActivity : BaseComposeActivity() {
         if (memoryChangeRegistered) {
             return
         }
-        val filter = IntentFilter().apply {
-            addAction(MemoryStoreNotifier.ACTION_RECORDS_CHANGED)
-            addAction(MemoryStoreNotifier.ACTION_AI_RESULT_READY)
-        }
         ContextCompat.registerReceiver(
             this,
             memoryChangeReceiver,
-            filter,
+            IntentFilter(MemoryStoreNotifier.ACTION_RECORDS_CHANGED),
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         memoryChangeRegistered = true
@@ -159,19 +146,18 @@ class ReminderActivity : BaseComposeActivity() {
     }
 
     private fun openMemoryPage() {
-        openTopLevelPage(
-            MainActivity::class.java,
-            R.anim.page_back_enter,
-            R.anim.page_back_exit
-        )
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        startActivity(intent)
+        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
+        finish()
     }
 
     private fun openGroupPage() {
-        openTopLevelPage(
-            GroupActivity::class.java,
-            R.anim.page_back_enter,
-            R.anim.page_back_exit
-        )
+        startActivity(Intent(this, GroupActivity::class.java))
+        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
+        finish()
     }
 
     private fun openAddMemoryPage() {
@@ -192,31 +178,17 @@ class ReminderActivity : BaseComposeActivity() {
         }
     }
 
-    private fun presentPendingAiResult() {
-        if (aiResultPreview != null) {
-            return
-        }
-        aiResultPreview = aiResultFeedbackStore.consumeNext()
-    }
-
-    private fun dismissAiResult() {
-        aiResultPreview = null
-        presentPendingAiResult()
-    }
-
     @Composable
     private fun ReminderContent(
         records: List<MemoryRecord>,
         selectedFilter: String,
-        aiResultPreview: AiResultPreview?,
         onDeleteRecord: (MemoryRecord) -> Unit,
         onFilterSelected: (String) -> Unit,
         onDoneChanged: (MemoryRecord, Boolean) -> Unit,
         onOpenDetail: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenGroup: () -> Unit,
-        onAddClick: () -> Unit,
-        onDismissAiResult: () -> Unit
+        onAddClick: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -360,13 +332,6 @@ class ReminderActivity : BaseComposeActivity() {
                                     Text(stringResource(R.string.cancel))
                                 }
                             }
-                        )
-                    }
-
-                    if (aiResultPreview != null) {
-                        AiResultDialog(
-                            preview = aiResultPreview,
-                            onDismiss = onDismissAiResult
                         )
                     }
                 }
