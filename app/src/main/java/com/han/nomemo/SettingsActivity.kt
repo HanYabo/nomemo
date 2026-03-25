@@ -36,6 +36,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.InputStream
+import java.net.HttpURLConnection
+import java.net.URL
+import java.nio.charset.StandardCharsets
 
 class SettingsActivity : BaseComposeActivity() {
     private lateinit var settingsStore: SettingsStore
@@ -48,31 +54,174 @@ class SettingsActivity : BaseComposeActivity() {
         setContent {
             SettingsContent(
                 onBack = { finish() },
-                onSave = { baseUrl, apiKey, model, themeMode, visualIntensity ->
-                    settingsStore.apiBaseUrl = baseUrl
-                    settingsStore.apiKey = apiKey
-                    settingsStore.apiModel = model
-                    settingsStore.themeMode = themeMode
-                    settingsStore.visualIntensity = visualIntensity
+                onBaseUrlChange = { value ->
+                    settingsStore.apiBaseUrl = value
+                    setResult(RESULT_OK)
+                },
+                onApiKeyChange = { value ->
+                    settingsStore.apiKey = value
+                    setResult(RESULT_OK)
+                },
+                onModelChange = { value ->
+                    settingsStore.apiModel = value
+                    setResult(RESULT_OK)
+                },
+                onThemeModeChange = { value ->
+                    settingsStore.themeMode = value
                     settingsStore.applyThemeMode()
                     setResult(RESULT_OK)
-                    Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
-                    recreate()
+                },
+                onVisualIntensityChange = { value ->
+                    settingsStore.visualIntensity = value
+                    setResult(RESULT_OK)
                 },
                 onClearData = {
                     memoryStore.clearAll()
                     setResult(RESULT_OK)
                     Toast.makeText(this, R.string.settings_data_cleared, Toast.LENGTH_SHORT).show()
+                },
+                onTestApi = { baseUrl, apiKey, model, onResult ->
+                    testApiConnection(baseUrl, apiKey, model, onResult)
                 }
             )
+        }
+    }
+
+    private fun testApiConnection(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        onResult: (Boolean, String) -> Unit
+    ) {
+        val resolvedBaseUrl = baseUrl.trim().ifBlank { BuildConfig.OPENAI_BASE_URL }
+        val resolvedApiKey = apiKey.trim().ifBlank { BuildConfig.OPENAI_API_KEY }
+        val resolvedModel = model.trim().ifBlank { BuildConfig.OPENAI_MODEL }
+
+        if (resolvedBaseUrl.isBlank() || resolvedApiKey.isBlank() || resolvedModel.isBlank()) {
+            onResult(false, "请先填写完整的 Base URL、API Key 和 Model。")
+            return
+        }
+
+        Thread {
+            val result = runCatching {
+                performApiConnectionTest(resolvedBaseUrl, resolvedApiKey, resolvedModel)
+            }
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { onResult(true, it) },
+                    onFailure = { error ->
+                        onResult(false, error.message ?: "请求失败，请检查网络或配置。")
+                    }
+                )
+            }
+        }.start()
+    }
+
+    private fun performApiConnectionTest(
+        baseUrl: String,
+        apiKey: String,
+        model: String
+    ): String {
+        val url = URL(resolveChatCompletionsUrl(baseUrl))
+        val connection = (url.openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 10_000
+            readTimeout = 20_000
+            doOutput = true
+            setRequestProperty("Authorization", "Bearer $apiKey")
+            setRequestProperty("Content-Type", "application/json")
+        }
+
+        return try {
+            val payload = JSONObject().apply {
+                put("model", model)
+                put("temperature", 0)
+                put(
+                    "messages",
+                    JSONArray().apply {
+                        put(
+                            JSONObject().apply {
+                                put("role", "user")
+                                put("content", "Reply with OK only.")
+                            }
+                        )
+                    }
+                )
+                put("max_tokens", 8)
+            }
+
+            val body = payload.toString().toByteArray(StandardCharsets.UTF_8)
+            connection.outputStream.use { output ->
+                output.write(body)
+                output.flush()
+            }
+
+            val code = connection.responseCode
+            val responseBody = readResponse(connection)
+            if (code !in 200..299) {
+                throw IllegalStateException("连接失败（HTTP $code）。${extractErrorMessage(responseBody)}")
+            }
+
+            val responseJson = JSONObject(responseBody)
+            val choices = responseJson.optJSONArray("choices")
+            if (choices == null || choices.length() == 0) {
+                throw IllegalStateException("接口已连通，但返回内容不符合预期。")
+            }
+
+            "连接成功，当前 API 配置可以正常访问。"
+        } finally {
+            connection.disconnect()
+        }
+    }
+
+    private fun resolveChatCompletionsUrl(baseUrl: String): String {
+        var normalized = baseUrl.trim()
+        while (normalized.endsWith("/")) {
+            normalized = normalized.dropLast(1)
+        }
+        return when {
+            normalized.endsWith("/chat/completions") -> normalized
+            normalized.endsWith("/responses") -> normalized.removeSuffix("/responses") + "/chat/completions"
+            else -> normalized + "/chat/completions"
+        }
+    }
+
+    private fun readResponse(connection: HttpURLConnection): String {
+        val stream = if (connection.responseCode in 200..299) {
+            connection.inputStream
+        } else {
+            connection.errorStream
+        }
+        return stream?.use(InputStream::readBytes)?.toString(StandardCharsets.UTF_8) ?: ""
+    }
+
+    private fun extractErrorMessage(responseBody: String): String {
+        if (responseBody.isBlank()) {
+            return "请检查 Base URL、API Key、Model 或网络连接。"
+        }
+        return runCatching {
+            val json = JSONObject(responseBody)
+            val error = json.optJSONObject("error")
+            when {
+                error != null && error.optString("message").isNotBlank() -> error.optString("message")
+                json.optString("message").isNotBlank() -> json.optString("message")
+                else -> responseBody.take(160)
+            }
+        }.getOrElse {
+            responseBody.take(160)
         }
     }
 
     @Composable
     private fun SettingsContent(
         onBack: () -> Unit,
-        onSave: (String, String, String, String, String) -> Unit,
-        onClearData: () -> Unit
+        onBaseUrlChange: (String) -> Unit,
+        onApiKeyChange: (String) -> Unit,
+        onModelChange: (String) -> Unit,
+        onThemeModeChange: (String) -> Unit,
+        onVisualIntensityChange: (String) -> Unit,
+        onClearData: () -> Unit,
+        onTestApi: (String, String, String, (Boolean, String) -> Unit) -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -88,6 +237,10 @@ class SettingsActivity : BaseComposeActivity() {
         var themeMode by remember { mutableStateOf(settingsStore.themeMode) }
         var visualIntensity by remember { mutableStateOf(settingsStore.visualIntensity) }
         var showClearConfirm by remember { mutableStateOf(false) }
+        var testingApi by remember { mutableStateOf(false) }
+        var showTestResult by remember { mutableStateOf(false) }
+        var testResultSuccess by remember { mutableStateOf(false) }
+        var testResultMessage by remember { mutableStateOf("") }
 
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
@@ -134,11 +287,6 @@ class SettingsActivity : BaseComposeActivity() {
                                     fontSize = 13.sp
                                 )
                             }
-                            GlassIconCircleButton(
-                                iconRes = R.drawable.ic_sheet_check,
-                                contentDescription = getString(R.string.save_record_desc),
-                                onClick = { onSave(baseUrl, apiKey, model, themeMode, visualIntensity) }
-                            )
                         }
 
                         SettingsSection(
@@ -150,7 +298,10 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingField(
                                 label = getString(R.string.settings_base_url),
                                 value = baseUrl,
-                                onValueChange = { baseUrl = it },
+                                onValueChange = {
+                                    baseUrl = it
+                                    onBaseUrlChange(it)
+                                },
                                 placeholder = BuildConfig.OPENAI_BASE_URL,
                                 fieldSurface = fieldSurface,
                                 borderColor = subtleBorder
@@ -158,7 +309,10 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingField(
                                 label = getString(R.string.settings_api_key),
                                 value = apiKey,
-                                onValueChange = { apiKey = it },
+                                onValueChange = {
+                                    apiKey = it
+                                    onApiKeyChange(it)
+                                },
                                 placeholder = "sk-...",
                                 fieldSurface = fieldSurface,
                                 borderColor = subtleBorder
@@ -166,11 +320,57 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingField(
                                 label = getString(R.string.settings_model),
                                 value = model,
-                                onValueChange = { model = it },
+                                onValueChange = {
+                                    model = it
+                                    onModelChange(it)
+                                },
                                 placeholder = BuildConfig.OPENAI_MODEL,
                                 fieldSurface = fieldSurface,
                                 borderColor = subtleBorder
                             )
+                            PressScaleBox(
+                                onClick = {
+                                    if (testingApi) return@PressScaleBox
+                                    testingApi = true
+                                    onTestApi(baseUrl, apiKey, model) { success, message ->
+                                        testingApi = false
+                                        testResultSuccess = success
+                                        testResultMessage = message
+                                        showTestResult = true
+                                    }
+                                },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 4.dp)
+                            ) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+                                    colors = CardDefaults.cardColors(containerColor = fieldSurface),
+                                    border = BorderStroke(1.dp, subtleBorder)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
+                                    ) {
+                                        Text(
+                                            text = if (testingApi) "测试连接中..." else "测试 API 连接",
+                                            color = palette.textPrimary,
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = if (testingApi) {
+                                                "正在验证当前 Base URL、API Key 和 Model 是否可用。"
+                                            } else {
+                                                "不需要先保存，直接测试当前输入的 AI 配置。"
+                                            },
+                                            color = palette.textSecondary,
+                                            fontSize = 12.sp,
+                                            modifier = Modifier.padding(top = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
                         }
 
                         SettingsSection(
@@ -189,14 +389,17 @@ class SettingsActivity : BaseComposeActivity() {
                                 firstRow = listOf(
                                     ChoiceItem(getString(R.string.settings_theme_system), themeMode == SettingsStore.THEME_SYSTEM) {
                                         themeMode = SettingsStore.THEME_SYSTEM
+                                        onThemeModeChange(SettingsStore.THEME_SYSTEM)
                                     },
                                     ChoiceItem(getString(R.string.settings_theme_light), themeMode == SettingsStore.THEME_LIGHT) {
                                         themeMode = SettingsStore.THEME_LIGHT
+                                        onThemeModeChange(SettingsStore.THEME_LIGHT)
                                     }
                                 ),
                                 secondRow = listOf(
                                     ChoiceItem(getString(R.string.settings_theme_dark), themeMode == SettingsStore.THEME_DARK) {
                                         themeMode = SettingsStore.THEME_DARK
+                                        onThemeModeChange(SettingsStore.THEME_DARK)
                                     }
                                 )
                             )
@@ -212,14 +415,17 @@ class SettingsActivity : BaseComposeActivity() {
                                 firstRow = listOf(
                                     ChoiceItem(getString(R.string.settings_visual_soft), visualIntensity == SettingsStore.VISUAL_SOFT) {
                                         visualIntensity = SettingsStore.VISUAL_SOFT
+                                        onVisualIntensityChange(SettingsStore.VISUAL_SOFT)
                                     },
                                     ChoiceItem(getString(R.string.settings_visual_normal), visualIntensity == SettingsStore.VISUAL_NORMAL) {
                                         visualIntensity = SettingsStore.VISUAL_NORMAL
+                                        onVisualIntensityChange(SettingsStore.VISUAL_NORMAL)
                                     }
                                 ),
                                 secondRow = listOf(
                                     ChoiceItem(getString(R.string.settings_visual_strong), visualIntensity == SettingsStore.VISUAL_STRONG) {
                                         visualIntensity = SettingsStore.VISUAL_STRONG
+                                        onVisualIntensityChange(SettingsStore.VISUAL_STRONG)
                                     }
                                 )
                             )
@@ -281,6 +487,23 @@ class SettingsActivity : BaseComposeActivity() {
                 dismissButton = {
                     TextButton(onClick = { showClearConfirm = false }) {
                         Text(getString(R.string.cancel))
+                    }
+                }
+            )
+        }
+
+        if (showTestResult) {
+            AlertDialog(
+                onDismissRequest = { showTestResult = false },
+                title = {
+                    Text(if (testResultSuccess) "API 测试成功" else "API 测试失败")
+                },
+                text = {
+                    Text(testResultMessage)
+                },
+                confirmButton = {
+                    TextButton(onClick = { showTestResult = false }) {
+                        Text("知道了")
                     }
                 }
             )

@@ -50,6 +50,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     companion object {
         private const val EXTRA_RECORD_ID = "extra_record_id"
 
+        @JvmStatic
         fun createIntent(context: Context, recordId: String): Intent {
             return Intent(context, MemoryDetailActivity::class.java)
                 .putExtra(EXTRA_RECORD_ID, recordId)

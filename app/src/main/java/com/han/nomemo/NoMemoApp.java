@@ -7,5 +7,6 @@ public class NoMemoApp extends Application {
     public void onCreate() {
         super.onCreate();
         SettingsStore.applyTheme(this);
+        AiSummaryNotifier.ensureChannel(this);
     }
 }

@@ -57,9 +57,38 @@ public class AiMemoryService {
     }
 
     private GenerationResult generateByCloud(String userText, @Nullable Uri imageUri) throws Exception {
+        JSONObject payload = new JSONObject();
+        payload.put("model", settingsStore.resolvedApiModel());
+        payload.put("temperature", 0.35);
+        payload.put("messages", buildMessages(userText, imageUri));
+
+        Exception firstError = null;
+        try {
+            JSONObject payloadWithFormat = new JSONObject(payload.toString());
+            payloadWithFormat.put("response_format", new JSONObject().put("type", "json_object"));
+            return requestCloudGeneration(payloadWithFormat, userText, imageUri);
+        } catch (Exception exception) {
+            firstError = exception;
+        }
+
+        try {
+            return requestCloudGeneration(payload, userText, imageUri);
+        } catch (Exception secondError) {
+            if (firstError != null) {
+                secondError.addSuppressed(firstError);
+            }
+            throw secondError;
+        }
+    }
+
+    private GenerationResult requestCloudGeneration(
+            JSONObject payload,
+            String userText,
+            @Nullable Uri imageUri
+    ) throws Exception {
         HttpURLConnection connection = null;
         try {
-            URL url = new URL(settingsStore.resolvedApiBaseUrl() + "/chat/completions");
+            URL url = new URL(resolveChatCompletionsUrl());
             connection = (HttpURLConnection) url.openConnection();
             connection.setRequestMethod("POST");
             connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
@@ -67,12 +96,6 @@ public class AiMemoryService {
             connection.setDoOutput(true);
             connection.setRequestProperty("Authorization", "Bearer " + settingsStore.resolvedApiKey());
             connection.setRequestProperty("Content-Type", "application/json");
-
-            JSONObject payload = new JSONObject();
-            payload.put("model", settingsStore.resolvedApiModel());
-            payload.put("temperature", 0.35);
-            payload.put("response_format", new JSONObject().put("type", "json_object"));
-            payload.put("messages", buildMessages(userText, imageUri));
 
             byte[] body = payload.toString().getBytes(StandardCharsets.UTF_8);
             OutputStream outputStream = connection.getOutputStream();
@@ -90,10 +113,7 @@ public class AiMemoryService {
             }
 
             JSONObject json = new JSONObject(responseBody);
-            String content = json.getJSONArray("choices")
-                    .getJSONObject(0)
-                    .getJSONObject("message")
-                    .optString("content", "");
+            String content = extractMessageContent(json);
 
             JSONObject resultJson = parseStrictJson(content);
             String title = resultJson.optString("title", "").trim();
@@ -123,6 +143,20 @@ public class AiMemoryService {
                 connection.disconnect();
             }
         }
+    }
+
+    private String resolveChatCompletionsUrl() {
+        String baseUrl = settingsStore.resolvedApiBaseUrl().trim();
+        while (baseUrl.endsWith("/")) {
+            baseUrl = baseUrl.substring(0, baseUrl.length() - 1);
+        }
+        if (baseUrl.endsWith("/chat/completions")) {
+            return baseUrl;
+        }
+        if (baseUrl.endsWith("/responses")) {
+            return baseUrl.substring(0, baseUrl.length() - "/responses".length()) + "/chat/completions";
+        }
+        return baseUrl + "/chat/completions";
     }
 
     String SYSTEM_PROMPT = "# Role\n" +
@@ -239,7 +273,46 @@ public class AiMemoryService {
         if (cleaned.startsWith("```")) {
             cleaned = cleaned.replace("```json", "").replace("```", "").trim();
         }
+        int objectStart = cleaned.indexOf('{');
+        int objectEnd = cleaned.lastIndexOf('}');
+        if (objectStart >= 0 && objectEnd > objectStart) {
+            cleaned = cleaned.substring(objectStart, objectEnd + 1).trim();
+        }
         return new JSONObject(cleaned);
+    }
+
+    private String extractMessageContent(JSONObject responseJson) throws Exception {
+        Object content = responseJson.getJSONArray("choices")
+                .getJSONObject(0)
+                .getJSONObject("message")
+                .opt("content");
+        if (content instanceof String) {
+            return (String) content;
+        }
+        if (content instanceof JSONArray) {
+            JSONArray parts = (JSONArray) content;
+            StringBuilder builder = new StringBuilder();
+            for (int index = 0; index < parts.length(); index++) {
+                Object part = parts.get(index);
+                if (part instanceof JSONObject) {
+                    JSONObject partJson = (JSONObject) part;
+                    String text = partJson.optString("text", "");
+                    if (!TextUtils.isEmpty(text)) {
+                        if (builder.length() > 0) {
+                            builder.append('\n');
+                        }
+                        builder.append(text);
+                    }
+                } else if (part != null) {
+                    if (builder.length() > 0) {
+                        builder.append('\n');
+                    }
+                    builder.append(part.toString());
+                }
+            }
+            return builder.toString();
+        }
+        return content == null ? "" : content.toString();
     }
 
     private GenerationResult generateByRules(String userText, @Nullable Uri imageUri) {

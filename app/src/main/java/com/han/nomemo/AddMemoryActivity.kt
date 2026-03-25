@@ -1,11 +1,14 @@
 ﻿package com.han.nomemo
 
+import android.Manifest
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.ClipboardManager
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.OpenableColumns
 import android.text.TextUtils
@@ -13,6 +16,7 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.ContextCompat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
@@ -83,6 +87,7 @@ class AddMemoryActivity : BaseComposeActivity() {
     private var reminderEnabled by mutableStateOf(false)
     private var selectedReminderAt by mutableStateOf(0L)
     private var saving by mutableStateOf(false)
+    private var pendingAiInputAfterPermission: String? = null
 
     private val pickImageLauncher =
         registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -96,6 +101,19 @@ class AddMemoryActivity : BaseComposeActivity() {
                 // Provider may not support persistable permissions.
             }
             imageStatusText = getString(R.string.image_selected, queryDisplayName(uri))
+        }
+
+    private val notificationPermissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            val pendingInput = pendingAiInputAfterPermission ?: return@registerForActivityResult
+            pendingAiInputAfterPermission = null
+            if (!granted) {
+                Toast.makeText(this, "通知权限未开启，AI 完成后将只更新列表", Toast.LENGTH_SHORT).show()
+            }
+            if (!saving) {
+                saving = true
+                createAiRecord(pendingInput)
+            }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -209,12 +227,22 @@ class AddMemoryActivity : BaseComposeActivity() {
         if (saving) {
             return
         }
+        if (aiMode && shouldRequestNotificationPermission()) {
+            pendingAiInputAfterPermission = input
+            notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
         saving = true
         if (aiMode) {
             createAiRecord(input)
         } else {
             createNormalRecord(input)
         }
+    }
+
+    private fun shouldRequestNotificationPermission(): Boolean {
+        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
     }
 
     private fun resolveReminderAt(
@@ -344,7 +372,7 @@ class AddMemoryActivity : BaseComposeActivity() {
                     false,
                     false
                 )
-                memoryStore.updateRecord(record)
+                persistResolvedAiRecord(record)
             } catch (_: Exception) {
                 val fallbackMemory = if (input.isBlank()) getString(R.string.memory_saved_screenshot) else input
                 val fallbackRecord = MemoryRecord(
@@ -366,9 +394,16 @@ class AddMemoryActivity : BaseComposeActivity() {
                     false,
                     false
                 )
-                memoryStore.updateRecord(fallbackRecord)
+                persistResolvedAiRecord(fallbackRecord)
             }
         }.start()
+    }
+
+    private fun persistResolvedAiRecord(record: MemoryRecord) {
+        if (!memoryStore.updateRecord(record)) {
+            memoryStore.prependRecord(record)
+        }
+        AiSummaryNotifier.notifyAnalysisReady(applicationContext, record)
     }
 
     private fun onRecordSaved(record: MemoryRecord, usedFallback: Boolean) {
