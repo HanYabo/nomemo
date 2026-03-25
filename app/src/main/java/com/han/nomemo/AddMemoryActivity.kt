@@ -7,6 +7,7 @@ import android.content.ClipboardManager
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.database.Cursor
+import android.graphics.drawable.ColorDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -23,6 +24,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -118,6 +122,7 @@ class AddMemoryActivity : BaseComposeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        window.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
         memoryStore = MemoryStore(this)
         aiMemoryService = AiMemoryService(this)
         imageStatusText = getString(R.string.image_not_selected)
@@ -135,7 +140,7 @@ class AddMemoryActivity : BaseComposeActivity() {
 
     override fun finish() {
         super.finish()
-        overridePendingTransition(R.anim.activity_close_enter, R.anim.activity_close_exit)
+        overridePendingTransition(0, 0)
     }
 
     private fun finishWithTransition() {
@@ -483,6 +488,7 @@ class AddMemoryActivity : BaseComposeActivity() {
         val accentBlueSoft = if (isDark) Color(0xFF21334D) else Color(0xFFE7F1FF)
         val accentBlueStroke = if (isDark) Color(0xFF38557C) else Color(0xFFC6DDFF)
         val scrollState = rememberScrollState()
+        val dismissInteraction = remember { MutableInteractionSource() }
 
         LaunchedEffect(selectedGroupCode) {
             if (!categories.any { it.categoryCode == selectedCategoryOption.categoryCode }) {
@@ -516,27 +522,40 @@ class AddMemoryActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background((if (isDark) Color.Black else Color(0xFF0E1420)).copy(alpha = 0.74f * scrimAlpha))
+                .background((if (isDark) Color.Black else Color(0xFF0E1420)).copy(alpha = 0.52f * scrimAlpha))
+                .clickable(
+                    enabled = !saving,
+                    interactionSource = dismissInteraction,
+                    indication = null,
+                    onClick = onBack
+                )
         ) {
             ResponsiveContentFrame(spec = adaptive) { spec ->
+                val sheetShape = RoundedCornerShape(
+                    topStart = if (spec.isNarrow) 34.dp else 40.dp,
+                    topEnd = if (spec.isNarrow) 34.dp else 40.dp,
+                    bottomStart = if (spec.isNarrow) 26.dp else 30.dp,
+                    bottomEnd = if (spec.isNarrow) 26.dp else 30.dp
+                )
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
                         .navigationBarsPadding()
+                        .imePadding()
                         .padding(
                             start = spec.pageHorizontalPadding,
-                            top = if (spec.isNarrow) 12.dp else 20.dp,
+                            top = if (spec.isNarrow) 18.dp else 26.dp,
                             end = spec.pageHorizontalPadding,
-                            bottom = if (spec.isNarrow) 12.dp else 20.dp
+                            bottom = if (spec.isNarrow) 8.dp else 14.dp
                         ),
-                    contentAlignment = Alignment.Center
+                    contentAlignment = Alignment.BottomCenter
                 ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .widthIn(max = if (spec.isNarrow) 560.dp else 700.dp)
-                            .fillMaxHeight(if (spec.isNarrow) 0.94f else 0.88f)
+                            .heightIn(max = if (spec.isNarrow) 760.dp else 860.dp)
                             .graphicsLayer {
                                 alpha = panelAlpha
                                 translationY = panelOffsetY
@@ -544,29 +563,30 @@ class AddMemoryActivity : BaseComposeActivity() {
                                 scaleY = panelScale
                             }
                             .shadow(
-                                elevation = if (spec.isNarrow) 28.dp else 38.dp,
-                                shape = RoundedCornerShape(if (spec.isNarrow) 34.dp else 40.dp)
+                                elevation = if (spec.isNarrow) 30.dp else 40.dp,
+                                shape = sheetShape
                             )
-                            .clip(RoundedCornerShape(if (spec.isNarrow) 34.dp else 40.dp))
+                            .clip(sheetShape)
                             .background(sheetSurface)
-                            .border(
-                                1.dp,
-                                borderSoft,
-                                RoundedCornerShape(if (spec.isNarrow) 34.dp else 40.dp)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = {}
                             )
+                            .border(1.dp, borderSoft, sheetShape)
                             .verticalScroll(scrollState)
                             .padding(
                                 start = if (spec.isNarrow) 16.dp else 22.dp,
-                                top = 14.dp,
+                                top = 12.dp,
                                 end = if (spec.isNarrow) 16.dp else 22.dp,
-                                bottom = 22.dp
+                                bottom = 18.dp
                             )
                     ) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
-                                .width(62.dp)
-                                .height(6.dp)
+                                .width(56.dp)
+                                .height(5.dp)
                                 .clip(RoundedCornerShape(999.dp))
                                 .background(if (isDark) Color.White.copy(alpha = 0.18f) else Color(0x24000000))
                         )
@@ -606,26 +626,26 @@ class AddMemoryActivity : BaseComposeActivity() {
                         }
 
                         Text(
-                            text = if (aiMode) "AI Prompt" else "New Memory",
+                            text = if (aiMode) "AI Prompt" else "Quick Prompt",
                             color = accentBlue,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(top = 18.dp)
+                            modifier = Modifier.padding(top = 14.dp)
                         )
 
                         Text(
-                            text = if (aiMode) "添加一条可分析的记忆" else "添加一条即时记忆",
+                            text = if (aiMode) "让模型补全这条记忆" else "记录刚刚这一刻",
                             color = palette.textPrimary,
-                            fontSize = if (spec.isNarrow) 24.sp else 30.sp,
+                            fontSize = if (spec.isNarrow) 24.sp else 28.sp,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(top = 6.dp)
                         )
 
                         Text(
                             text = if (aiMode) {
-                                "像一个弹出 prompt 那样，先输入内容，再让 AI 帮你整理标题、摘要和分类。"
+                                "输入文本或图片，确认后先生成条目，再由 AI 回填标题、摘要和分析。"
                             } else {
-                                "像快速弹窗一样记录这一刻，保存后就从主页面里消失，不再像一层页面套着一层页面。"
+                                "像一个轻量 prompt 一样快速记下内容，不打断主页面浏览。"
                             },
                             color = palette.textSecondary,
                             fontSize = 13.sp,
@@ -644,8 +664,8 @@ class AddMemoryActivity : BaseComposeActivity() {
                             value = inputText,
                             enabled = !saving,
                             placeholder = stringResource(R.string.hint_text_input),
-                            minHeight = spec.addInputHeight + if (spec.isNarrow) 42.dp else 54.dp,
-                            modifier = Modifier.padding(top = 18.dp),
+                            minHeight = spec.addInputHeight + if (spec.isNarrow) 24.dp else 34.dp,
+                            modifier = Modifier.padding(top = 16.dp),
                             onValueChange = { inputText = it }
                         )
 
@@ -672,7 +692,7 @@ class AddMemoryActivity : BaseComposeActivity() {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(top = 14.dp),
-                                shape = RoundedCornerShape(28.dp),
+                                shape = RoundedCornerShape(24.dp),
                                 colors = CardDefaults.cardColors(containerColor = sectionSurface),
                                 border = BorderStroke(1.dp, borderSoft)
                             ) {
@@ -685,8 +705,8 @@ class AddMemoryActivity : BaseComposeActivity() {
                                     },
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(spec.addPreviewHeight + 12.dp)
-                                        .clip(RoundedCornerShape(28.dp))
+                                        .height(spec.addPreviewHeight)
+                                        .clip(RoundedCornerShape(24.dp))
                                         .background(sectionSurface),
                                     update = { imageView ->
                                         try {
@@ -766,7 +786,7 @@ class AddMemoryActivity : BaseComposeActivity() {
                             text = if (aiMode) {
                                 stringResource(R.string.ai_hint)
                             } else {
-                                "保存后会直接回到记忆列表，这个弹出 prompt 不会在界面里留下第二层页面感。"
+                                "保存后立即返回列表。"
                             },
                             color = palette.textTertiary,
                             fontSize = 12.sp,

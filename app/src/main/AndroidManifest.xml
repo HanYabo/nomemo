@@ -20,7 +20,7 @@
         <activity
             android:name=".AddMemoryActivity"
             android:exported="false"
-            android:theme="@style/Theme.NoMemo" />
+            android:theme="@style/Theme.NoMemo.Transparent" />
         <activity
             android:name=".GroupActivity"
             android:exported="false"

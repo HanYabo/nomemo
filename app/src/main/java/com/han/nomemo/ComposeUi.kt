@@ -355,12 +355,12 @@ fun GlassChip(
                 .clip(RoundedCornerShape(999.dp))
                 .background(bg)
                 .border(1.dp, palette.glassStroke, RoundedCornerShape(999.dp))
-                .padding(horizontal = horizontalPadding, vertical = 10.dp)
         ) {
             Text(
                 text = text,
                 color = textColor,
-                style = textStyle
+                style = textStyle,
+                modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 10.dp)
             )
         }
     }
@@ -379,17 +379,22 @@ fun GlassIconCircleButton(
         onClick = onClick,
         modifier = modifier
             .size(size)
-            .clip(CircleShape)
-            .background(palette.glassFill)
     ) {
-        Icon(
-            painter = painterResource(id = iconRes),
-            contentDescription = contentDescription,
-            tint = palette.textPrimary,
+        Box(
             modifier = Modifier
-                .align(Alignment.Center)
-                .size(24.dp)
-        )
+                .fillMaxSize()
+                .clip(CircleShape)
+                .background(palette.glassFill)
+        ) {
+            Icon(
+                painter = painterResource(id = iconRes),
+                contentDescription = contentDescription,
+                tint = palette.textPrimary,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .size(24.dp)
+            )
+        }
     }
 }
 

@@ -44,6 +44,7 @@ class GroupActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
     private var selectedCategoryCode by mutableStateOf<String?>(null)
     private var allRecords by mutableStateOf<List<MemoryRecord>>(emptyList())
+    private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
@@ -64,7 +65,9 @@ class GroupActivity : BaseComposeActivity() {
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenReminder = { openReminderPage() },
-                onAddClick = { openAddMemoryPage() }
+                showAddSheet = showAddSheet,
+                onAddClick = { showAddSheet = true },
+                onDismissAddSheet = { showAddSheet = false }
             )
         }
         refreshContent()
@@ -125,11 +128,6 @@ class GroupActivity : BaseComposeActivity() {
         finish()
     }
 
-    private fun openAddMemoryPage() {
-        startActivity(Intent(this, AddMemoryActivity::class.java))
-        overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
-    }
-
     private fun openDetailPage(recordId: String) {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
         overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
@@ -152,7 +150,9 @@ class GroupActivity : BaseComposeActivity() {
         onOpenDetail: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenReminder: () -> Unit,
-        onAddClick: () -> Unit
+        showAddSheet: Boolean,
+        onAddClick: () -> Unit,
+        onDismissAddSheet: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -331,6 +331,10 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             }
                         )
+                    }
+
+                    if (showAddSheet) {
+                        AddMemorySheet(onDismiss = onDismissAddSheet)
                     }
                 }
             }

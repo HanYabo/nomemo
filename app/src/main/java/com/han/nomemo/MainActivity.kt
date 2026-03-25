@@ -70,6 +70,7 @@ class MainActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
+    private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
@@ -77,11 +78,6 @@ class MainActivity : BaseComposeActivity() {
             refreshRecords()
         }
     }
-
-    private val addMemoryLauncher =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) {
-            refreshRecords()
-        }
 
     private val settingsLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -106,7 +102,9 @@ class MainActivity : BaseComposeActivity() {
                 onDeleteRecord = { record -> deleteRecord(record) },
                 onArchiveRecord = { record -> toggleArchive(record) },
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
-                onAddClick = { openAddMemoryPage() },
+                showAddSheet = showAddSheet,
+                onAddClick = { showAddSheet = true },
+                onDismissAddSheet = { showAddSheet = false },
                 onOpenGroup = { openGroupPage() },
                 onOpenReminder = { openReminderPage() },
                 onOpenSettings = { openSettingsPage() }
@@ -159,11 +157,6 @@ class MainActivity : BaseComposeActivity() {
         memoryChangeRegistered = false
     }
 
-    private fun openAddMemoryPage() {
-        addMemoryLauncher.launch(Intent(this, AddMemoryActivity::class.java))
-        overridePendingTransition(R.anim.activity_open_enter, R.anim.activity_open_exit)
-    }
-
     private fun openGroupPage() {
         startActivity(Intent(this, GroupActivity::class.java))
         overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
@@ -211,7 +204,9 @@ class MainActivity : BaseComposeActivity() {
         onDeleteRecord: (MemoryRecord) -> Unit,
         onArchiveRecord: (MemoryRecord) -> Unit,
         onOpenDetail: (MemoryRecord) -> Unit,
+        showAddSheet: Boolean,
         onAddClick: () -> Unit,
+        onDismissAddSheet: () -> Unit,
         onOpenGroup: () -> Unit,
         onOpenReminder: () -> Unit,
         onOpenSettings: () -> Unit
@@ -493,6 +488,10 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             }
                         )
+                    }
+
+                    if (showAddSheet) {
+                        AddMemorySheet(onDismiss = onDismissAddSheet)
                     }
                 }
             }

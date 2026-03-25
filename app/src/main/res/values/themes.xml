@@ -2,4 +2,12 @@
 <resources>
 
     <style name="Theme.NoMemo" parent="Theme.Material3.DayNight.NoActionBar" />
+
+    <style name="Theme.NoMemo.Transparent" parent="Theme.NoMemo">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowDisablePreview">true</item>
+        <item name="android:windowIsFloating">false</item>
+        <item name="android:backgroundDimEnabled">false</item>
+    </style>
 </resources>

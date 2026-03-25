@@ -8,7 +8,10 @@ import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
 import android.graphics.drawable.Icon;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -21,12 +24,13 @@ import androidx.core.content.ContextCompat;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.InputStream;
 import java.lang.reflect.Method;
 
 public final class AiSummaryNotifier {
     private static final String CHANNEL_ID = "nomemo_ai_summary";
-    private static final String CHANNEL_NAME = "AI 摘要通知";
-    private static final String CHANNEL_DESCRIPTION = "AI 记忆完成整理后，实时提醒你查看摘要。";
+    private static final String CHANNEL_NAME = "AI摘要通知";
+    private static final String CHANNEL_DESCRIPTION = "AI记忆完成整理后生成摘要";
 
     private static final String MIUI_FOCUS_PARAM_KEY = "miui.focus.param";
     private static final String MIUI_FOCUS_PICS_KEY = "miui.focus.pics";
@@ -99,10 +103,6 @@ public final class AiSummaryNotifier {
                 .setSmallIcon(R.drawable.ic_nm_memory)
                 .setContentTitle(title)
                 .setContentText(summary)
-                .setStyle(new NotificationCompat.BigTextStyle()
-                        .setBigContentTitle(title)
-                        .bigText(bigText)
-                        .setSummaryText("AI 记忆已更新"))
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -110,6 +110,21 @@ public final class AiSummaryNotifier {
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setOnlyAlertOnce(false)
                 .setContentIntent(pendingIntent);
+
+        Bitmap previewBitmap = loadNotificationPreview(context, record.getImageUri());
+        if (previewBitmap != null) {
+            builder.setStyle(new NotificationCompat.BigPictureStyle()
+                    .bigPicture(previewBitmap)
+                    .bigLargeIcon((Bitmap) null)
+                    .setBigContentTitle(title)
+                    .setSummaryText(summary));
+            builder.setLargeIcon(previewBitmap);
+        } else {
+            builder.setStyle(new NotificationCompat.BigTextStyle()
+                    .setBigContentTitle(title)
+                    .bigText(bigText)
+                    .setSummaryText("AI 记忆已更新"));
+        }
 
         applyMiuiIslandExtras(context, builder, title, summary, bigText);
         NotificationManagerCompat.from(context)
@@ -283,6 +298,37 @@ public final class AiSummaryNotifier {
         int flags = PendingIntent.FLAG_UPDATE_CURRENT
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         return PendingIntent.getActivity(context, 0, intent, flags);
+    }
+
+    private static Bitmap loadNotificationPreview(Context context, String imageUri) {
+        if (TextUtils.isEmpty(imageUri)) {
+            return null;
+        }
+        try (InputStream inputStream = context.getContentResolver().openInputStream(Uri.parse(imageUri))) {
+            if (inputStream == null) {
+                return null;
+            }
+            Bitmap bitmap = BitmapFactory.decodeStream(inputStream);
+            if (bitmap == null) {
+                return null;
+            }
+            return scaleBitmap(bitmap, 1200);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static Bitmap scaleBitmap(Bitmap source, int maxEdge) {
+        int width = source.getWidth();
+        int height = source.getHeight();
+        int longest = Math.max(width, height);
+        if (longest <= maxEdge) {
+            return source;
+        }
+        float ratio = (float) maxEdge / (float) longest;
+        int scaledWidth = Math.max(1, Math.round(width * ratio));
+        int scaledHeight = Math.max(1, Math.round(height * ratio));
+        return Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true);
     }
 
     private static String firstNonBlank(String... values) {
