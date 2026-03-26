@@ -74,6 +74,7 @@ class ReminderActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
     private var reminderRecords by mutableStateOf<List<MemoryRecord>>(emptyList())
+    private var hasLoadedRecords by mutableStateOf(false)
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
@@ -90,6 +91,7 @@ class ReminderActivity : BaseComposeActivity() {
         setContent {
             ReminderContent(
                 records = reminderRecords,
+                hasLoadedRecords = hasLoadedRecords,
                 selectedFilter = selectedFilter,
                 onDeleteRecord = { record -> deleteRecord(record) },
                 onFilterSelected = { filter ->
@@ -143,6 +145,7 @@ class ReminderActivity : BaseComposeActivity() {
             }
             if (selectedFilter == filterSnapshot) {
                 reminderRecords = filtered
+                hasLoadedRecords = true
             }
         }
     }
@@ -194,6 +197,7 @@ class ReminderActivity : BaseComposeActivity() {
     @Composable
     private fun ReminderContent(
         records: List<MemoryRecord>,
+        hasLoadedRecords: Boolean,
         selectedFilter: String,
         onDeleteRecord: (MemoryRecord) -> Unit,
         onFilterSelected: (String) -> Unit,
@@ -319,49 +323,54 @@ class ReminderActivity : BaseComposeActivity() {
                             }
                         }
 
-                        if (records.isEmpty()) {
-                            GlassPanelText(
-                                text = stringResource(R.string.reminder_empty),
-                                modifier = Modifier.padding(top = 12.dp)
+                        if (!hasLoadedRecords) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        } else if (records.isEmpty()) {
+                            NoMemoEmptyState(
+                                iconRes = R.drawable.ic_nm_reminder,
+                                title = stringResource(R.string.reminder_empty),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .offset(y = (-18).dp)
                             )
-                        }
-
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(top = 12.dp),
-                            state = listState,
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                bottom = spec.pageBottomPadding + 20.dp
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp)
-                        ) {
-                            items(
-                                items = records,
-                                key = { it.recordId },
-                                contentType = { "reminder" }
-                            ) { record ->
-                                ReminderItem(
-                                    record = record,
-                                    selected = selectedRecordId == record.recordId,
-                                    adaptive = adaptive,
-                                    palette = palette,
-                                    onDoneChanged = onDoneChanged,
-                                    onLongPressSelect = { selectedRecordId = record.recordId },
-                                    onClickItem = {
-                                        when {
-                                            selectedRecordId == record.recordId -> {
-                                                selectedRecordId = null
-                                            }
-                                            selectedRecordId != null -> {
-                                                selectedRecordId = record.recordId
-                                            }
-                                            else -> {
-                                                onOpenDetail(record)
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(top = 12.dp),
+                                state = listState,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    bottom = spec.pageBottomPadding + 20.dp
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp)
+                            ) {
+                                items(
+                                    items = records,
+                                    key = { it.recordId },
+                                    contentType = { "reminder" }
+                                ) { record ->
+                                    ReminderItem(
+                                        record = record,
+                                        selected = selectedRecordId == record.recordId,
+                                        adaptive = adaptive,
+                                        palette = palette,
+                                        onDoneChanged = onDoneChanged,
+                                        onLongPressSelect = { selectedRecordId = record.recordId },
+                                        onClickItem = {
+                                            when {
+                                                selectedRecordId == record.recordId -> {
+                                                    selectedRecordId = null
+                                                }
+                                                selectedRecordId != null -> {
+                                                    selectedRecordId = record.recordId
+                                                }
+                                                else -> {
+                                                    onOpenDetail(record)
+                                                }
                                             }
                                         }
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }

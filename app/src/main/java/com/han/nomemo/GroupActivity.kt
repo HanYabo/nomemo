@@ -44,7 +44,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -52,6 +51,7 @@ class GroupActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
     private var selectedCategoryCode by mutableStateOf<String?>(null)
     private var allRecords by mutableStateOf<List<MemoryRecord>>(emptyList())
+    private var hasLoadedRecords by mutableStateOf(false)
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
@@ -68,6 +68,7 @@ class GroupActivity : BaseComposeActivity() {
         setContent {
             GroupContent(
                 allRecords = allRecords,
+                hasLoadedRecords = hasLoadedRecords,
                 selectedCategoryCode = selectedCategoryCode,
                 onSelectCategory = { selectedCategoryCode = it },
                 onDeleteRecord = { record -> deleteRecord(record) },
@@ -104,6 +105,7 @@ class GroupActivity : BaseComposeActivity() {
                 memoryStore.loadActiveRecords()
             }
             allRecords = loadedRecords
+            hasLoadedRecords = true
         }
     }
 
@@ -154,6 +156,7 @@ class GroupActivity : BaseComposeActivity() {
     @Composable
     private fun GroupContent(
         allRecords: List<MemoryRecord>,
+        hasLoadedRecords: Boolean,
         selectedCategoryCode: String?,
         onSelectCategory: (String?) -> Unit,
         onDeleteRecord: (MemoryRecord) -> Unit,
@@ -168,12 +171,7 @@ class GroupActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
-        var enablePreviewImages by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
-        LaunchedEffect(Unit) {
-            delay(180)
-            enablePreviewImages = true
-        }
         val filtered = allRecords.filter { selectedCategoryCode == null || selectedCategoryCode == it.categoryCode }
         val selectedRecord = remember(filtered, selectedRecordId) {
             filtered.firstOrNull { it.recordId == selectedRecordId }
@@ -307,51 +305,56 @@ class GroupActivity : BaseComposeActivity() {
                             }
                         }
 
-                        if (filtered.isEmpty()) {
-                            GlassPanelText(
-                                text = stringResource(R.string.group_empty),
-                                modifier = Modifier.padding(top = 12.dp)
+                        if (!hasLoadedRecords) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        } else if (filtered.isEmpty()) {
+                            NoMemoEmptyState(
+                                iconRes = R.drawable.ic_nm_group,
+                                title = stringResource(R.string.group_empty),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .offset(y = (-18).dp)
                             )
-                        }
-
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(top = 12.dp),
-                            state = listState,
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                bottom = spec.pageBottomPadding + 20.dp
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 14.dp else 12.dp)
-                        ) {
-                            items(
-                                items = filtered,
-                                key = { it.recordId },
-                                contentType = {
-                                    if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(top = 12.dp),
+                                state = listState,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    bottom = spec.pageBottomPadding + 20.dp
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 14.dp else 12.dp)
+                            ) {
+                                items(
+                                    items = filtered,
+                                    key = { it.recordId },
+                                    contentType = {
+                                        if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
+                                    }
+                                ) { record ->
+                                    RecordCard(
+                                        record = record,
+                                        selected = selectedRecordId == record.recordId,
+                                        palette = palette,
+                                        adaptive = spec,
+                                        allowImageLoading = true,
+                                        onClick = {
+                                            when {
+                                                selectedRecordId == record.recordId -> {
+                                                    selectedRecordId = null
+                                                }
+                                                selectedRecordId != null -> {
+                                                    selectedRecordId = record.recordId
+                                                }
+                                                else -> {
+                                                    onOpenDetail(record)
+                                                }
+                                            }
+                                        },
+                                        onLongPress = { selectedRecordId = record.recordId }
+                                    )
                                 }
-                            ) { record ->
-                                RecordCard(
-                                    record = record,
-                                    selected = selectedRecordId == record.recordId,
-                                    palette = palette,
-                                    adaptive = spec,
-                                    allowImageLoading = enablePreviewImages,
-                                    onClick = {
-                                        when {
-                                            selectedRecordId == record.recordId -> {
-                                                selectedRecordId = null
-                                            }
-                                            selectedRecordId != null -> {
-                                                selectedRecordId = record.recordId
-                                            }
-                                            else -> {
-                                                onOpenDetail(record)
-                                            }
-                                        }
-                                    },
-                                    onLongPress = { selectedRecordId = record.recordId }
-                                )
                             }
                         }
                     }

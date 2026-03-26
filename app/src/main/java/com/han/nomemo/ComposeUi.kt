@@ -68,6 +68,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
@@ -939,5 +940,47 @@ fun GlassPanelText(
             .padding(12.dp)
     ) {
         Text(text = text, color = color, fontSize = fontSizeSp.sp)
+    }
+}
+
+@Composable
+fun NoMemoEmptyState(
+    iconRes: Int,
+    title: String,
+    modifier: Modifier = Modifier,
+    subtitle: String? = null
+) {
+    val palette = rememberNoMemoPalette()
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 28.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            painter = painterResource(id = iconRes),
+            contentDescription = null,
+            tint = palette.textTertiary.copy(alpha = 0.62f),
+            modifier = Modifier.size(42.dp)
+        )
+        Spacer(modifier = Modifier.height(14.dp))
+        Text(
+            text = title,
+            color = palette.textSecondary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Medium,
+            textAlign = TextAlign.Center
+        )
+        if (!subtitle.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = subtitle,
+                color = palette.textTertiary,
+                fontSize = 13.sp,
+                textAlign = TextAlign.Center,
+                lineHeight = 19.sp
+            )
+        }
     }
 }

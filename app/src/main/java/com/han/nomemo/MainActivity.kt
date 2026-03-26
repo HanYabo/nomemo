@@ -64,7 +64,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -81,6 +80,7 @@ class MainActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
+    private var hasLoadedRecords by mutableStateOf(false)
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
@@ -106,6 +106,7 @@ class MainActivity : BaseComposeActivity() {
         setContent {
             MainContent(
                 records = records,
+                hasLoadedRecords = hasLoadedRecords,
                 selectedFilter = selectedFilter,
                 onFilterSelect = { filter ->
                     selectedFilter = filter
@@ -153,6 +154,7 @@ class MainActivity : BaseComposeActivity() {
             }
             if (selectedFilter == filterSnapshot) {
                 records = loadedRecords
+                hasLoadedRecords = true
             }
         }
     }
@@ -246,6 +248,7 @@ class MainActivity : BaseComposeActivity() {
     @Composable
     private fun MainContent(
         records: List<MemoryRecord>,
+        hasLoadedRecords: Boolean,
         selectedFilter: String,
         onFilterSelect: (String) -> Unit,
         onDeleteRecords: (Set<String>) -> Unit,
@@ -265,16 +268,11 @@ class MainActivity : BaseComposeActivity() {
         var searchEnabled by remember { mutableStateOf(false) }
         var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
-        var enablePreviewImages by remember { mutableStateOf(false) }
 
         val selectedRecords = remember(records, selectedRecordIds) {
             records.filter { selectedRecordIds.contains(it.recordId) }
         }
         val listState = rememberLazyListState()
-        LaunchedEffect(Unit) {
-            delay(180)
-            enablePreviewImages = true
-        }
         val filteredRecords = remember(records, selectedFilter, searchQuery) {
             records.filter { record ->
                 val matchesFilter = when (selectedFilter) {
@@ -451,63 +449,71 @@ class MainActivity : BaseComposeActivity() {
                             }
                         }
 
-                        if (filteredRecords.isEmpty()) {
-                            GlassPanelText(
-                                text = when {
+                        if (!hasLoadedRecords) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        } else if (filteredRecords.isEmpty()) {
+                            NoMemoEmptyState(
+                                iconRes = when {
+                                    searchQuery.isNotBlank() -> R.drawable.ic_nm_search
+                                    else -> R.drawable.ic_nm_memory
+                                },
+                                title = when {
                                     searchQuery.isNotBlank() -> stringResource(R.string.search_empty)
                                     selectedFilter == FILTER_ARCHIVED -> stringResource(R.string.no_archived_records)
                                     else -> stringResource(R.string.no_records)
                                 },
-                                modifier = Modifier.padding(top = 12.dp)
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .offset(y = (-18).dp)
                             )
-                        }
-
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .padding(top = 10.dp),
-                            state = listState,
-                            contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
-                            ),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            items(
-                                items = filteredRecords,
-                                key = { it.recordId },
-                                contentType = {
-                                    if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
-                                }
-                            ) { record ->
-                                RecordCard(
-                                    record = record,
-                                    selected = selectedRecordIds.contains(record.recordId),
-                                    palette = palette,
-                                    adaptive = spec,
-                                    allowImageLoading = enablePreviewImages,
-                                    onClick = {
-                                        when {
-                                            selectedRecordIds.contains(record.recordId) -> {
-                                                selectedRecordIds = selectedRecordIds - record.recordId
-                                            }
-                                            selectedRecordIds.isNotEmpty() -> {
-                                                selectedRecordIds = selectedRecordIds + record.recordId
-                                            }
-                                            else -> {
-                                                onOpenDetail(record)
-                                            }
-                                        }
-                                    },
-                                    onLongPress = {
-                                        searchEnabled = false
-                                        moreMenuExpanded = false
-                                        selectedRecordIds = if (selectedRecordIds.contains(record.recordId)) {
-                                            selectedRecordIds - record.recordId
-                                        } else {
-                                            selectedRecordIds + record.recordId
-                                        }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(top = 10.dp),
+                                state = listState,
+                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
+                                ),
+                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                items(
+                                    items = filteredRecords,
+                                    key = { it.recordId },
+                                    contentType = {
+                                        if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
                                     }
-                                )
+                                ) { record ->
+                                    RecordCard(
+                                        record = record,
+                                        selected = selectedRecordIds.contains(record.recordId),
+                                        palette = palette,
+                                        adaptive = spec,
+                                        allowImageLoading = true,
+                                        onClick = {
+                                            when {
+                                                selectedRecordIds.contains(record.recordId) -> {
+                                                    selectedRecordIds = selectedRecordIds - record.recordId
+                                                }
+                                                selectedRecordIds.isNotEmpty() -> {
+                                                    selectedRecordIds = selectedRecordIds + record.recordId
+                                                }
+                                                else -> {
+                                                    onOpenDetail(record)
+                                                }
+                                            }
+                                        },
+                                        onLongPress = {
+                                            searchEnabled = false
+                                            moreMenuExpanded = false
+                                            selectedRecordIds = if (selectedRecordIds.contains(record.recordId)) {
+                                                selectedRecordIds - record.recordId
+                                            } else {
+                                                selectedRecordIds + record.recordId
+                                            }
+                                        }
+                                    )
+                                }
                             }
                         }
                     }
