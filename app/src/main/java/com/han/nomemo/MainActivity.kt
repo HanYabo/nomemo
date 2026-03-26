@@ -371,7 +371,7 @@ class MainActivity : BaseComposeActivity() {
                                 )
                             }
                         } else if (searchEnabled) {
-                            SearchBarCard(
+                            NoMemoSearchBarCard(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
                                 onClose = {
@@ -380,28 +380,11 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             )
                         } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 0.dp)
-                                    .offset(y = (-4).dp),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_nm_search,
-                                    contentDescription = stringResource(R.string.action_search),
-                                    onClick = { searchEnabled = true },
-                                    modifier = Modifier.padding(end = 10.dp),
-                                    size = spec.topActionButtonSize
-                                )
-                                GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_nm_more,
-                                    contentDescription = stringResource(R.string.action_more),
-                                    onClick = { moreMenuExpanded = true },
-                                    size = spec.topActionButtonSize
-                                )
-                            }
+                            NoMemoTopActionButtons(
+                                spec = spec,
+                                onSearchClick = { searchEnabled = true },
+                                onMoreClick = { moreMenuExpanded = true }
+                            )
 
                             Column(
                                 modifier = Modifier
@@ -596,7 +579,7 @@ class MainActivity : BaseComposeActivity() {
                                         onClick = { moreMenuExpanded = false }
                                     )
                             )
-                            MoreMenuPanel(
+                            NoMemoMoreMenuPanel(
                                 onSelectAll = {
                                     selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
                                     moreMenuExpanded = false

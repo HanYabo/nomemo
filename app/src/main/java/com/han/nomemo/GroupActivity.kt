@@ -7,9 +7,12 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -42,6 +45,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -55,6 +59,15 @@ class GroupActivity : BaseComposeActivity() {
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
+
+    private val settingsLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                recreate()
+            } else {
+                refreshContent()
+            }
+        }
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -75,6 +88,7 @@ class GroupActivity : BaseComposeActivity() {
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenReminder = { openReminderPage() },
+                onOpenSettings = { openSettingsPage() },
                 showAddSheet = showAddSheet,
                 onAddClick = { showAddSheet = true },
                 onDismissAddSheet = { showAddSheet = false }
@@ -145,6 +159,10 @@ class GroupActivity : BaseComposeActivity() {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
     }
 
+    private fun openSettingsPage() {
+        settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
+    }
+
     private fun deleteRecord(record: MemoryRecord) {
         val deleted = memoryStore.deleteRecord(record.recordId)
         if (deleted) {
@@ -163,6 +181,7 @@ class GroupActivity : BaseComposeActivity() {
         onOpenDetail: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenReminder: () -> Unit,
+        onOpenSettings: () -> Unit,
         showAddSheet: Boolean,
         onAddClick: () -> Unit,
         onDismissAddSheet: () -> Unit
@@ -171,8 +190,31 @@ class GroupActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
+        var searchEnabled by remember { mutableStateOf(false) }
+        var searchQuery by remember { mutableStateOf("") }
+        var moreMenuExpanded by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
-        val filtered = allRecords.filter { selectedCategoryCode == null || selectedCategoryCode == it.categoryCode }
+        val filtered = remember(allRecords, selectedCategoryCode, searchQuery) {
+            allRecords.filter { record ->
+                val matchesCategory = selectedCategoryCode == null || selectedCategoryCode == record.categoryCode
+                if (!matchesCategory) {
+                    return@filter false
+                }
+                val query = searchQuery.trim()
+                if (query.isBlank()) {
+                    return@filter true
+                }
+                val haystack = listOf(
+                    record.title,
+                    record.summary,
+                    record.memory,
+                    record.sourceText,
+                    record.analysis,
+                    record.categoryName
+                ).joinToString("\n") { it.orEmpty() }.lowercase()
+                haystack.contains(query.lowercase())
+            }
+        }
         val selectedRecord = remember(filtered, selectedRecordId) {
             filtered.firstOrNull { it.recordId == selectedRecordId }
         }
@@ -237,22 +279,21 @@ class GroupActivity : BaseComposeActivity() {
                                     size = spec.topActionButtonSize
                                 )
                             }
+                        } else if (searchEnabled) {
+                            NoMemoSearchBarCard(
+                                value = searchQuery,
+                                onValueChange = { searchQuery = it },
+                                onClose = {
+                                    searchEnabled = false
+                                    searchQuery = ""
+                                }
+                            )
                         } else {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .offset(y = (-4).dp),
-                                horizontalArrangement = Arrangement.End,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_nm_delete,
-                                    contentDescription = stringResource(R.string.action_delete),
-                                    onClick = {},
-                                    size = spec.topActionButtonSize
-                                )
-                            }
-
+                            NoMemoTopActionButtons(
+                                spec = spec,
+                                onSearchClick = { searchEnabled = true },
+                                onMoreClick = { moreMenuExpanded = true }
+                            )
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -309,8 +350,8 @@ class GroupActivity : BaseComposeActivity() {
                             Spacer(modifier = Modifier.weight(1f))
                         } else if (filtered.isEmpty()) {
                             NoMemoEmptyState(
-                                iconRes = R.drawable.ic_nm_group,
-                                title = stringResource(R.string.group_empty),
+                                iconRes = if (searchQuery.isNotBlank()) R.drawable.ic_nm_search else R.drawable.ic_nm_group,
+                                title = if (searchQuery.isNotBlank()) stringResource(R.string.search_empty) else stringResource(R.string.group_empty),
                                 modifier = Modifier
                                     .weight(1f)
                                     .offset(y = (-18).dp)
@@ -340,9 +381,9 @@ class GroupActivity : BaseComposeActivity() {
                                         adaptive = spec,
                                         allowImageLoading = true,
                                         onClick = {
-                                            when {
-                                                selectedRecordId == record.recordId -> {
-                                                    selectedRecordId = null
+                                        when {
+                                            selectedRecordId == record.recordId -> {
+                                                selectedRecordId = null
                                                 }
                                                 selectedRecordId != null -> {
                                                     selectedRecordId = record.recordId
@@ -350,12 +391,16 @@ class GroupActivity : BaseComposeActivity() {
                                                 else -> {
                                                     onOpenDetail(record)
                                                 }
-                                            }
-                                        },
-                                        onLongPress = { selectedRecordId = record.recordId }
-                                    )
-                                }
+                                        }
+                                    },
+                                    onLongPress = {
+                                        searchEnabled = false
+                                        moreMenuExpanded = false
+                                        selectedRecordId = record.recordId
+                                    }
+                                )
                             }
+                        }
                         }
                     }
 
@@ -399,6 +444,39 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             }
                         )
+                    }
+
+                    if (moreMenuExpanded) {
+                        val dismissInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(4f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable(
+                                        interactionSource = dismissInteraction,
+                                        indication = null,
+                                        onClick = { moreMenuExpanded = false }
+                                    )
+                            )
+                            NoMemoMoreMenuPanel(
+                                onOpenSettings = {
+                                    moreMenuExpanded = false
+                                    onOpenSettings()
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .statusBarsPadding()
+                                    .padding(
+                                        top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 8.dp,
+                                        end = spec.pageHorizontalPadding
+                                    )
+                                    .offset(x = (-6).dp)
+                            )
+                        }
                     }
 
                     if (showAddSheet) {

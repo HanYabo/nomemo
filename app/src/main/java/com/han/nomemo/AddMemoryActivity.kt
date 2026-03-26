@@ -112,7 +112,7 @@ class AddMemoryActivity : BaseComposeActivity() {
             val pendingInput = pendingAiInputAfterPermission ?: return@registerForActivityResult
             pendingAiInputAfterPermission = null
             if (!granted) {
-                Toast.makeText(this, "通知权限未开启，AI 完成后将只更新列表", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "通知权限未开启，AI完成后将只更新列表", Toast.LENGTH_SHORT).show()
             }
             if (!saving) {
                 saving = true
@@ -312,7 +312,7 @@ class AddMemoryActivity : BaseComposeActivity() {
         val reminderAt = resolveReminderAt(groupCode, reminderEnabled, selectedReminderAt)
         val createdAt = System.currentTimeMillis()
         val placeholderMemory = if (input.isBlank()) getString(R.string.memory_saved_screenshot) else input
-        val placeholderTitle = if (input.isBlank()) "AI 分析中" else buildRecordTitle(input, category.categoryName)
+        val placeholderTitle = if (input.isBlank()) "AI分析中" else buildRecordTitle(input, category.categoryName)
         val placeholderSummary = if (input.isBlank()) {
             "已创建图片记忆，等待模型提取内容"
         } else {
@@ -326,7 +326,7 @@ class AddMemoryActivity : BaseComposeActivity() {
             input,
             input,
             imageUriText,
-            "AI 分析中…完成后会自动更新这个条目",
+            "AI分析中…完成后会自动更新这个条目",
             placeholderMemory,
             "pending",
             groupCode,
@@ -339,7 +339,7 @@ class AddMemoryActivity : BaseComposeActivity() {
 
         memoryStore.prependRecord(placeholderRecord)
         setResult(RESULT_OK)
-        Toast.makeText(this, "已创建记忆，AI 分析完成后会自动更新", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "已创建记忆，AI分析完成后会自动更新", Toast.LENGTH_SHORT).show()
         finishWithTransition()
 
         Thread {
@@ -638,9 +638,9 @@ class AddMemoryActivity : BaseComposeActivity() {
 
                         Text(
                             text = if (aiMode) {
-                                "输入文本或图片，确认后先生成条目，再由 AI 回填标题、摘要和分析。"
+                                "输入文本或图片，确认后先生成条目，再由AI回填标题、摘要和分析。"
                             } else {
-                                "像一个轻量 prompt 一样快速记下内容，不打断主页面浏览。"
+                                "像一个轻量prompt一样快速记下内容，不打断主页面浏览。"
                             },
                             color = palette.textSecondary,
                             fontSize = 13.sp,
@@ -667,7 +667,7 @@ class AddMemoryActivity : BaseComposeActivity() {
                         if (aiMode) {
                             ActionCard(
                                 title = "粘贴剪贴板内容",
-                                subtitle = "把刚复制的文字快速带进 AI 解析，减少来回复制补录的步骤。",
+                                subtitle = "把刚复制的文字快速带进AI解析，减少来回复制补录的步骤。",
                                 enabled = !saving,
                                 modifier = Modifier.padding(top = 14.dp),
                                 onClick = onPasteClipboard

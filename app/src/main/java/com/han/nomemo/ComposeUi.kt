@@ -35,16 +35,19 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -75,6 +78,8 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.draw.shadow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -440,6 +445,187 @@ fun GlassIconCircleButton(
 }
 
 @Composable
+fun NoMemoTopActionButtons(
+    spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
+    modifier: Modifier = Modifier,
+    onSearchClick: () -> Unit,
+    onMoreClick: () -> Unit
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 0.dp)
+            .offset(y = (-4).dp),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        GlassIconCircleButton(
+            iconRes = R.drawable.ic_nm_search,
+            contentDescription = stringResource(R.string.action_search),
+            onClick = onSearchClick,
+            modifier = Modifier.padding(end = 10.dp),
+            size = spec.topActionButtonSize
+        )
+        GlassIconCircleButton(
+            iconRes = R.drawable.ic_nm_more,
+            contentDescription = stringResource(R.string.action_more),
+            onClick = onMoreClick,
+            size = spec.topActionButtonSize
+        )
+    }
+}
+
+@Composable
+fun NoMemoSearchBarCard(
+    value: String,
+    onValueChange: (String) -> Unit,
+    onClose: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    Card(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(top = 8.dp),
+        shape = RoundedCornerShape(28.dp),
+        colors = CardDefaults.cardColors(containerColor = palette.glassFill),
+        border = BorderStroke(1.dp, palette.glassStroke)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_nm_search),
+                contentDescription = stringResource(R.string.action_search),
+                tint = palette.textSecondary,
+                modifier = Modifier.size(20.dp)
+            )
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                textStyle = TextStyle(
+                    color = palette.textPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Medium
+                ),
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 12.dp)
+            ) { innerTextField ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .widthIn(min = 0.dp)
+                ) {
+                    if (value.isBlank()) {
+                        Text(
+                            text = stringResource(R.string.search_placeholder),
+                            color = palette.textTertiary,
+                            fontSize = 15.sp
+                        )
+                    }
+                    innerTextField()
+                }
+            }
+            TextButton(onClick = onClose) {
+                Text(text = stringResource(R.string.cancel))
+            }
+        }
+    }
+}
+
+@Composable
+fun NoMemoMoreMenuPanel(
+    modifier: Modifier = Modifier,
+    onOpenSettings: (() -> Unit)? = null,
+    onSelectAll: (() -> Unit)? = null
+) {
+    val palette = rememberNoMemoPalette()
+    val menuSurface = if (isSystemInDarkTheme()) {
+        Color(0xFF171B22).copy(alpha = 0.95f)
+    } else {
+        Color(0xFFFBFBFC).copy(alpha = 0.94f)
+    }
+    Card(
+        modifier = modifier
+            .width(176.dp)
+            .shadow(14.dp, RoundedCornerShape(22.dp)),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = menuSurface),
+        border = BorderStroke(1.dp, palette.glassStroke)
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+            if (onSelectAll != null) {
+                NoMemoMoreMenuActionRow(
+                    iconRes = R.drawable.ic_sheet_check,
+                    label = stringResource(R.string.action_select_all),
+                    onClick = onSelectAll
+                )
+            }
+            if (onOpenSettings != null) {
+                NoMemoMoreMenuActionRow(
+                    iconRes = R.drawable.ic_nm_settings,
+                    label = stringResource(R.string.action_settings),
+                    onClick = onOpenSettings,
+                    modifier = Modifier.padding(top = if (onSelectAll != null) 6.dp else 0.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoMemoMoreMenuActionRow(
+    iconRes: Int,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(palette.glassFillSoft)
+            .padding(horizontal = 12.dp, vertical = 10.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(palette.glassFill)
+                    .border(1.dp, palette.glassStroke, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    tint = palette.textPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Text(
+                text = label,
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(start = 12.dp)
+            )
+        }
+    }
+}
+
+@Composable
 fun NoMemoBottomDock(
     selectedTab: NoMemoDockTab,
     onOpenMemory: () -> Unit,
@@ -608,13 +794,13 @@ private fun RowScope.DockNavItem(
                 painter = painterResource(id = iconRes),
                 contentDescription = text,
                 tint = itemColor,
-                modifier = Modifier.size(if (spec.isNarrow) 18.dp else 20.dp)
+                modifier = Modifier.size(if (spec.isNarrow) 20.dp else 22.dp)
             )
             Spacer(modifier = Modifier.height(4.dp))
             Text(
                 text = text,
                 color = itemColor,
-                fontSize = if (spec.isNarrow) 10.sp else 11.sp,
+                fontSize = if (spec.isNarrow) 11.sp else 12.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1
             )

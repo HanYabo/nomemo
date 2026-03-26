@@ -14,11 +14,18 @@ import android.net.Uri
 import android.os.Build
 import android.provider.OpenableColumns
 import android.text.TextUtils
+import android.view.WindowManager
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -27,6 +34,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -43,13 +51,12 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,6 +69,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -69,8 +77,8 @@ import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import kotlinx.coroutines.delay
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AddMemorySheet(
     onDismiss: () -> Unit
@@ -82,7 +90,6 @@ fun AddMemorySheet(
     val adaptive = rememberNoMemoAdaptiveSpec()
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     var aiMode by remember { mutableStateOf(true) }
     var inputText by remember { mutableStateOf("") }
@@ -94,11 +101,43 @@ fun AddMemorySheet(
     var reminderAt by remember { mutableStateOf(0L) }
     var saving by remember { mutableStateOf(false) }
     var pendingAiInput by remember { mutableStateOf<String?>(null) }
+    var visible by remember { mutableStateOf(false) }
+    var dismissCommitted by remember { mutableStateOf(false) }
 
     val allCategories = remember { CategoryCatalog.getAllCategories() }
     val panelSurface = palette.glassFill
     val panelBorder = palette.glassStroke
     val sheetSurface = if (isDark) Color(0xFF12161D) else palette.memoBgStart
+    val requestDismiss = remember(onDismiss, saving) {
+        {
+            if (!saving) {
+                visible = false
+            }
+        }
+    }
+
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val previousSoftInputMode = window?.attributes?.softInputMode
+        window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        onDispose {
+            if (window != null && previousSoftInputMode != null) {
+                window.setSoftInputMode(previousSoftInputMode)
+            }
+        }
+    }
+
+    LaunchedEffect(Unit) {
+        visible = true
+    }
+
+    LaunchedEffect(visible) {
+        if (!visible && !dismissCommitted) {
+            dismissCommitted = true
+            delay(220)
+            onDismiss()
+        }
+    }
 
     val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -127,42 +166,71 @@ fun AddMemorySheet(
             reminderEnabled = reminderEnabled,
             reminderAt = reminderAt
         )
-        onDismiss()
+        requestDismiss()
     }
 
     BackHandler(enabled = true) {
-        if (!saving) onDismiss()
+        requestDismiss()
     }
 
-    ModalBottomSheet(
-        onDismissRequest = { if (!saving) onDismiss() },
-        sheetState = sheetState,
-        containerColor = sheetSurface,
-        scrimColor = Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f),
-        shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-        dragHandle = {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(12f)
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 180))
+        ) {
             Box(
                 modifier = Modifier
-                    .padding(top = 10.dp)
-                    .size(width = 56.dp, height = 5.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .background(if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000))
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f))
+                    .clickable(onClick = requestDismiss)
             )
         }
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .heightIn(min = if (adaptive.isNarrow) 560.dp else 620.dp, max = if (adaptive.isNarrow) 700.dp else 760.dp)
-                .verticalScroll(rememberScrollState())
-                .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 18.dp)
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 260)
+            ) + fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 220)
+            ) + fadeOut(animationSpec = tween(durationMillis = 150)),
+            modifier = Modifier.align(Alignment.BottomCenter)
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
+                colors = CardDefaults.cardColors(containerColor = sheetSurface),
+                border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.06f) else panelBorder.copy(alpha = 0.8f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .heightIn(min = if (adaptive.isNarrow) 560.dp else 620.dp, max = if (adaptive.isNarrow) 700.dp else 760.dp)
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 18.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .size(width = 56.dp, height = 5.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000))
+                    )
+            Row(
+                modifier = Modifier.padding(top = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
                 GlassIconCircleButton(
                     iconRes = R.drawable.ic_sheet_close,
                     contentDescription = "\u5173\u95ED",
-                    onClick = onDismiss,
+                    onClick = requestDismiss,
                     size = adaptive.topActionButtonSize
                 )
                 Row(
@@ -207,11 +275,64 @@ fun AddMemorySheet(
                                 reminderEnabled = reminderEnabled,
                                 reminderAt = reminderAt
                             )
-                            onDismiss()
+                            requestDismiss()
                         }
                     },
                     size = adaptive.topActionButtonSize
                 )
+            }
+
+            if (!aiMode) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = panelSurface),
+                    border = BorderStroke(1.dp, panelBorder)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { categoryMenuExpanded = true }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "\u8BB0\u5FC6\u7C7B\u522B",
+                                color = palette.textSecondary,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = selectedCategory.categoryName,
+                                color = palette.textPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(R.drawable.ic_sheet_chevron_down),
+                            contentDescription = null,
+                            tint = palette.textSecondary
+                        )
+                        DropdownMenu(
+                            expanded = categoryMenuExpanded,
+                            onDismissRequest = { categoryMenuExpanded = false }
+                        ) {
+                            allCategories.forEach { item ->
+                                DropdownMenuItem(
+                                    text = { Text(item.categoryName) },
+                                    onClick = {
+                                        selectedCategory = item
+                                        categoryMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             Card(
@@ -232,8 +353,8 @@ fun AddMemorySheet(
                     ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(18.dp)
-                        .height(170.dp)
+                        .padding(horizontal = 18.dp, vertical = 18.dp)
+                        .height(if (adaptive.isNarrow) 154.dp else 164.dp)
                 ) { inner ->
                     Box(Modifier.fillMaxWidth()) {
                         if (inputText.isBlank()) {
@@ -284,58 +405,6 @@ fun AddMemorySheet(
                     subtitle = if (selectedImageUri == null) "\u4E3A\u8FD9\u6761\u8BB0\u5FC6\u9009\u62E9\u4E00\u5F20\u56FE\u7247" else imageStatusText,
                     onClick = { pickImageLauncher.launch(arrayOf("image/*")) }
                 )
-
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 12.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = panelSurface),
-                    border = BorderStroke(1.dp, panelBorder)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { categoryMenuExpanded = true }
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "\u8BB0\u5FC6\u7C7B\u522B",
-                                color = palette.textSecondary,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = selectedCategory.categoryName,
-                                color = palette.textPrimary,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        Icon(
-                            painter = painterResource(R.drawable.ic_sheet_chevron_down),
-                            contentDescription = null,
-                            tint = palette.textSecondary
-                        )
-                        DropdownMenu(
-                            expanded = categoryMenuExpanded,
-                            onDismissRequest = { categoryMenuExpanded = false }
-                        ) {
-                            allCategories.forEach { item ->
-                                DropdownMenuItem(
-                                    text = { Text(item.categoryName) },
-                                    onClick = {
-                                        selectedCategory = item
-                                        categoryMenuExpanded = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                }
-
             }
 
             Card(
@@ -346,7 +415,7 @@ fun AddMemorySheet(
                 colors = CardDefaults.cardColors(containerColor = panelSurface),
                 border = BorderStroke(1.dp, panelBorder)
             ) {
-                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
@@ -376,19 +445,12 @@ fun AddMemorySheet(
                     if (reminderEnabled) {
                         SheetInlineButton(
                             text = if (reminderAt > 0L) "\u91CD\u65B0\u9009\u62E9\u65F6\u95F4" else "\u9009\u62E9\u65F6\u95F4",
-                            modifier = Modifier.padding(top = 12.dp),
+                            modifier = Modifier.padding(top = 10.dp),
                             onClick = {
                                 openDateTimePicker(activity, reminderAt) { selected ->
                                     reminderAt = selected
                                 }
                             }
-                        )
-                    } else {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 12.dp)
-                                .height(40.dp)
                         )
                     }
                 }
@@ -418,6 +480,8 @@ fun AddMemorySheet(
                         }
                     )
                 }
+            }
+        }
             }
         }
     }
