@@ -256,6 +256,7 @@ class ReminderActivity : BaseComposeActivity() {
         val selectedRecord = remember(filteredRecords, selectedRecordId) {
             filteredRecords.firstOrNull { it.recordId == selectedRecordId }
         }
+        val showCenteredEmptyState = hasLoadedRecords && filteredRecords.isEmpty()
         LaunchedEffect(filteredRecords, selectedRecordId) {
             if (selectedRecordId != null && selectedRecord == null) {
                 selectedRecordId = null
@@ -361,16 +362,8 @@ class ReminderActivity : BaseComposeActivity() {
                             }
                         }
 
-                        if (!hasLoadedRecords) {
+                        if (!hasLoadedRecords || filteredRecords.isEmpty()) {
                             Spacer(modifier = Modifier.weight(1f))
-                        } else if (filteredRecords.isEmpty()) {
-                            NoMemoEmptyState(
-                                iconRes = if (searchQuery.isNotBlank()) R.drawable.ic_nm_search else R.drawable.ic_nm_reminder,
-                                title = if (searchQuery.isNotBlank()) stringResource(R.string.search_empty) else stringResource(R.string.reminder_empty),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .offset(y = (-18).dp)
-                            )
                         } else {
                             LazyColumn(
                                 modifier = Modifier
@@ -415,6 +408,16 @@ class ReminderActivity : BaseComposeActivity() {
                                 }
                             }
                         }
+                    }
+
+                    if (showCenteredEmptyState) {
+                        NoMemoEmptyState(
+                            iconRes = if (searchQuery.isNotBlank()) R.drawable.ic_nm_search else R.drawable.ic_nm_reminder,
+                            title = if (searchQuery.isNotBlank()) stringResource(R.string.search_empty) else stringResource(R.string.reminder_empty),
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(horizontal = spec.pageHorizontalPadding)
+                        )
                     }
 
                     NoMemoBottomDock(

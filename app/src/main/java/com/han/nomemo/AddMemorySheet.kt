@@ -107,7 +107,7 @@ fun AddMemorySheet(
     val allCategories = remember { CategoryCatalog.getAllCategories() }
     val panelSurface = palette.glassFill
     val panelBorder = palette.glassStroke
-    val sheetSurface = if (isDark) Color(0xFF12161D) else palette.memoBgStart
+    val sheetSurface = if (isDark) Color(0xFF161A20) else Color(0xFFF6F6F7)
     val requestDismiss = remember(onDismiss, saving) {
         {
             if (!saving) {
@@ -205,8 +205,7 @@ fun AddMemorySheet(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-                colors = CardDefaults.cardColors(containerColor = sheetSurface),
-                border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.06f) else panelBorder.copy(alpha = 0.8f))
+                colors = CardDefaults.cardColors(containerColor = sheetSurface)
             ) {
                 Column(
                     modifier = Modifier
@@ -496,6 +495,11 @@ private fun SheetModeChip(
 ) {
     val isDark = isSystemInDarkTheme()
     val palette = rememberNoMemoPalette()
+    val selectedBackground = if (isDark) {
+        Color.White.copy(alpha = 0.08f)
+    } else {
+        Color.Black.copy(alpha = 0.06f)
+    }
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
@@ -503,15 +507,20 @@ private fun SheetModeChip(
             .clip(RoundedCornerShape(999.dp))
             .background(
                 if (selected) {
-                    if (isDark) Color(0xFF233752) else Color(0xFFDCEBFF)
+                    selectedBackground
                 } else {
                     Color.Transparent
                 }
             )
+            .border(
+                width = if (selected) 1.dp else 0.dp,
+                color = if (selected) palette.glassStroke else Color.Transparent,
+                shape = RoundedCornerShape(999.dp)
+            )
     ) {
         Text(
             text = text,
-            color = if (selected) palette.accent else palette.textSecondary,
+            color = if (selected) palette.textPrimary else palette.textSecondary,
             fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier.align(Alignment.Center)
@@ -527,14 +536,24 @@ private fun SheetActionCard(
 ) {
     val isDark = isSystemInDarkTheme()
     val palette = rememberNoMemoPalette()
+    val actionSurface = if (isDark) {
+        Color.White.copy(alpha = 0.05f)
+    } else {
+        Color.Black.copy(alpha = 0.03f)
+    }
+    val actionBorder = if (isDark) {
+        Color.White.copy(alpha = 0.10f)
+    } else {
+        palette.glassStroke
+    }
     PressScaleBox(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp)
             .clip(RoundedCornerShape(24.dp))
-            .background(if (isDark) Color(0xFF1A1F27) else Color.White)
-            .border(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000), RoundedCornerShape(24.dp))
+            .background(actionSurface)
+            .border(1.dp, actionBorder, RoundedCornerShape(24.dp))
             .padding(horizontal = 16.dp, vertical = 16.dp)
     ) {
         Column {

@@ -304,6 +304,7 @@ class MainActivity : BaseComposeActivity() {
             filteredRecords.isNotEmpty() &&
                 filteredRecords.all { selectedRecordIds.contains(it.recordId) }
         }
+        val showCenteredEmptyState = hasLoadedRecords && filteredRecords.isEmpty()
 
         LaunchedEffect(filteredRecords, selectedRecordIds) {
             val visibleIds = filteredRecords.map { it.recordId }.toSet()
@@ -432,23 +433,8 @@ class MainActivity : BaseComposeActivity() {
                             }
                         }
 
-                        if (!hasLoadedRecords) {
+                        if (!hasLoadedRecords || filteredRecords.isEmpty()) {
                             Spacer(modifier = Modifier.weight(1f))
-                        } else if (filteredRecords.isEmpty()) {
-                            NoMemoEmptyState(
-                                iconRes = when {
-                                    searchQuery.isNotBlank() -> R.drawable.ic_nm_search
-                                    else -> R.drawable.ic_nm_memory
-                                },
-                                title = when {
-                                    searchQuery.isNotBlank() -> stringResource(R.string.search_empty)
-                                    selectedFilter == FILTER_ARCHIVED -> stringResource(R.string.no_archived_records)
-                                    else -> stringResource(R.string.no_records)
-                                },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .offset(y = (-18).dp)
-                            )
                         } else {
                             LazyColumn(
                                 modifier = Modifier
@@ -499,6 +485,23 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             }
                         }
+                    }
+
+                    if (showCenteredEmptyState) {
+                        NoMemoEmptyState(
+                            iconRes = when {
+                                searchQuery.isNotBlank() -> R.drawable.ic_nm_search
+                                else -> R.drawable.ic_nm_memory
+                            },
+                            title = when {
+                                searchQuery.isNotBlank() -> stringResource(R.string.search_empty)
+                                selectedFilter == FILTER_ARCHIVED -> stringResource(R.string.no_archived_records)
+                                else -> stringResource(R.string.no_records)
+                            },
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(horizontal = spec.pageHorizontalPadding)
+                        )
                     }
 
                     if (selectedRecords.isEmpty()) {

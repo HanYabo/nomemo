@@ -218,6 +218,7 @@ class GroupActivity : BaseComposeActivity() {
         val selectedRecord = remember(filtered, selectedRecordId) {
             filtered.firstOrNull { it.recordId == selectedRecordId }
         }
+        val showCenteredEmptyState = hasLoadedRecords && filtered.isEmpty()
         LaunchedEffect(filtered, selectedRecordId) {
             if (selectedRecordId != null && selectedRecord == null) {
                 selectedRecordId = null
@@ -346,16 +347,8 @@ class GroupActivity : BaseComposeActivity() {
                             }
                         }
 
-                        if (!hasLoadedRecords) {
+                        if (!hasLoadedRecords || filtered.isEmpty()) {
                             Spacer(modifier = Modifier.weight(1f))
-                        } else if (filtered.isEmpty()) {
-                            NoMemoEmptyState(
-                                iconRes = if (searchQuery.isNotBlank()) R.drawable.ic_nm_search else R.drawable.ic_nm_group,
-                                title = if (searchQuery.isNotBlank()) stringResource(R.string.search_empty) else stringResource(R.string.group_empty),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .offset(y = (-18).dp)
-                            )
                         } else {
                             LazyColumn(
                                 modifier = Modifier
@@ -402,6 +395,16 @@ class GroupActivity : BaseComposeActivity() {
                             }
                         }
                         }
+                    }
+
+                    if (showCenteredEmptyState) {
+                        NoMemoEmptyState(
+                            iconRes = if (searchQuery.isNotBlank()) R.drawable.ic_nm_search else R.drawable.ic_nm_group,
+                            title = if (searchQuery.isNotBlank()) stringResource(R.string.search_empty) else stringResource(R.string.group_empty),
+                            modifier = Modifier
+                                .align(Alignment.Center)
+                                .padding(horizontal = spec.pageHorizontalPadding)
+                        )
                     }
 
                     NoMemoBottomDock(
