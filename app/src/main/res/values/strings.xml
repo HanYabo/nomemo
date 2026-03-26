@@ -109,4 +109,7 @@
     <string name="settings_clear_confirm_message">确定清空当前设备上的所有记忆和提醒吗？此操作无法撤销。</string>
     <string name="settings_saved">设置已保存</string>
     <string name="settings_data_cleared">本地数据已清空</string>
+    <string name="action_select_all">全选</string>
+    <string name="delete_selected_batch_message">确定删除已选中的 %1$d 条记忆吗？</string>
+    <string name="selected_count_format">已选择 %1$d 项</string>
 </resources>

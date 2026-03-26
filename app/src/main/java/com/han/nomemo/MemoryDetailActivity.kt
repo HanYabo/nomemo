@@ -96,7 +96,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     override fun finish() {
         super.finish()
-        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
+        overridePendingTransition(0, 0)
     }
 
     private fun registerMemoryChangeReceiver() {

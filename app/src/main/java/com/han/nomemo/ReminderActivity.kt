@@ -154,19 +154,19 @@ class ReminderActivity : BaseComposeActivity() {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         startActivity(intent)
-        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
+        overridePendingTransition(0, 0)
         finish()
     }
 
     private fun openGroupPage() {
         startActivity(Intent(this, GroupActivity::class.java))
-        overridePendingTransition(R.anim.page_back_enter, R.anim.page_back_exit)
+        overridePendingTransition(0, 0)
         finish()
     }
 
     private fun openDetailPage(recordId: String) {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
-        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+        overridePendingTransition(0, 0)
     }
 
     private fun deleteRecord(record: MemoryRecord) {

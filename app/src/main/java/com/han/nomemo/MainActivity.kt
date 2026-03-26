@@ -8,11 +8,11 @@ import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,6 +31,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
@@ -48,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
@@ -56,6 +58,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 
 class MainActivity : BaseComposeActivity() {
     companion object {
@@ -99,8 +102,8 @@ class MainActivity : BaseComposeActivity() {
                     selectedFilter = filter
                     refreshRecords()
                 },
-                onDeleteRecord = { record -> deleteRecord(record) },
-                onArchiveRecord = { record -> toggleArchive(record) },
+                onDeleteRecords = { recordIds -> deleteRecords(recordIds) },
+                onArchiveRecords = { selectedRecords -> toggleArchive(selectedRecords) },
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 showAddSheet = showAddSheet,
                 onAddClick = { showAddSheet = true },
@@ -159,22 +162,24 @@ class MainActivity : BaseComposeActivity() {
 
     private fun openGroupPage() {
         startActivity(Intent(this, GroupActivity::class.java))
-        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+        overridePendingTransition(0, 0)
+        finish()
     }
 
     private fun openReminderPage() {
         startActivity(Intent(this, ReminderActivity::class.java))
-        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+        overridePendingTransition(0, 0)
+        finish()
     }
 
     private fun openSettingsPage() {
         settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
-        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+        overridePendingTransition(0, 0)
     }
 
     private fun openDetailPage(recordId: String) {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
-        overridePendingTransition(R.anim.page_forward_enter, R.anim.page_forward_exit)
+        overridePendingTransition(0, 0)
     }
 
     private fun toggleArchive(record: MemoryRecord) {
@@ -196,13 +201,43 @@ class MainActivity : BaseComposeActivity() {
         }
     }
 
+    private fun toggleArchive(records: List<MemoryRecord>) {
+        if (records.isEmpty()) {
+            return
+        }
+        val nextArchived = records.any { !it.isArchived }
+        records.forEach { record ->
+            memoryStore.archiveRecord(record.recordId, nextArchived)
+        }
+        refreshRecords()
+        Toast.makeText(
+            this,
+            if (nextArchived) R.string.archive_success else R.string.unarchive_success,
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun deleteRecords(recordIds: Set<String>) {
+        if (recordIds.isEmpty()) {
+            return
+        }
+        var deletedAny = false
+        recordIds.forEach { recordId ->
+            deletedAny = memoryStore.deleteRecord(recordId) || deletedAny
+        }
+        if (deletedAny) {
+            refreshRecords()
+            Toast.makeText(this, R.string.delete_success, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     @Composable
     private fun MainContent(
         records: List<MemoryRecord>,
         selectedFilter: String,
         onFilterSelect: (String) -> Unit,
-        onDeleteRecord: (MemoryRecord) -> Unit,
-        onArchiveRecord: (MemoryRecord) -> Unit,
+        onDeleteRecords: (Set<String>) -> Unit,
+        onArchiveRecords: (List<MemoryRecord>) -> Unit,
         onOpenDetail: (MemoryRecord) -> Unit,
         showAddSheet: Boolean,
         onAddClick: () -> Unit,
@@ -213,13 +248,14 @@ class MainActivity : BaseComposeActivity() {
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
-        var selectedRecordId by remember { mutableStateOf<String?>(null) }
+        var selectedRecordIds by remember { mutableStateOf(setOf<String>()) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var searchEnabled by remember { mutableStateOf(false) }
         var searchQuery by remember { mutableStateOf("") }
+        var moreMenuExpanded by remember { mutableStateOf(false) }
 
-        val selectedRecord = remember(records, selectedRecordId) {
-            records.firstOrNull { it.recordId == selectedRecordId }
+        val selectedRecords = remember(records, selectedRecordIds) {
+            records.filter { selectedRecordIds.contains(it.recordId) }
         }
         val filteredRecords = remember(records, selectedFilter, searchQuery) {
             records.filter { record ->
@@ -249,30 +285,16 @@ class MainActivity : BaseComposeActivity() {
             }
         }
 
-        LaunchedEffect(filteredRecords, selectedRecordId) {
-            if (selectedRecordId != null && filteredRecords.none { it.recordId == selectedRecordId }) {
-                selectedRecordId = null
+        LaunchedEffect(filteredRecords, selectedRecordIds) {
+            val visibleIds = filteredRecords.map { it.recordId }.toSet()
+            val sanitizedIds = selectedRecordIds.filter { visibleIds.contains(it) }.toSet()
+            if (sanitizedIds != selectedRecordIds) {
+                selectedRecordIds = sanitizedIds
+            }
+            if (selectedRecordIds.isNotEmpty() && sanitizedIds.isEmpty()) {
                 showDeleteConfirm = false
             }
         }
-
-        var entered by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) { entered = true }
-        val listAlpha by animateFloatAsState(
-            targetValue = if (entered) 1f else 0f,
-            animationSpec = tween(durationMillis = 460),
-            label = "listAlpha"
-        )
-        val listOffsetY by animateFloatAsState(
-            targetValue = if (entered) 0f else 26f,
-            animationSpec = tween(durationMillis = 460),
-            label = "listOffset"
-        )
-        val listScale by animateFloatAsState(
-            targetValue = if (entered) 1f else 0.985f,
-            animationSpec = tween(durationMillis = 460),
-            label = "listScale"
-        )
 
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
@@ -298,7 +320,7 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             )
                         } else {
-                            if (selectedRecord != null) {
+                            if (selectedRecords.isNotEmpty()) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -307,7 +329,7 @@ class MainActivity : BaseComposeActivity() {
                                 ) {
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = stringResource(R.string.page_title),
+                                            text = getString(R.string.selected_count_format, selectedRecords.size),
                                             color = palette.textPrimary,
                                             fontSize = spec.titleSize,
                                             fontWeight = FontWeight.Bold
@@ -315,12 +337,15 @@ class MainActivity : BaseComposeActivity() {
                                     }
                                     GlassIconCircleButton(
                                         iconRes = R.drawable.ic_sheet_calendar,
-                                        contentDescription = if (selectedRecord.isArchived) {
+                                        contentDescription = if (selectedRecords.all { it.isArchived }) {
                                             stringResource(R.string.action_unarchive)
                                         } else {
                                             stringResource(R.string.action_archive)
                                         },
-                                        onClick = { onArchiveRecord(selectedRecord) },
+                                        onClick = {
+                                            onArchiveRecords(selectedRecords)
+                                            selectedRecordIds = emptySet()
+                                        },
                                         modifier = Modifier.padding(end = 10.dp),
                                         size = spec.topActionButtonSize
                                     )
@@ -348,9 +373,9 @@ class MainActivity : BaseComposeActivity() {
                                         size = spec.topActionButtonSize
                                     )
                                     GlassIconCircleButton(
-                                        iconRes = R.drawable.ic_nm_settings,
-                                        contentDescription = stringResource(R.string.action_settings),
-                                        onClick = onOpenSettings,
+                                        iconRes = R.drawable.ic_nm_more,
+                                        contentDescription = stringResource(R.string.action_more),
+                                        onClick = { moreMenuExpanded = true },
                                         size = spec.topActionButtonSize
                                     )
                                 }
@@ -414,13 +439,7 @@ class MainActivity : BaseComposeActivity() {
                         LazyColumn(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(top = 10.dp)
-                                .graphicsLayer {
-                                    alpha = listAlpha
-                                    translationY = listOffsetY
-                                    scaleX = listScale
-                                    scaleY = listScale
-                                },
+                                .padding(top = 10.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                 bottom = spec.pageBottomPadding + 20.dp
                             ),
@@ -429,21 +448,27 @@ class MainActivity : BaseComposeActivity() {
                             items(filteredRecords, key = { it.recordId }) { record ->
                                 RecordCard(
                                     record = record,
-                                    selected = selectedRecordId == record.recordId,
+                                    selected = selectedRecordIds.contains(record.recordId),
                                     onClick = {
                                         when {
-                                            selectedRecordId == record.recordId -> {
-                                                selectedRecordId = null
+                                            selectedRecordIds.contains(record.recordId) -> {
+                                                selectedRecordIds = selectedRecordIds - record.recordId
                                             }
-                                            selectedRecordId != null -> {
-                                                selectedRecordId = record.recordId
+                                            selectedRecordIds.isNotEmpty() -> {
+                                                selectedRecordIds = selectedRecordIds + record.recordId
                                             }
                                             else -> {
                                                 onOpenDetail(record)
                                             }
                                         }
                                     },
-                                    onLongPress = { selectedRecordId = record.recordId }
+                                    onLongPress = {
+                                        selectedRecordIds = if (selectedRecordIds.contains(record.recordId)) {
+                                            selectedRecordIds - record.recordId
+                                        } else {
+                                            selectedRecordIds + record.recordId
+                                        }
+                                    }
                                 )
                             }
                         }
@@ -466,16 +491,16 @@ class MainActivity : BaseComposeActivity() {
                         onAddClick = onAddClick
                     )
 
-                    if (showDeleteConfirm && selectedRecord != null) {
+                    if (showDeleteConfirm && selectedRecordIds.isNotEmpty()) {
                         AlertDialog(
                             onDismissRequest = { showDeleteConfirm = false },
                             title = { Text(stringResource(R.string.delete_selected_title)) },
-                            text = { Text(stringResource(R.string.delete_selected_message)) },
+                            text = { Text(getString(R.string.delete_selected_batch_message, selectedRecordIds.size)) },
                             confirmButton = {
                                 TextButton(
                                     onClick = {
-                                        onDeleteRecord(selectedRecord)
-                                        selectedRecordId = null
+                                        onDeleteRecords(selectedRecordIds)
+                                        selectedRecordIds = emptySet()
                                         showDeleteConfirm = false
                                     }
                                 ) {
@@ -488,6 +513,43 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             }
                         )
+                    }
+
+                    if (moreMenuExpanded) {
+                        val dismissInteraction = remember { MutableInteractionSource() }
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .zIndex(4f)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable(
+                                        interactionSource = dismissInteraction,
+                                        indication = null,
+                                        onClick = { moreMenuExpanded = false }
+                                    )
+                            )
+                            MoreMenuPanel(
+                                onSelectAll = {
+                                    selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
+                                    moreMenuExpanded = false
+                                },
+                                onOpenSettings = {
+                                    moreMenuExpanded = false
+                                    onOpenSettings()
+                                },
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .statusBarsPadding()
+                                    .padding(
+                                        top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 8.dp,
+                                        end = spec.pageHorizontalPadding
+                                    )
+                                    .offset(x = (-6).dp)
+                            )
+                        }
                     }
 
                     if (showAddSheet) {
@@ -571,6 +633,105 @@ class MainActivity : BaseComposeActivity() {
                 TextButton(onClick = onClose) {
                     Text(text = stringResource(R.string.cancel))
                 }
+            }
+        }
+    }
+
+    @Composable
+    private fun MoreMenuItemContent(
+        iconRes: Int,
+        label: String
+    ) {
+        val palette = rememberNoMemoPalette()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(CircleShape)
+                    .background(palette.glassFill)
+                    .border(1.dp, palette.glassStroke, CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    tint = palette.textPrimary,
+                    modifier = Modifier.size(18.dp)
+                )
+            }
+            Text(
+                text = label,
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(start = 12.dp)
+            )
+        }
+    }
+
+    @Composable
+    private fun MoreMenuActionRow(
+        iconRes: Int,
+        label: String,
+        onClick: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        val palette = rememberNoMemoPalette()
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(18.dp))
+                .background(palette.glassFillSoft)
+                .padding(horizontal = 12.dp, vertical = 10.dp)
+        ) {
+            MoreMenuItemContent(
+                iconRes = iconRes,
+                label = label
+            )
+        }
+    }
+
+    @Composable
+    private fun MoreMenuPanel(
+        onSelectAll: () -> Unit,
+        onOpenSettings: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        val menuSurface = if (isDark) {
+            Color(0xFF171B22).copy(alpha = 0.95f)
+        } else {
+            Color(0xFFFBFBFC).copy(alpha = 0.94f)
+        }
+        Card(
+            modifier = modifier
+                .width(176.dp)
+                .shadow(14.dp, RoundedCornerShape(22.dp)),
+            shape = RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = menuSurface
+            ),
+            border = androidx.compose.foundation.BorderStroke(1.dp, palette.glassStroke)
+        ) {
+            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+                MoreMenuActionRow(
+                    iconRes = R.drawable.ic_sheet_check,
+                    label = stringResource(R.string.action_select_all),
+                    onClick = onSelectAll
+                )
+                MoreMenuActionRow(
+                    iconRes = R.drawable.ic_nm_settings,
+                    label = stringResource(R.string.action_settings),
+                    onClick = onOpenSettings,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
             }
         }
     }
