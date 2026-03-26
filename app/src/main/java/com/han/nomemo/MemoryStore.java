@@ -18,6 +18,8 @@ public class MemoryStore {
 
     private final Context appContext;
     private final SharedPreferences preferences;
+    private String cachedRawRecords;
+    private List<MemoryRecord> cachedRecords;
 
     public MemoryStore(Context context) {
         appContext = context.getApplicationContext();
@@ -25,8 +27,11 @@ public class MemoryStore {
     }
 
     public synchronized List<MemoryRecord> loadRecords() {
-        List<MemoryRecord> records = new ArrayList<>();
         String raw = preferences.getString(KEY_RECORDS, "[]");
+        if (raw != null && raw.equals(cachedRawRecords) && cachedRecords != null) {
+            return new ArrayList<>(cachedRecords);
+        }
+        List<MemoryRecord> records = new ArrayList<>();
         try {
             JSONArray jsonArray = new JSONArray(raw);
             for (int i = 0; i < jsonArray.length(); i++) {
@@ -34,8 +39,11 @@ public class MemoryStore {
             }
         } catch (JSONException ignored) {
             preferences.edit().putString(KEY_RECORDS, "[]").apply();
+            raw = "[]";
         }
         sortNewestFirst(records);
+        cachedRawRecords = raw;
+        cachedRecords = new ArrayList<>(records);
         return records;
     }
 
@@ -169,6 +177,8 @@ public class MemoryStore {
 
     public synchronized void clearAll() {
         preferences.edit().putString(KEY_RECORDS, "[]").apply();
+        cachedRawRecords = "[]";
+        cachedRecords = new ArrayList<>();
         MemoryStoreNotifier.notifyChanged(appContext, null);
     }
 
@@ -181,7 +191,10 @@ public class MemoryStore {
                 // Ignore malformed records and keep remaining data.
             }
         }
-        preferences.edit().putString(KEY_RECORDS, jsonArray.toString()).apply();
+        String raw = jsonArray.toString();
+        preferences.edit().putString(KEY_RECORDS, raw).apply();
+        cachedRawRecords = raw;
+        cachedRecords = new ArrayList<>(records);
     }
 
     private void sortNewestFirst(List<MemoryRecord> records) {

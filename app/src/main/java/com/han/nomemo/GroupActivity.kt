@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -23,6 +24,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
@@ -40,6 +42,10 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class GroupActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
@@ -47,6 +53,7 @@ class GroupActivity : BaseComposeActivity() {
     private var allRecords by mutableStateOf<List<MemoryRecord>>(emptyList())
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
+    private var refreshJob: Job? = null
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -90,7 +97,13 @@ class GroupActivity : BaseComposeActivity() {
     }
 
     private fun refreshContent() {
-        allRecords = memoryStore.loadActiveRecords()
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch {
+            val loadedRecords = withContext(Dispatchers.IO) {
+                memoryStore.loadActiveRecords()
+            }
+            allRecords = loadedRecords
+        }
     }
 
     private fun registerMemoryChangeReceiver() {
@@ -118,13 +131,11 @@ class GroupActivity : BaseComposeActivity() {
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
-        startActivity(intent)
-        finish()
+        switchPrimaryPage(intent)
     }
 
     private fun openReminderPage() {
-        startActivity(Intent(this, ReminderActivity::class.java))
-        finish()
+        switchPrimaryPage(Intent(this, ReminderActivity::class.java))
     }
 
     private fun openDetailPage(recordId: String) {
@@ -156,6 +167,7 @@ class GroupActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
+        val listState = rememberLazyListState()
         val filtered = allRecords.filter { selectedCategoryCode == null || selectedCategoryCode == it.categoryCode }
         val selectedRecord = remember(filtered, selectedRecordId) {
             filtered.firstOrNull { it.recordId == selectedRecordId }
@@ -300,15 +312,22 @@ class GroupActivity : BaseComposeActivity() {
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(top = 12.dp),
+                            state = listState,
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                 bottom = spec.pageBottomPadding + 20.dp
                             ),
                             verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 14.dp else 12.dp)
                         ) {
-                            items(filtered, key = { it.recordId }) { record ->
+                            items(
+                                items = filtered,
+                                key = { it.recordId },
+                                contentType = { "record" }
+                            ) { record ->
                                 RecordCard(
                                     record = record,
                                     selected = selectedRecordId == record.recordId,
+                                    palette = palette,
+                                    adaptive = spec,
                                     onClick = {
                                         when {
                                             selectedRecordId == record.recordId -> {
@@ -335,6 +354,7 @@ class GroupActivity : BaseComposeActivity() {
                         onOpenReminder = onOpenReminder,
                         onAddClick = onAddClick,
                         spec = spec,
+                        animateFabHalo = !listState.isScrollInProgress,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()

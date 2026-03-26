@@ -1,7 +1,11 @@
 ﻿package com.han.nomemo
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
-import android.widget.ImageView
+import android.os.Build
+import android.util.LruCache
+import android.util.Size
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
@@ -14,6 +18,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -23,6 +28,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,32 +46,51 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+
+private object MemoryThumbnailCache {
+    private val cache = object : LruCache<String, Bitmap>(24 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
+    }
+
+    fun get(key: String): Bitmap? = cache.get(key)
+
+    fun put(key: String, bitmap: Bitmap) {
+        cache.put(key, bitmap)
+    }
+}
 
 data class NoMemoPalette(
     val memoBgStart: Color,
@@ -120,8 +145,17 @@ data class NoMemoAdaptiveSpec(
     val addPreviewHeight: Dp
 )
 
+private val LocalNoMemoPalette = staticCompositionLocalOf<NoMemoPalette?> { null }
+private val LocalNoMemoAdaptiveSpec = staticCompositionLocalOf<NoMemoAdaptiveSpec?> { null }
+
 @Composable
 fun rememberNoMemoAdaptiveSpec(): NoMemoAdaptiveSpec {
+    LocalNoMemoAdaptiveSpec.current?.let { return it }
+    return rememberNoMemoAdaptiveSpecValue()
+}
+
+@Composable
+private fun rememberNoMemoAdaptiveSpecValue(): NoMemoAdaptiveSpec {
     val config = LocalConfiguration.current
     val width = config.screenWidthDp
     return when {
@@ -221,6 +255,12 @@ fun rememberNoMemoAdaptiveSpec(): NoMemoAdaptiveSpec {
 
 @Composable
 fun rememberNoMemoPalette(): NoMemoPalette {
+    LocalNoMemoPalette.current?.let { return it }
+    return rememberNoMemoPaletteValue()
+}
+
+@Composable
+private fun rememberNoMemoPaletteValue(): NoMemoPalette {
     val context = LocalContext.current
     val settingsStore = remember(context) { SettingsStore(context) }
     val alphaMultiplier = settingsStore.glassAlphaMultiplier()
@@ -249,13 +289,15 @@ fun NoMemoBackground(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.(NoMemoPalette) -> Unit
 ) {
-    val palette = rememberNoMemoPalette()
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(palette.memoBgStart)
-    ) {
-        content(palette)
+    val palette = rememberNoMemoPaletteValue()
+    CompositionLocalProvider(LocalNoMemoPalette provides palette) {
+        Box(
+            modifier = modifier
+                .fillMaxSize()
+                .background(palette.memoBgStart)
+        ) {
+            content(palette)
+        }
     }
 }
 
@@ -265,14 +307,16 @@ fun ResponsiveContentFrame(
     modifier: Modifier = Modifier,
     content: @Composable BoxScope.(NoMemoAdaptiveSpec) -> Unit
 ) {
-    Box(modifier = modifier.fillMaxSize()) {
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .fillMaxWidth()
-                .widthIn(max = spec.maxContentWidth)
-        ) {
-            content(spec)
+    CompositionLocalProvider(LocalNoMemoAdaptiveSpec provides spec) {
+        Box(modifier = modifier.fillMaxSize()) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .widthIn(max = spec.maxContentWidth)
+            ) {
+                content(spec)
+            }
         }
     }
 }
@@ -406,31 +450,39 @@ fun NoMemoBottomDock(
     onOpenReminder: () -> Unit,
     onAddClick: () -> Unit,
     modifier: Modifier = Modifier,
-    spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec()
+    spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
+    animateFabHalo: Boolean = true
 ) {
     val palette = rememberNoMemoPalette()
     val addButtonBackground = palette.accent.copy(alpha = 0.82f)
     val addButtonSize = spec.fabButtonSize + 4.dp
     val haptic = LocalHapticFeedback.current
-    val haloTransition = rememberInfiniteTransition(label = "dockHaloTransition")
-    val haloScale by haloTransition.animateFloat(
-        initialValue = 1f,
-        targetValue = 1.08f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2100, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dockHaloScale"
-    )
-    val haloAlpha by haloTransition.animateFloat(
-        initialValue = 0.18f,
-        targetValue = 0.36f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 2100, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "dockHaloAlpha"
-    )
+    val haloScale: Float
+    val haloAlpha: Float
+    if (animateFabHalo) {
+        val haloTransition = rememberInfiniteTransition(label = "dockHaloTransition")
+        haloScale = haloTransition.animateFloat(
+            initialValue = 1f,
+            targetValue = 1.08f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 2100, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "dockHaloScale"
+        ).value
+        haloAlpha = haloTransition.animateFloat(
+            initialValue = 0.18f,
+            targetValue = 0.36f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 2100, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "dockHaloAlpha"
+        ).value
+    } else {
+        haloScale = 1f
+        haloAlpha = 0.18f
+    }
 
     val dockSwipeModifier = when (selectedTab) {
         NoMemoDockTab.MEMORY -> Modifier.pageSwipeNavigation(
@@ -573,16 +625,113 @@ private fun RowScope.DockNavItem(
     }
 }
 
+private fun loadSampledBitmap(context: android.content.Context, uri: Uri, widthPx: Int, heightPx: Int): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    context.contentResolver.openInputStream(uri)?.use { stream ->
+        BitmapFactory.decodeStream(stream, null, bounds)
+    } ?: return null
+
+    val targetWidth = widthPx.coerceAtLeast(1)
+    val targetHeight = heightPx.coerceAtLeast(1)
+    var sampleSize = 1
+    var sourceWidth = bounds.outWidth
+    var sourceHeight = bounds.outHeight
+    while (sourceWidth / 2 >= targetWidth && sourceHeight / 2 >= targetHeight) {
+        sourceWidth /= 2
+        sourceHeight /= 2
+        sampleSize *= 2
+    }
+
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = sampleSize
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    return context.contentResolver.openInputStream(uri)?.use { stream ->
+        BitmapFactory.decodeStream(stream, null, options)
+    }
+}
+
+private fun loadMemoryThumbnail(
+    context: android.content.Context,
+    uriString: String,
+    widthPx: Int,
+    heightPx: Int
+): Bitmap? {
+    if (uriString.isBlank()) return null
+    val key = "$uriString@$widthPx x $heightPx"
+    MemoryThumbnailCache.get(key)?.let { return it }
+    val uri = Uri.parse(uriString)
+    val bitmap = try {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            context.contentResolver.loadThumbnail(uri, Size(widthPx.coerceAtLeast(1), heightPx.coerceAtLeast(1)), null)
+        } else {
+            loadSampledBitmap(context, uri, widthPx, heightPx)
+        }
+    } catch (_: Exception) {
+        loadSampledBitmap(context, uri, widthPx, heightPx)
+    }
+    if (bitmap != null) {
+        MemoryThumbnailCache.put(key, bitmap)
+    }
+    return bitmap
+}
+
+@Composable
+private fun MemoryThumbnail(
+    uriString: String,
+    width: Dp,
+    height: Dp,
+    modifier: Modifier = Modifier,
+    backgroundColor: Color,
+    cornerRadius: Dp
+) {
+    val context = LocalContext.current
+    val density = LocalDensity.current
+    val widthPx = with(density) { width.roundToPx().coerceAtLeast(1) }
+    val heightPx = with(density) { height.roundToPx().coerceAtLeast(1) }
+    val thumbnailState = produceState<Bitmap?>(initialValue = null, uriString, widthPx, heightPx) {
+        if (uriString.isBlank()) {
+            value = null
+            return@produceState
+        }
+        val cacheKey = "$uriString@$widthPx x $heightPx"
+        val cached = MemoryThumbnailCache.get(cacheKey)
+        if (cached != null) {
+            value = cached
+            return@produceState
+        }
+        value = withContext(Dispatchers.IO) {
+            loadMemoryThumbnail(context.applicationContext, uriString, widthPx, heightPx)
+        }
+    }
+    Box(
+        modifier = modifier
+            .size(width = width, height = height)
+            .clip(RoundedCornerShape(cornerRadius))
+            .background(backgroundColor)
+    ) {
+        val bitmap = thumbnailState.value
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        }
+    }
+}
+
 @Composable
 fun RecordCard(
     record: MemoryRecord,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
-    onLongPress: (() -> Unit)? = null
+    onLongPress: (() -> Unit)? = null,
+    palette: NoMemoPalette = rememberNoMemoPalette(),
+    adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec()
 ) {
-    val palette = rememberNoMemoPalette()
-    val adaptive = rememberNoMemoAdaptiveSpec()
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
@@ -708,28 +857,12 @@ fun RecordCard(
 
             if (showPreviewImage) {
                 Spacer(modifier = Modifier.width(12.dp))
-                AndroidView(
-                    factory = { ctx ->
-                        ImageView(ctx).apply {
-                            layoutParams = android.widget.FrameLayout.LayoutParams(
-                                (adaptive.recordImageWidth.value * ctx.resources.displayMetrics.density).toInt(),
-                                (adaptive.recordImageHeight.value * ctx.resources.displayMetrics.density).toInt()
-                            )
-                            scaleType = ImageView.ScaleType.CENTER_CROP
-                            clipToOutline = true
-                        }
-                    },
-                    modifier = Modifier
-                        .size(width = adaptive.recordImageWidth, height = adaptive.recordImageHeight)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(palette.glassFillSoft),
-                    update = { iv ->
-                        try {
-                            iv.setImageURI(Uri.parse(record.imageUri))
-                        } catch (_: Exception) {
-                            iv.setImageDrawable(null)
-                        }
-                    }
+                MemoryThumbnail(
+                    uriString = record.imageUri.orEmpty(),
+                    width = adaptive.recordImageWidth,
+                    height = adaptive.recordImageHeight,
+                    backgroundColor = palette.glassFillSoft,
+                    cornerRadius = 22.dp
                 )
             }
         }

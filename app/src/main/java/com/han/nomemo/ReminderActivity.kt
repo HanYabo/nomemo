@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -27,6 +28,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -56,6 +58,10 @@ import androidx.compose.ui.unit.sp
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 
 class ReminderActivity : BaseComposeActivity() {
@@ -70,6 +76,7 @@ class ReminderActivity : BaseComposeActivity() {
     private var reminderRecords by mutableStateOf<List<MemoryRecord>>(emptyList())
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
+    private var refreshJob: Job? = null
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -121,12 +128,21 @@ class ReminderActivity : BaseComposeActivity() {
     }
 
     private fun refreshReminders() {
-        val all = memoryStore.loadReminderRecords()
-        reminderRecords = all.filter { record ->
-            when (selectedFilter) {
-                FILTER_PENDING -> !record.isReminderDone
-                FILTER_DONE -> record.isReminderDone
-                else -> true
+        val filterSnapshot = selectedFilter
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch {
+            val all = withContext(Dispatchers.IO) {
+                memoryStore.loadReminderRecords()
+            }
+            val filtered = all.filter { record ->
+                when (filterSnapshot) {
+                    FILTER_PENDING -> !record.isReminderDone
+                    FILTER_DONE -> record.isReminderDone
+                    else -> true
+                }
+            }
+            if (selectedFilter == filterSnapshot) {
+                reminderRecords = filtered
             }
         }
     }
@@ -156,13 +172,11 @@ class ReminderActivity : BaseComposeActivity() {
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
-        startActivity(intent)
-        finish()
+        switchPrimaryPage(intent)
     }
 
     private fun openGroupPage() {
-        startActivity(Intent(this, GroupActivity::class.java))
-        finish()
+        switchPrimaryPage(Intent(this, GroupActivity::class.java))
     }
 
     private fun openDetailPage(recordId: String) {
@@ -195,6 +209,7 @@ class ReminderActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
+        val listState = rememberLazyListState()
         val selectedRecord = remember(records, selectedRecordId) {
             records.firstOrNull { it.recordId == selectedRecordId }
         }
@@ -315,15 +330,22 @@ class ReminderActivity : BaseComposeActivity() {
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(top = 12.dp),
+                            state = listState,
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                 bottom = spec.pageBottomPadding + 20.dp
                             ),
                             verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp)
                         ) {
-                            items(records, key = { it.recordId }) { record ->
+                            items(
+                                items = records,
+                                key = { it.recordId },
+                                contentType = { "reminder" }
+                            ) { record ->
                                 ReminderItem(
                                     record = record,
                                     selected = selectedRecordId == record.recordId,
+                                    adaptive = adaptive,
+                                    palette = palette,
                                     onDoneChanged = onDoneChanged,
                                     onLongPressSelect = { selectedRecordId = record.recordId },
                                     onClickItem = {
@@ -351,6 +373,7 @@ class ReminderActivity : BaseComposeActivity() {
                         onOpenReminder = {},
                         onAddClick = onAddClick,
                         spec = spec,
+                        animateFabHalo = !listState.isScrollInProgress,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
@@ -416,14 +439,14 @@ class ReminderActivity : BaseComposeActivity() {
     private fun ReminderItem(
         record: MemoryRecord,
         selected: Boolean,
+        adaptive: NoMemoAdaptiveSpec,
+        palette: NoMemoPalette,
         onDoneChanged: (MemoryRecord, Boolean) -> Unit,
         onLongPressSelect: () -> Unit,
         onClickItem: () -> Unit
     ) {
-        val adaptive = rememberNoMemoAdaptiveSpec()
-        val palette = rememberNoMemoPalette()
         val haptic = LocalHapticFeedback.current
-        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+        val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
         val title = when {
             !record.title.isNullOrBlank() -> record.title
             !record.memory.isNullOrBlank() -> record.memory

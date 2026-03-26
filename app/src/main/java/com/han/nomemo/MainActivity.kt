@@ -1,4 +1,4 @@
-package com.han.nomemo
+﻿package com.han.nomemo
 
 import android.content.BroadcastReceiver
 import android.content.Intent
@@ -8,6 +8,7 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -35,6 +36,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -60,6 +62,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : BaseComposeActivity() {
     companion object {
@@ -76,6 +82,7 @@ class MainActivity : BaseComposeActivity() {
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
+    private var refreshJob: Job? = null
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -133,10 +140,19 @@ class MainActivity : BaseComposeActivity() {
     }
 
     private fun refreshRecords() {
-        records = if (selectedFilter == FILTER_ARCHIVED) {
-            memoryStore.loadArchivedRecords()
-        } else {
-            memoryStore.loadActiveRecords()
+        val filterSnapshot = selectedFilter
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch {
+            val loadedRecords = withContext(Dispatchers.IO) {
+                if (filterSnapshot == FILTER_ARCHIVED) {
+                    memoryStore.loadArchivedRecords()
+                } else {
+                    memoryStore.loadActiveRecords()
+                }
+            }
+            if (selectedFilter == filterSnapshot) {
+                records = loadedRecords
+            }
         }
     }
 
@@ -162,13 +178,11 @@ class MainActivity : BaseComposeActivity() {
     }
 
     private fun openGroupPage() {
-        startActivity(Intent(this, GroupActivity::class.java))
-        finish()
+        switchPrimaryPage(Intent(this, GroupActivity::class.java))
     }
 
     private fun openReminderPage() {
-        startActivity(Intent(this, ReminderActivity::class.java))
-        finish()
+        switchPrimaryPage(Intent(this, ReminderActivity::class.java))
     }
 
     private fun openSettingsPage() {
@@ -254,6 +268,7 @@ class MainActivity : BaseComposeActivity() {
         val selectedRecords = remember(records, selectedRecordIds) {
             records.filter { selectedRecordIds.contains(it.recordId) }
         }
+        val listState = rememberLazyListState()
         val filteredRecords = remember(records, selectedFilter, searchQuery) {
             records.filter { record ->
                 val matchesFilter = when (selectedFilter) {
@@ -300,7 +315,6 @@ class MainActivity : BaseComposeActivity() {
             selectedRecordIds = emptySet()
             showDeleteConfirm = false
         }
-
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Box(modifier = Modifier.fillMaxSize()) {
@@ -331,11 +345,7 @@ class MainActivity : BaseComposeActivity() {
                                     )
                                 }
                                 SelectionHeaderTextButton(
-                                    text = if (allFilteredSelected) {
-                                        "取消全选"
-                                    } else {
-                                        stringResource(R.string.action_select_all)
-                                    },
+                                    text = if (allFilteredSelected) "\u53D6\u6D88\u5168\u9009" else stringResource(R.string.action_select_all),
                                     onClick = {
                                         selectedRecordIds = if (allFilteredSelected) {
                                             emptySet()
@@ -450,15 +460,22 @@ class MainActivity : BaseComposeActivity() {
                             modifier = Modifier
                                 .weight(1f)
                                 .padding(top = 10.dp),
+                            state = listState,
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                 bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
                             ),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            items(filteredRecords, key = { it.recordId }) { record ->
+                            items(
+                                items = filteredRecords,
+                                key = { it.recordId },
+                                contentType = { "record" }
+                            ) { record ->
                                 RecordCard(
                                     record = record,
                                     selected = selectedRecordIds.contains(record.recordId),
+                                    palette = palette,
+                                    adaptive = spec,
                                     onClick = {
                                         when {
                                             selectedRecordIds.contains(record.recordId) -> {
@@ -501,7 +518,8 @@ class MainActivity : BaseComposeActivity() {
                             onOpenMemory = {},
                             onOpenGroup = onOpenGroup,
                             onOpenReminder = onOpenReminder,
-                            onAddClick = onAddClick
+                            onAddClick = onAddClick,
+                            animateFabHalo = !listState.isScrollInProgress
                         )
                     } else {
                         SelectionActionDock(
@@ -882,3 +900,4 @@ class MainActivity : BaseComposeActivity() {
         }
     }
 }
+
