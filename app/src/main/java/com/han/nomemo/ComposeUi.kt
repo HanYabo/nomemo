@@ -261,25 +261,21 @@ fun rememberNoMemoPalette(): NoMemoPalette {
 
 @Composable
 private fun rememberNoMemoPaletteValue(): NoMemoPalette {
-    val context = LocalContext.current
-    val settingsStore = remember(context) { SettingsStore(context) }
-    val alphaMultiplier = settingsStore.glassAlphaMultiplier()
-    fun scaled(color: Color): Color = color.copy(alpha = (color.alpha * alphaMultiplier).coerceIn(0f, 1f))
     return NoMemoPalette(
         memoBgStart = colorResource(id = R.color.memo_bg_start),
         memoBgMid = colorResource(id = R.color.memo_bg_mid),
         memoBgEnd = colorResource(id = R.color.memo_bg_end),
-        glassFill = scaled(colorResource(id = R.color.glass_fill)),
-        glassFillSoft = scaled(colorResource(id = R.color.glass_fill_soft)),
-        glassStroke = scaled(colorResource(id = R.color.glass_stroke)),
+        glassFill = colorResource(id = R.color.glass_fill),
+        glassFillSoft = colorResource(id = R.color.glass_fill_soft),
+        glassStroke = colorResource(id = R.color.glass_stroke),
         accent = colorResource(id = R.color.accent_blue),
         onAccent = colorResource(id = R.color.on_accent),
         textPrimary = colorResource(id = R.color.text_primary),
         textSecondary = colorResource(id = R.color.text_secondary),
         textTertiary = colorResource(id = R.color.text_tertiary),
-        tagNoteBg = scaled(colorResource(id = R.color.tag_yellow_bg)),
+        tagNoteBg = colorResource(id = R.color.tag_yellow_bg),
         tagNoteText = colorResource(id = R.color.tag_yellow_text),
-        tagAiBg = scaled(colorResource(id = R.color.tag_ai_bg)),
+        tagAiBg = colorResource(id = R.color.tag_ai_bg),
         tagAiText = colorResource(id = R.color.tag_ai_text)
     )
 }
@@ -730,30 +726,50 @@ fun RecordCard(
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
     palette: NoMemoPalette = rememberNoMemoPalette(),
-    adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec()
+    adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
+    allowImageLoading: Boolean = true
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-    val titleText = record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
-    val summaryText = when {
-        !record.summary.isNullOrBlank() -> record.summary
-        !record.memory.isNullOrBlank() && record.memory != titleText -> record.memory
-        !record.sourceText.isNullOrBlank() -> record.sourceText
-        else -> ""
+    val titleText = remember(record.recordId, record.title, record.memory) {
+        record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
     }
-    val modeText = if (record.mode == MemoryRecord.MODE_AI) {
-        context.getString(R.string.mode_label_ai)
-    } else {
-        context.getString(R.string.mode_label_normal)
+    val summaryText = remember(record.recordId, record.summary, record.memory, record.sourceText, titleText) {
+        when {
+            !record.summary.isNullOrBlank() -> record.summary
+            !record.memory.isNullOrBlank() && record.memory != titleText -> record.memory
+            !record.sourceText.isNullOrBlank() -> record.sourceText
+            else -> ""
+        }
     }
-    val timeText = context.getString(
-        R.string.record_time_mode,
-        timeFormat.format(Date(record.createdAt)),
-        modeText
-    )
+    val modeText = remember(record.mode, context) {
+        if (record.mode == MemoryRecord.MODE_AI) {
+            context.getString(R.string.mode_label_ai)
+        } else {
+            context.getString(R.string.mode_label_normal)
+        }
+    }
+    val timeText = remember(record.createdAt, modeText, context) {
+        context.getString(
+            R.string.record_time_mode,
+            timeFormat.format(Date(record.createdAt)),
+            modeText
+        )
+    }
     val compactCard = adaptive.widthClass == NoMemoWidthClass.COMPACT
-    val showPreviewImage = !record.imageUri.isNullOrBlank() && !compactCard
+    val showPreviewImage = !record.imageUri.isNullOrBlank()
+    val previewWidth = when (adaptive.widthClass) {
+        NoMemoWidthClass.EXPANDED -> 102.dp
+        NoMemoWidthClass.MEDIUM -> 94.dp
+        NoMemoWidthClass.COMPACT -> if (adaptive.isNarrow) 72.dp else 82.dp
+    }
+    val previewHeight = when (adaptive.widthClass) {
+        NoMemoWidthClass.EXPANDED -> 132.dp
+        NoMemoWidthClass.MEDIUM -> 122.dp
+        NoMemoWidthClass.COMPACT -> if (adaptive.isNarrow) 94.dp else 108.dp
+    }
+    val previewCornerRadius = if (adaptive.isNarrow) 18.dp else 20.dp
 
     val gestureModifier = if (onLongPress == null && onClick == null) {
         Modifier
@@ -775,6 +791,7 @@ fun RecordCard(
             .then(gestureModifier),
         shape = RoundedCornerShape(26.dp),
         colors = CardDefaults.cardColors(containerColor = palette.glassFill),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         border = BorderStroke(
             if (selected) 2.dp else 1.dp,
             if (selected) palette.accent else palette.glassStroke
@@ -857,13 +874,33 @@ fun RecordCard(
 
             if (showPreviewImage) {
                 Spacer(modifier = Modifier.width(12.dp))
-                MemoryThumbnail(
-                    uriString = record.imageUri.orEmpty(),
-                    width = adaptive.recordImageWidth,
-                    height = adaptive.recordImageHeight,
-                    backgroundColor = palette.glassFillSoft,
-                    cornerRadius = 22.dp
-                )
+                if (allowImageLoading) {
+                    MemoryThumbnail(
+                        uriString = record.imageUri.orEmpty(),
+                        width = previewWidth,
+                        height = previewHeight,
+                        backgroundColor = palette.glassFillSoft,
+                        cornerRadius = previewCornerRadius,
+                        modifier = Modifier
+                            .border(
+                                width = 1.dp,
+                                color = palette.glassStroke,
+                                shape = RoundedCornerShape(previewCornerRadius)
+                            )
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(width = previewWidth, height = previewHeight)
+                            .clip(RoundedCornerShape(previewCornerRadius))
+                            .background(palette.glassFillSoft)
+                            .border(
+                                width = 1.dp,
+                                color = palette.glassStroke,
+                                shape = RoundedCornerShape(previewCornerRadius)
+                            )
+                    )
+                }
             }
         }
     }

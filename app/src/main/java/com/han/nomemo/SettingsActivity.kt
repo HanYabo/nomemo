@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -34,6 +35,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONArray
@@ -69,10 +72,6 @@ class SettingsActivity : BaseComposeActivity() {
                 onThemeModeChange = { value ->
                     settingsStore.themeMode = value
                     settingsStore.applyThemeMode()
-                    setResult(RESULT_OK)
-                },
-                onVisualIntensityChange = { value ->
-                    settingsStore.visualIntensity = value
                     setResult(RESULT_OK)
                 },
                 onClearData = {
@@ -219,7 +218,6 @@ class SettingsActivity : BaseComposeActivity() {
         onApiKeyChange: (String) -> Unit,
         onModelChange: (String) -> Unit,
         onThemeModeChange: (String) -> Unit,
-        onVisualIntensityChange: (String) -> Unit,
         onClearData: () -> Unit,
         onTestApi: (String, String, String, (Boolean, String) -> Unit) -> Unit
     ) {
@@ -235,7 +233,6 @@ class SettingsActivity : BaseComposeActivity() {
         var apiKey by remember { mutableStateOf(settingsStore.apiKey) }
         var model by remember { mutableStateOf(settingsStore.apiModel.ifBlank { BuildConfig.OPENAI_MODEL }) }
         var themeMode by remember { mutableStateOf(settingsStore.themeMode) }
-        var visualIntensity by remember { mutableStateOf(settingsStore.visualIntensity) }
         var showClearConfirm by remember { mutableStateOf(false) }
         var testingApi by remember { mutableStateOf(false) }
         var showTestResult by remember { mutableStateOf(false) }
@@ -314,6 +311,7 @@ class SettingsActivity : BaseComposeActivity() {
                                     onApiKeyChange(it)
                                 },
                                 placeholder = "sk-...",
+                                isSecret = true,
                                 fieldSurface = fieldSurface,
                                 borderColor = subtleBorder
                             )
@@ -400,32 +398,6 @@ class SettingsActivity : BaseComposeActivity() {
                                     ChoiceItem(getString(R.string.settings_theme_dark), themeMode == SettingsStore.THEME_DARK) {
                                         themeMode = SettingsStore.THEME_DARK
                                         onThemeModeChange(SettingsStore.THEME_DARK)
-                                    }
-                                )
-                            )
-
-                            Text(
-                                text = getString(R.string.settings_visual_intensity),
-                                color = palette.textSecondary,
-                                fontSize = 12.sp,
-                                modifier = Modifier.padding(top = 16.dp)
-                            )
-                            TwoLineChoiceGroup(
-                                modifier = Modifier.padding(top = 10.dp),
-                                firstRow = listOf(
-                                    ChoiceItem(getString(R.string.settings_visual_soft), visualIntensity == SettingsStore.VISUAL_SOFT) {
-                                        visualIntensity = SettingsStore.VISUAL_SOFT
-                                        onVisualIntensityChange(SettingsStore.VISUAL_SOFT)
-                                    },
-                                    ChoiceItem(getString(R.string.settings_visual_normal), visualIntensity == SettingsStore.VISUAL_NORMAL) {
-                                        visualIntensity = SettingsStore.VISUAL_NORMAL
-                                        onVisualIntensityChange(SettingsStore.VISUAL_NORMAL)
-                                    }
-                                ),
-                                secondRow = listOf(
-                                    ChoiceItem(getString(R.string.settings_visual_strong), visualIntensity == SettingsStore.VISUAL_STRONG) {
-                                        visualIntensity = SettingsStore.VISUAL_STRONG
-                                        onVisualIntensityChange(SettingsStore.VISUAL_STRONG)
                                     }
                                 )
                             )
@@ -549,10 +521,12 @@ class SettingsActivity : BaseComposeActivity() {
         value: String,
         onValueChange: (String) -> Unit,
         placeholder: String,
+        isSecret: Boolean = false,
         fieldSurface: Color,
         borderColor: Color
     ) {
         val palette = rememberNoMemoPalette()
+        var secretVisible by remember(isSecret) { mutableStateOf(!isSecret) }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -574,6 +548,12 @@ class SettingsActivity : BaseComposeActivity() {
                 BasicTextField(
                     value = value,
                     onValueChange = onValueChange,
+                    singleLine = true,
+                    visualTransformation = if (isSecret && !secretVisible) {
+                        PasswordVisualTransformation()
+                    } else {
+                        VisualTransformation.None
+                    },
                     textStyle = TextStyle(
                         color = palette.textPrimary,
                         fontSize = 15.sp,
@@ -591,7 +571,25 @@ class SettingsActivity : BaseComposeActivity() {
                                 fontSize = 15.sp
                             )
                         }
-                        innerTextField()
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Box(modifier = Modifier.weight(1f)) {
+                                innerTextField()
+                            }
+                            if (isSecret) {
+                                Text(
+                                    text = if (secretVisible) "\u9690\u85CF" else "\u663E\u793A",
+                                    color = palette.accent,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .padding(start = 12.dp)
+                                        .clickable { secretVisible = !secretVisible }
+                                )
+                            }
+                        }
                     }
                 }
             }

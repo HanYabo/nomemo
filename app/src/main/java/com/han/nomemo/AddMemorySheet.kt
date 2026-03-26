@@ -23,18 +23,18 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -46,6 +46,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
@@ -59,7 +60,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -84,19 +84,21 @@ fun AddMemorySheet(
     val isDark = isSystemInDarkTheme()
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
+    var aiMode by remember { mutableStateOf(true) }
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
-    var imageStatusText by remember { mutableStateOf(context.getString(R.string.image_not_selected)) }
-    var aiMode by remember { mutableStateOf(false) }
-    var selectedGroupCode by remember { mutableStateOf(CategoryCatalog.GROUP_QUICK) }
+    var imageStatusText by remember { mutableStateOf("\u672A\u6DFB\u52A0\u56FE\u7247") }
     var selectedCategory by remember { mutableStateOf(CategoryCatalog.getQuickCategories().first()) }
+    var categoryMenuExpanded by remember { mutableStateOf(false) }
     var reminderEnabled by remember { mutableStateOf(false) }
     var reminderAt by remember { mutableStateOf(0L) }
     var saving by remember { mutableStateOf(false) }
-    var categoryMenuExpanded by remember { mutableStateOf(false) }
     var pendingAiInput by remember { mutableStateOf<String?>(null) }
 
-    val categories = remember(selectedGroupCode) { CategoryCatalog.getCategoriesByGroup(selectedGroupCode) }
+    val allCategories = remember { CategoryCatalog.getAllCategories() }
+    val panelSurface = palette.glassFill
+    val panelBorder = palette.glassStroke
+    val sheetSurface = if (isDark) Color(0xFF12161D) else palette.memoBgStart
 
     val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
@@ -105,17 +107,25 @@ fun AddMemorySheet(
             context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (_: Exception) {
         }
-        imageStatusText = context.getString(R.string.image_selected, queryDisplayName(context, uri))
+        imageStatusText = queryDisplayName(context, uri)
     }
+
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val input = pendingAiInput ?: return@rememberLauncherForActivityResult
         pendingAiInput = null
         if (!granted) {
-            Toast.makeText(context, "通知权限未开启，AI 完成后将只更新列表", Toast.LENGTH_SHORT).show()
+            Toast.makeText(context, "\u5DF2\u521B\u5EFA\u8BB0\u5FC6\uFF0CAI \u5B8C\u6210\u540E\u5C06\u4EC5\u66F4\u65B0\u5217\u8868", Toast.LENGTH_SHORT).show()
         }
         saveRecord(
-            context, memoryStore, aiMemoryService, input, selectedImageUri, aiMode,
-            selectedGroupCode, selectedCategory, reminderEnabled, reminderAt
+            context = context,
+            memoryStore = memoryStore,
+            aiMemoryService = aiMemoryService,
+            input = input,
+            imageUri = selectedImageUri,
+            aiMode = true,
+            category = CategoryCatalog.getQuickCategories().first(),
+            reminderEnabled = reminderEnabled,
+            reminderAt = reminderAt
         )
         onDismiss()
     }
@@ -127,7 +137,7 @@ fun AddMemorySheet(
     ModalBottomSheet(
         onDismissRequest = { if (!saving) onDismiss() },
         sheetState = sheetState,
-        containerColor = if (isDark) Color(0xFF12161D) else Color(0xFFF7F6FB),
+        containerColor = sheetSurface,
         scrimColor = Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f),
         shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
         dragHandle = {
@@ -136,7 +146,7 @@ fun AddMemorySheet(
                     .padding(top = 10.dp)
                     .size(width = 56.dp, height = 5.dp)
                     .clip(RoundedCornerShape(999.dp))
-                    .background(if (isDark) Color.White.copy(alpha = 0.18f) else Color(0x24000000))
+                    .background(if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000))
             )
         }
     ) {
@@ -144,13 +154,14 @@ fun AddMemorySheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
+                .heightIn(min = if (adaptive.isNarrow) 560.dp else 620.dp, max = if (adaptive.isNarrow) 700.dp else 760.dp)
                 .verticalScroll(rememberScrollState())
                 .padding(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 18.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 GlassIconCircleButton(
                     iconRes = R.drawable.ic_sheet_close,
-                    contentDescription = stringResource(R.string.back),
+                    contentDescription = "\u5173\u95ED",
                     onClick = onDismiss,
                     size = adaptive.topActionButtonSize
                 )
@@ -159,21 +170,25 @@ fun AddMemorySheet(
                         .weight(1f)
                         .padding(horizontal = 12.dp)
                         .clip(RoundedCornerShape(999.dp))
-                        .background(if (isDark) Color(0xFF1A1F27) else Color.White)
-                        .border(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000), RoundedCornerShape(999.dp))
+                        .background(panelSurface)
+                        .border(1.dp, panelBorder, RoundedCornerShape(999.dp))
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    SheetModeChip("AI", aiMode, Modifier.weight(1f)) { aiMode = true }
-                    SheetModeChip("普通", !aiMode, Modifier.weight(1f)) { aiMode = false }
+                    SheetModeChip("\u666E\u901A", !aiMode, Modifier.weight(1f)) {
+                        aiMode = false
+                    }
+                    SheetModeChip("AI", aiMode, Modifier.weight(1f)) {
+                        aiMode = true
+                    }
                 }
                 GlassIconCircleButton(
                     iconRes = R.drawable.ic_sheet_check,
-                    contentDescription = stringResource(R.string.save_record_desc),
+                    contentDescription = "\u786E\u8BA4",
                     onClick = {
                         val input = inputText.trim()
                         if (TextUtils.isEmpty(input) && selectedImageUri == null) {
-                            Toast.makeText(context, R.string.input_required, Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, "\u8BF7\u8F93\u5165\u6587\u5B57\u6216\u6DFB\u52A0\u56FE\u7247", Toast.LENGTH_SHORT).show()
                             return@GlassIconCircleButton
                         }
                         saving = true
@@ -182,8 +197,15 @@ fun AddMemorySheet(
                             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
                         } else {
                             saveRecord(
-                                context, memoryStore, aiMemoryService, input, selectedImageUri, aiMode,
-                                selectedGroupCode, selectedCategory, reminderEnabled, reminderAt
+                                context = context,
+                                memoryStore = memoryStore,
+                                aiMemoryService = aiMemoryService,
+                                input = input,
+                                imageUri = selectedImageUri,
+                                aiMode = aiMode,
+                                category = if (aiMode) CategoryCatalog.getQuickCategories().first() else selectedCategory,
+                                reminderEnabled = reminderEnabled,
+                                reminderAt = reminderAt
                             )
                             onDismiss()
                         }
@@ -192,41 +214,39 @@ fun AddMemorySheet(
                 )
             }
 
-            Text(
-                text = if (aiMode) "让模型补全这条记忆" else "记录刚刚这一刻",
-                color = palette.textPrimary,
-                fontSize = if (adaptive.isNarrow) 24.sp else 28.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 14.dp)
-            )
-            Text(
-                text = if (aiMode) "确认后先创建条目，AI 再回填摘要与分析。" else "这是一个原地弹出的输入层，不再跳转新页面。",
-                color = palette.textSecondary,
-                fontSize = 13.sp,
-                lineHeight = 20.sp,
-                modifier = Modifier.padding(top = 6.dp)
-            )
-
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 14.dp),
                 shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF1A1F27) else Color.White),
-                border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000))
+                colors = CardDefaults.cardColors(containerColor = panelSurface),
+                border = BorderStroke(1.dp, panelBorder)
             ) {
                 BasicTextField(
                     value = inputText,
                     onValueChange = { inputText = it },
-                    textStyle = TextStyle(color = palette.textPrimary, fontSize = 18.sp, lineHeight = 26.sp),
+                    textStyle = TextStyle(
+                        color = palette.textPrimary,
+                        fontSize = 17.sp,
+                        lineHeight = 25.sp
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(18.dp)
-                        .height(adaptive.addInputHeight + 26.dp)
+                        .height(170.dp)
                 ) { inner ->
                     Box(Modifier.fillMaxWidth()) {
                         if (inputText.isBlank()) {
-                            Text(stringResource(R.string.hint_text_input), color = palette.textTertiary, fontSize = 18.sp)
+                            Text(
+                                text = if (aiMode) {
+                                    "\u8F93\u5165\u6587\u5B57\uFF0C\u6216\u7ED3\u5408\u526A\u8D34\u677F\u3001\u622A\u56FE\u8FDB\u884C AI \u5206\u6790"
+                                } else {
+                                    "\u8F93\u5165\u4F60\u8981\u8BB0\u4E0B\u7684\u5185\u5BB9"
+                                },
+                                color = palette.textTertiary,
+                                fontSize = 16.sp,
+                                lineHeight = 24.sp
+                            )
                         }
                         inner()
                     }
@@ -234,19 +254,144 @@ fun AddMemorySheet(
             }
 
             if (aiMode) {
-                SheetActionCard("粘贴剪贴板内容", "快速带入 AI 分析") {
-                    val clip = context.getSystemService(ClipboardManager::class.java)
-                        ?.primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString()?.trim().orEmpty()
-                    if (clip.isBlank()) {
-                        Toast.makeText(context, "剪贴板里没有可粘贴的文字", Toast.LENGTH_SHORT).show()
-                    } else {
-                        inputText = if (inputText.isBlank()) clip else "$inputText\n$clip"
+                SheetActionCard(
+                    title = "\u7C98\u8D34\u526A\u8D34\u677F",
+                    subtitle = "\u5C06\u526A\u8D34\u677F\u5185\u5BB9\u8FFD\u52A0\u5230\u8F93\u5165\u6846",
+                    onClick = {
+                        val clip = context.getSystemService(ClipboardManager::class.java)
+                            ?.primaryClip
+                            ?.takeIf { it.itemCount > 0 }
+                            ?.getItemAt(0)
+                            ?.coerceToText(context)
+                            ?.toString()
+                            ?.trim()
+                            .orEmpty()
+                        if (clip.isBlank()) {
+                            Toast.makeText(context, "\u526A\u8D34\u677F\u6CA1\u6709\u53EF\u7528\u5185\u5BB9", Toast.LENGTH_SHORT).show()
+                        } else {
+                            inputText = if (inputText.isBlank()) clip else "$inputText\n$clip"
+                        }
+                    }
+                )
+                SheetActionCard(
+                    title = "\u6DFB\u52A0\u622A\u56FE",
+                    subtitle = if (selectedImageUri == null) "\u9009\u62E9\u4E00\u5F20\u622A\u56FE\u8F85\u52A9 AI \u5206\u6790" else imageStatusText,
+                    onClick = { pickImageLauncher.launch(arrayOf("image/*")) }
+                )
+            } else {
+                SheetActionCard(
+                    title = "\u6DFB\u52A0\u56FE\u7247",
+                    subtitle = if (selectedImageUri == null) "\u4E3A\u8FD9\u6761\u8BB0\u5FC6\u9009\u62E9\u4E00\u5F20\u56FE\u7247" else imageStatusText,
+                    onClick = { pickImageLauncher.launch(arrayOf("image/*")) }
+                )
+
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = panelSurface),
+                    border = BorderStroke(1.dp, panelBorder)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { categoryMenuExpanded = true }
+                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "\u8BB0\u5FC6\u7C7B\u522B",
+                                color = palette.textSecondary,
+                                fontSize = 12.sp
+                            )
+                            Text(
+                                text = selectedCategory.categoryName,
+                                color = palette.textPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        Icon(
+                            painter = painterResource(R.drawable.ic_sheet_chevron_down),
+                            contentDescription = null,
+                            tint = palette.textSecondary
+                        )
+                        DropdownMenu(
+                            expanded = categoryMenuExpanded,
+                            onDismissRequest = { categoryMenuExpanded = false }
+                        ) {
+                            allCategories.forEach { item ->
+                                DropdownMenuItem(
+                                    text = { Text(item.categoryName) },
+                                    onClick = {
+                                        selectedCategory = item
+                                        categoryMenuExpanded = false
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
+
             }
 
-            SheetActionCard(stringResource(R.string.pick_screenshot), imageStatusText) {
-                pickImageLauncher.launch(arrayOf("image/*"))
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = panelSurface),
+                border = BorderStroke(1.dp, panelBorder)
+            ) {
+                Column(modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "\u63D0\u9192\u65F6\u95F4",
+                                color = palette.textPrimary,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                text = if (reminderEnabled) reminderLabel(reminderAt) else "\u672A\u8BBE\u7F6E",
+                                color = palette.textSecondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        Switch(
+                            checked = reminderEnabled,
+                            onCheckedChange = { enabled ->
+                                reminderEnabled = enabled
+                                if (!enabled) reminderAt = 0L
+                            }
+                        )
+                    }
+                    if (reminderEnabled) {
+                        SheetInlineButton(
+                            text = if (reminderAt > 0L) "\u91CD\u65B0\u9009\u62E9\u65F6\u95F4" else "\u9009\u62E9\u65F6\u95F4",
+                            modifier = Modifier.padding(top = 12.dp),
+                            onClick = {
+                                openDateTimePicker(activity, reminderAt) { selected ->
+                                    reminderAt = selected
+                                }
+                            }
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp)
+                                .height(40.dp)
+                        )
+                    }
+                }
             }
 
             if (selectedImageUri != null) {
@@ -255,80 +400,23 @@ fun AddMemorySheet(
                         .fillMaxWidth()
                         .padding(top = 12.dp),
                     shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF1A1F27) else Color.White),
-                    border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000))
+                    colors = CardDefaults.cardColors(containerColor = panelSurface),
+                    border = BorderStroke(1.dp, panelBorder)
                 ) {
                     AndroidView(
-                        factory = { ctx -> ImageView(ctx).apply { scaleType = ImageView.ScaleType.CENTER_CROP } },
+                        factory = { ctx ->
+                            ImageView(ctx).apply {
+                                scaleType = ImageView.ScaleType.CENTER_CROP
+                            }
+                        },
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(adaptive.addPreviewHeight)
                             .clip(RoundedCornerShape(24.dp)),
-                        update = { image -> image.setImageURI(selectedImageUri) }
+                        update = { image ->
+                            image.setImageURI(selectedImageUri)
+                        }
                     )
-                }
-            }
-
-            Row(
-                modifier = Modifier
-                    .padding(top = 14.dp)
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                listOf(
-                    CategoryCatalog.GROUP_QUICK to stringResource(R.string.group_quick),
-                    CategoryCatalog.GROUP_LIFE to stringResource(R.string.group_life),
-                    CategoryCatalog.GROUP_WORK to stringResource(R.string.group_work)
-                ).forEach { (code, label) ->
-                    GlassChip(text = label, selected = selectedGroupCode == code, onClick = {
-                        selectedGroupCode = code
-                        selectedCategory = CategoryCatalog.getCategoriesByGroup(code).first()
-                        if (code != CategoryCatalog.GROUP_WORK) {
-                            reminderEnabled = false
-                            reminderAt = 0L
-                        }
-                    })
-                }
-            }
-
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = CardDefaults.cardColors(containerColor = if (isDark) Color(0xFF1A1F27) else Color.White),
-                border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000))
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { categoryMenuExpanded = true }
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text("分类：${selectedCategory.categoryName}", color = palette.textPrimary, fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                    Icon(painterResource(R.drawable.ic_sheet_chevron_down), contentDescription = null, tint = palette.textSecondary)
-                    DropdownMenu(expanded = categoryMenuExpanded, onDismissRequest = { categoryMenuExpanded = false }) {
-                        categories.forEach { item ->
-                            DropdownMenuItem(
-                                text = { Text(item.categoryName) },
-                                onClick = {
-                                    categoryMenuExpanded = false
-                                    selectedCategory = item
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (selectedGroupCode == CategoryCatalog.GROUP_WORK) {
-                SheetActionCard(
-                    if (reminderEnabled) reminderLabel(context, reminderAt) else "开启提醒",
-                    if (reminderEnabled) "点击调整时间" else "工作分组支持提醒"
-                ) {
-                    if (!reminderEnabled) reminderEnabled = true
-                    openDateTimePicker(activity, reminderAt) { reminderAt = it }
                 }
             }
         }
@@ -336,7 +424,12 @@ fun AddMemorySheet(
 }
 
 @Composable
-private fun SheetModeChip(text: String, selected: Boolean, modifier: Modifier = Modifier, onClick: () -> Unit) {
+private fun SheetModeChip(
+    text: String,
+    selected: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
     val isDark = isSystemInDarkTheme()
     val palette = rememberNoMemoPalette()
     PressScaleBox(
@@ -344,14 +437,30 @@ private fun SheetModeChip(text: String, selected: Boolean, modifier: Modifier = 
         modifier = modifier
             .height(44.dp)
             .clip(RoundedCornerShape(999.dp))
-            .background(if (selected) if (isDark) Color(0xFF233752) else Color(0xFFDCEBFF) else Color.Transparent)
+            .background(
+                if (selected) {
+                    if (isDark) Color(0xFF233752) else Color(0xFFDCEBFF)
+                } else {
+                    Color.Transparent
+                }
+            )
     ) {
-        Text(text, color = if (selected) palette.accent else palette.textSecondary, fontSize = 15.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.Center))
+        Text(
+            text = text,
+            color = if (selected) palette.accent else palette.textSecondary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Center)
+        )
     }
 }
 
 @Composable
-private fun SheetActionCard(title: String, subtitle: String, onClick: () -> Unit) {
+private fun SheetActionCard(
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
     val isDark = isSystemInDarkTheme()
     val palette = rememberNoMemoPalette()
     PressScaleBox(
@@ -365,9 +474,43 @@ private fun SheetActionCard(title: String, subtitle: String, onClick: () -> Unit
             .padding(horizontal = 16.dp, vertical = 16.dp)
     ) {
         Column {
-            Text(title, color = palette.textPrimary, fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Text(subtitle, color = palette.textSecondary, fontSize = 12.sp, modifier = Modifier.padding(top = 4.dp))
+            Text(
+                text = title,
+                color = palette.textPrimary,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = subtitle,
+                color = palette.textSecondary,
+                fontSize = 12.sp,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
+    }
+}
+
+@Composable
+private fun SheetInlineButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+            .clip(RoundedCornerShape(18.dp))
+            .background(palette.glassFillSoft)
+            .border(1.dp, palette.glassStroke, RoundedCornerShape(18.dp))
+            .padding(horizontal = 14.dp, vertical = 10.dp)
+    ) {
+        Text(
+            text = text,
+            color = palette.textPrimary,
+            fontSize = 14.sp,
+            fontWeight = FontWeight.Medium
+        )
     }
 }
 
@@ -378,19 +521,19 @@ private fun saveRecord(
     input: String,
     imageUri: Uri?,
     aiMode: Boolean,
-    groupCode: String,
     category: CategoryCatalog.CategoryOption,
     reminderEnabled: Boolean,
     reminderAt: Long
 ) {
     val imageUriText = imageUri?.toString().orEmpty()
-    val finalReminderAt = if (groupCode == CategoryCatalog.GROUP_WORK && reminderEnabled) {
+    val finalReminderAt = if (reminderEnabled) {
         if (reminderAt > 0L) reminderAt else System.currentTimeMillis() + 60L * 60L * 1000L
     } else {
         0L
     }
+
     if (!aiMode) {
-        val memoryText = if (input.isBlank()) context.getString(R.string.memory_saved_screenshot) else input
+        val memoryText = if (input.isBlank()) "\u5DF2\u4FDD\u5B58\u56FE\u7247\u8BB0\u5FC6" else input
         memoryStore.prependRecord(
             MemoryRecord(
                 System.currentTimeMillis(),
@@ -403,7 +546,7 @@ private fun saveRecord(
                 "",
                 memoryText,
                 "manual",
-                groupCode,
+                category.groupCode,
                 category.categoryCode,
                 category.categoryName,
                 finalReminderAt,
@@ -411,35 +554,39 @@ private fun saveRecord(
                 false
             )
         )
-        Toast.makeText(context, R.string.save_success, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, "\u5DF2\u4FDD\u5B58", Toast.LENGTH_SHORT).show()
         return
     }
 
+    val aiCategory = CategoryCatalog.getQuickCategories().first()
     val createdAt = System.currentTimeMillis()
     val placeholder = MemoryRecord(
         createdAt,
         MemoryRecord.MODE_AI,
-        if (input.isBlank()) "AI 分析中" else compactTitle(input, category.categoryName),
-        if (input.isBlank()) "已创建图片记忆，等待模型提取内容" else "已提交到模型分析，完成后自动更新",
+        if (input.isBlank()) "AI \u5206\u6790\u4E2D" else compactTitle(input, aiCategory.categoryName),
+        if (input.isBlank()) "\u56FE\u7247\u5DF2\u6DFB\u52A0\uFF0CAI \u6B63\u5728\u751F\u6210\u6458\u8981" else "\u5DF2\u521B\u5EFA\u6761\u76EE\uFF0CAI \u5B8C\u6210\u540E\u4F1A\u81EA\u52A8\u66F4\u65B0",
         input,
         input,
         imageUriText,
-        "AI 分析中…完成后会自动更新这个条目",
-        if (input.isBlank()) context.getString(R.string.memory_saved_screenshot) else input,
+        "AI \u5206\u6790\u4E2D\u2026",
+        if (input.isBlank()) "\u5DF2\u4FDD\u5B58\u622A\u56FE\u8BB0\u5FC6" else input,
         "pending",
-        groupCode,
-        category.categoryCode,
-        category.categoryName,
+        aiCategory.groupCode,
+        aiCategory.categoryCode,
+        aiCategory.categoryName,
         finalReminderAt,
         false,
         false
     )
     memoryStore.prependRecord(placeholder)
-    Toast.makeText(context, "已创建记忆，AI 分析完成后会自动更新", Toast.LENGTH_SHORT).show()
+    Toast.makeText(context, "\u5DF2\u521B\u5EFA\u8BB0\u5FC6\uFF0CAI \u5206\u6790\u5B8C\u6210\u540E\u4F1A\u81EA\u52A8\u66F4\u65B0", Toast.LENGTH_SHORT).show()
+
     Thread {
         val resolved = try {
             val result = aiMemoryService.generateMemory(input, imageUri)
-            val resolvedCategory = CategoryCatalog.getAllCategories().firstOrNull { it.categoryCode == result.suggestedCategoryCode } ?: category
+            val resolvedCategory = CategoryCatalog.getAllCategories().firstOrNull {
+                it.categoryCode == result.suggestedCategoryCode
+            } ?: aiCategory
             MemoryRecord(
                 placeholder.recordId,
                 createdAt,
@@ -460,12 +607,12 @@ private fun saveRecord(
                 false
             )
         } catch (_: Exception) {
-            val fallbackMemory = if (input.isBlank()) context.getString(R.string.memory_saved_screenshot) else input
+            val fallbackMemory = if (input.isBlank()) "\u5DF2\u4FDD\u5B58\u56FE\u7247\u8BB0\u5FC6" else input
             MemoryRecord(
                 placeholder.recordId,
                 createdAt,
                 MemoryRecord.MODE_AI,
-                compactTitle(input, category.categoryName),
+                compactTitle(input, aiCategory.categoryName),
                 compactSummary(input, fallbackMemory),
                 input,
                 input,
@@ -473,15 +620,17 @@ private fun saveRecord(
                 context.getString(R.string.memory_fallback_analysis),
                 fallbackMemory,
                 "local",
-                groupCode,
-                category.categoryCode,
-                category.categoryName,
+                aiCategory.groupCode,
+                aiCategory.categoryCode,
+                aiCategory.categoryName,
                 finalReminderAt,
                 false,
                 false
             )
         }
-        if (!memoryStore.updateRecord(resolved)) memoryStore.prependRecord(resolved)
+        if (!memoryStore.updateRecord(resolved)) {
+            memoryStore.prependRecord(resolved)
+        }
         AiSummaryNotifier.notifyAnalysisReady(context.applicationContext, resolved)
     }.start()
 }
@@ -502,16 +651,20 @@ private fun compactSummary(text: String, fallback: String): String {
     return if (single.length <= 42) single else single.substring(0, 42) + "..."
 }
 
-private fun reminderLabel(context: Context, time: Long): String {
-    if (time <= 0L) return "开启提醒"
+private fun reminderLabel(time: Long): String {
+    if (time <= 0L) return "\u672A\u8BBE\u7F6E"
     val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
-    return context.getString(R.string.reminder_set_time, dateFormat.format(time))
+    return dateFormat.format(time)
 }
 
 private fun openDateTimePicker(activity: Activity?, initial: Long, onSelected: (Long) -> Unit) {
     activity ?: return
     val calendar = Calendar.getInstance()
-    if (initial > 0L) calendar.timeInMillis = initial else calendar.add(Calendar.HOUR_OF_DAY, 1)
+    if (initial > 0L) {
+        calendar.timeInMillis = initial
+    } else {
+        calendar.add(Calendar.HOUR_OF_DAY, 1)
+    }
     DatePickerDialog(
         activity,
         { _, year, month, day ->

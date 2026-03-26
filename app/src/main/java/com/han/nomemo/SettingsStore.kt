@@ -22,10 +22,6 @@ class SettingsStore(context: Context) {
         get() = prefs.getString(KEY_THEME_MODE, THEME_SYSTEM) ?: THEME_SYSTEM
         set(value) = prefs.edit().putString(KEY_THEME_MODE, value).apply()
 
-    var visualIntensity: String
-        get() = prefs.getString(KEY_VISUAL_INTENSITY, VISUAL_NORMAL) ?: VISUAL_NORMAL
-        set(value) = prefs.edit().putString(KEY_VISUAL_INTENSITY, value).apply()
-
     fun resolvedApiBaseUrl(): String {
         return apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }
     }
@@ -36,14 +32,6 @@ class SettingsStore(context: Context) {
 
     fun resolvedApiModel(): String {
         return apiModel.ifBlank { BuildConfig.OPENAI_MODEL }
-    }
-
-    fun glassAlphaMultiplier(): Float {
-        return when (visualIntensity) {
-            VISUAL_SOFT -> 0.82f
-            VISUAL_STRONG -> 1.2f
-            else -> 1f
-        }
     }
 
     fun applyThemeMode() {
@@ -62,15 +50,10 @@ class SettingsStore(context: Context) {
         private const val KEY_API_KEY = "api_key"
         private const val KEY_API_MODEL = "api_model"
         private const val KEY_THEME_MODE = "theme_mode"
-        private const val KEY_VISUAL_INTENSITY = "visual_intensity"
 
         const val THEME_SYSTEM = "SYSTEM"
         const val THEME_LIGHT = "LIGHT"
         const val THEME_DARK = "DARK"
-
-        const val VISUAL_SOFT = "SOFT"
-        const val VISUAL_NORMAL = "NORMAL"
-        const val VISUAL_STRONG = "STRONG"
 
         @JvmStatic
         fun applyTheme(context: Context) {

@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -167,7 +168,12 @@ class GroupActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
+        var enablePreviewImages by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
+        LaunchedEffect(Unit) {
+            delay(180)
+            enablePreviewImages = true
+        }
         val filtered = allRecords.filter { selectedCategoryCode == null || selectedCategoryCode == it.categoryCode }
         val selectedRecord = remember(filtered, selectedRecordId) {
             filtered.firstOrNull { it.recordId == selectedRecordId }
@@ -321,13 +327,16 @@ class GroupActivity : BaseComposeActivity() {
                             items(
                                 items = filtered,
                                 key = { it.recordId },
-                                contentType = { "record" }
+                                contentType = {
+                                    if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
+                                }
                             ) { record ->
                                 RecordCard(
                                     record = record,
                                     selected = selectedRecordId == record.recordId,
                                     palette = palette,
                                     adaptive = spec,
+                                    allowImageLoading = enablePreviewImages,
                                     onClick = {
                                         when {
                                             selectedRecordId == record.recordId -> {
