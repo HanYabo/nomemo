@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.horizontalScroll
@@ -118,19 +119,16 @@ class GroupActivity : BaseComposeActivity() {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         startActivity(intent)
-        overridePendingTransition(0, 0)
         finish()
     }
 
     private fun openReminderPage() {
         startActivity(Intent(this, ReminderActivity::class.java))
-        overridePendingTransition(0, 0)
         finish()
     }
 
     private fun openDetailPage(recordId: String) {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
-        overridePendingTransition(0, 0)
     }
 
     private fun deleteRecord(record: MemoryRecord) {
@@ -168,6 +166,10 @@ class GroupActivity : BaseComposeActivity() {
                 showDeleteConfirm = false
             }
         }
+        BackHandler(enabled = selectedRecordId != null) {
+            selectedRecordId = null
+            showDeleteConfirm = false
+        }
 
         fun countByCode(code: String): Int = allRecords.count { it.categoryCode == code }
         val quickCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_QUICK }
@@ -187,32 +189,66 @@ class GroupActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-4).dp),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            GlassIconCircleButton(
-                                iconRes = R.drawable.ic_nm_delete,
-                                contentDescription = stringResource(R.string.action_delete),
-                                onClick = { if (selectedRecord != null) showDeleteConfirm = true },
-                                size = spec.topActionButtonSize
-                            )
-                        }
+                        if (selectedRecord != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = getString(R.string.selected_count_format, 1),
+                                        color = palette.textPrimary,
+                                        fontSize = spec.titleSize,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_sheet_close,
+                                    contentDescription = stringResource(R.string.cancel),
+                                    onClick = {
+                                        selectedRecordId = null
+                                        showDeleteConfirm = false
+                                    },
+                                    modifier = Modifier.padding(end = 10.dp),
+                                    size = spec.topActionButtonSize
+                                )
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_nm_delete,
+                                    contentDescription = stringResource(R.string.action_delete),
+                                    onClick = { showDeleteConfirm = true },
+                                    size = spec.topActionButtonSize
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = (-4).dp),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_nm_delete,
+                                    contentDescription = stringResource(R.string.action_delete),
+                                    onClick = {},
+                                    size = spec.topActionButtonSize
+                                )
+                            }
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.group_page_title),
-                                color = palette.textPrimary,
-                                fontSize = spec.titleSize,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.group_page_title),
+                                    color = palette.textPrimary,
+                                    fontSize = spec.titleSize,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
 
                         Row(

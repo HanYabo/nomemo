@@ -94,11 +94,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         super.onStop()
     }
 
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(0, 0)
-    }
-
     private fun registerMemoryChangeReceiver() {
         if (memoryChangeRegistered) {
             return

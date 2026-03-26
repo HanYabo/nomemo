@@ -87,11 +87,6 @@ class SettingsActivity : BaseComposeActivity() {
         }
     }
 
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(0, 0)
-    }
-
     private fun testApiConnection(
         baseUrl: String,
         apiKey: String,

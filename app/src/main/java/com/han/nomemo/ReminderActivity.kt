@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.background
@@ -42,7 +43,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -154,19 +157,16 @@ class ReminderActivity : BaseComposeActivity() {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
         startActivity(intent)
-        overridePendingTransition(0, 0)
         finish()
     }
 
     private fun openGroupPage() {
         startActivity(Intent(this, GroupActivity::class.java))
-        overridePendingTransition(0, 0)
         finish()
     }
 
     private fun openDetailPage(recordId: String) {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
-        overridePendingTransition(0, 0)
     }
 
     private fun deleteRecord(record: MemoryRecord) {
@@ -204,6 +204,10 @@ class ReminderActivity : BaseComposeActivity() {
                 showDeleteConfirm = false
             }
         }
+        BackHandler(enabled = selectedRecordId != null) {
+            selectedRecordId = null
+            showDeleteConfirm = false
+        }
 
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
@@ -219,32 +223,66 @@ class ReminderActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .offset(y = (-4).dp),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            GlassIconCircleButton(
-                                iconRes = R.drawable.ic_nm_delete,
-                                contentDescription = stringResource(R.string.action_delete),
-                                onClick = { if (selectedRecord != null) showDeleteConfirm = true },
-                                size = spec.topActionButtonSize
-                            )
-                        }
+                        if (selectedRecord != null) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = getString(R.string.selected_count_format, 1),
+                                        color = palette.textPrimary,
+                                        fontSize = spec.titleSize,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_sheet_close,
+                                    contentDescription = stringResource(R.string.cancel),
+                                    onClick = {
+                                        selectedRecordId = null
+                                        showDeleteConfirm = false
+                                    },
+                                    modifier = Modifier.padding(end = 10.dp),
+                                    size = spec.topActionButtonSize
+                                )
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_nm_delete,
+                                    contentDescription = stringResource(R.string.action_delete),
+                                    onClick = { showDeleteConfirm = true },
+                                    size = spec.topActionButtonSize
+                                )
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .offset(y = (-4).dp),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_nm_delete,
+                                    contentDescription = stringResource(R.string.action_delete),
+                                    onClick = {},
+                                    size = spec.topActionButtonSize
+                                )
+                            }
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp)
-                        ) {
-                            Text(
-                                text = stringResource(R.string.reminder_page_title),
-                                color = palette.textPrimary,
-                                fontSize = spec.titleSize,
-                                fontWeight = FontWeight.Bold
-                            )
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.reminder_page_title),
+                                    color = palette.textPrimary,
+                                    fontSize = spec.titleSize,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
                         }
 
                         Row(
@@ -384,6 +422,7 @@ class ReminderActivity : BaseComposeActivity() {
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
+        val haptic = LocalHapticFeedback.current
         val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
         val title = when {
             !record.title.isNullOrBlank() -> record.title
@@ -409,7 +448,10 @@ class ReminderActivity : BaseComposeActivity() {
                 .pointerInput(onLongPressSelect, onClickItem) {
                     detectTapGestures(
                         onTap = { onClickItem() },
-                        onLongPress = { onLongPressSelect() }
+                        onLongPress = {
+                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onLongPressSelect()
+                        }
                     )
                 }
                 .padding(if (adaptive.isNarrow) 10.dp else 12.dp),

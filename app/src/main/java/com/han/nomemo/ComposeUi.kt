@@ -1,4 +1,4 @@
-package com.han.nomemo
+﻿package com.han.nomemo
 
 import android.net.Uri
 import android.widget.ImageView
@@ -584,6 +584,7 @@ fun RecordCard(
     val palette = rememberNoMemoPalette()
     val adaptive = rememberNoMemoAdaptiveSpec()
     val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val titleText = record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
     val summaryText = when {
@@ -611,7 +612,10 @@ fun RecordCard(
         Modifier.pointerInput(onLongPress, onClick) {
             detectTapGestures(
                 onTap = { onClick?.invoke() },
-                onLongPress = { onLongPress?.invoke() }
+                onLongPress = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongPress?.invoke()
+                }
             )
         }
     }
@@ -639,26 +643,16 @@ fun RecordCard(
                     color = palette.textPrimary,
                     fontSize = adaptive.recordTitleSize,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 2,
+                    maxLines = if (compactCard) 2 else 3,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (!summaryText.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(6.dp))
+                    Spacer(modifier = Modifier.height(7.dp))
                     Text(
                         text = summaryText,
                         color = palette.textSecondary,
                         fontSize = if (compactCard) 13.sp else 14.sp,
-                        maxLines = if (compactCard) 1 else 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                if (!record.analysis.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(5.dp))
-                    Text(
-                        text = stringResource(R.string.record_analysis_prefix, record.analysis),
-                        color = palette.textTertiary,
-                        fontSize = 12.sp,
-                        maxLines = if (compactCard) 1 else 2,
+                        maxLines = if (compactCard) 2 else 3,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
@@ -711,6 +705,7 @@ fun RecordCard(
                     }
                 }
             }
+
             if (showPreviewImage) {
                 Spacer(modifier = Modifier.width(12.dp))
                 AndroidView(

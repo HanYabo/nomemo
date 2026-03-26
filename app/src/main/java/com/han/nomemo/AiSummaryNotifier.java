@@ -30,7 +30,7 @@ import java.lang.reflect.Method;
 public final class AiSummaryNotifier {
     private static final String CHANNEL_ID = "nomemo_ai_summary";
     private static final String CHANNEL_NAME = "AI摘要通知";
-    private static final String CHANNEL_DESCRIPTION = "AI记忆完成整理后生成摘要";
+    private static final String CHANNEL_DESCRIPTION = "AI记忆完成整理后生成摘要通知";
 
     private static final String MIUI_FOCUS_PARAM_KEY = "miui.focus.param";
     private static final String MIUI_FOCUS_PICS_KEY = "miui.focus.pics";

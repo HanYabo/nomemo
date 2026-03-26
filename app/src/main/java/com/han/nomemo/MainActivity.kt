@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
@@ -162,24 +163,20 @@ class MainActivity : BaseComposeActivity() {
 
     private fun openGroupPage() {
         startActivity(Intent(this, GroupActivity::class.java))
-        overridePendingTransition(0, 0)
         finish()
     }
 
     private fun openReminderPage() {
         startActivity(Intent(this, ReminderActivity::class.java))
-        overridePendingTransition(0, 0)
         finish()
     }
 
     private fun openSettingsPage() {
         settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
-        overridePendingTransition(0, 0)
     }
 
     private fun openDetailPage(recordId: String) {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
-        overridePendingTransition(0, 0)
     }
 
     private fun toggleArchive(record: MemoryRecord) {
@@ -284,6 +281,10 @@ class MainActivity : BaseComposeActivity() {
                 haystack.contains(query.lowercase())
             }
         }
+        val allFilteredSelected = remember(filteredRecords, selectedRecordIds) {
+            filteredRecords.isNotEmpty() &&
+                filteredRecords.all { selectedRecordIds.contains(it.recordId) }
+        }
 
         LaunchedEffect(filteredRecords, selectedRecordIds) {
             val visibleIds = filteredRecords.map { it.recordId }.toSet()
@@ -294,6 +295,10 @@ class MainActivity : BaseComposeActivity() {
             if (selectedRecordIds.isNotEmpty() && sanitizedIds.isEmpty()) {
                 showDeleteConfirm = false
             }
+        }
+        BackHandler(enabled = selectedRecordIds.isNotEmpty()) {
+            selectedRecordIds = emptySet()
+            showDeleteConfirm = false
         }
 
         NoMemoBackground {
@@ -310,7 +315,48 @@ class MainActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
-                        if (searchEnabled) {
+                        if (selectedRecords.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = getString(R.string.selected_count_format, selectedRecords.size),
+                                        color = palette.textPrimary,
+                                        fontSize = spec.titleSize,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+                                SelectionHeaderTextButton(
+                                    text = if (allFilteredSelected) {
+                                        "取消全选"
+                                    } else {
+                                        stringResource(R.string.action_select_all)
+                                    },
+                                    onClick = {
+                                        selectedRecordIds = if (allFilteredSelected) {
+                                            emptySet()
+                                        } else {
+                                            filteredRecords.map { it.recordId }.toSet()
+                                        }
+                                        showDeleteConfirm = false
+                                    },
+                                    modifier = Modifier.padding(end = 10.dp)
+                                )
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_sheet_close,
+                                    contentDescription = stringResource(R.string.cancel),
+                                    onClick = {
+                                        selectedRecordIds = emptySet()
+                                        showDeleteConfirm = false
+                                    },
+                                    size = spec.topActionButtonSize
+                                )
+                            }
+                        } else if (searchEnabled) {
                             SearchBarCard(
                                 value = searchQuery,
                                 onValueChange = { searchQuery = it },
@@ -320,108 +366,72 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             )
                         } else {
-                            if (selectedRecords.isNotEmpty()) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 8.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = getString(R.string.selected_count_format, selectedRecords.size),
-                                            color = palette.textPrimary,
-                                            fontSize = spec.titleSize,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    GlassIconCircleButton(
-                                        iconRes = R.drawable.ic_sheet_calendar,
-                                        contentDescription = if (selectedRecords.all { it.isArchived }) {
-                                            stringResource(R.string.action_unarchive)
-                                        } else {
-                                            stringResource(R.string.action_archive)
-                                        },
-                                        onClick = {
-                                            onArchiveRecords(selectedRecords)
-                                            selectedRecordIds = emptySet()
-                                        },
-                                        modifier = Modifier.padding(end = 10.dp),
-                                        size = spec.topActionButtonSize
-                                    )
-                                    GlassIconCircleButton(
-                                        iconRes = R.drawable.ic_nm_delete,
-                                        contentDescription = stringResource(R.string.action_delete),
-                                        onClick = { showDeleteConfirm = true },
-                                        size = spec.topActionButtonSize
-                                    )
-                                }
-                            } else {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 0.dp)
-                                        .offset(y = (-4).dp),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    GlassIconCircleButton(
-                                        iconRes = R.drawable.ic_nm_search,
-                                        contentDescription = stringResource(R.string.action_search),
-                                        onClick = { searchEnabled = true },
-                                        modifier = Modifier.padding(end = 10.dp),
-                                        size = spec.topActionButtonSize
-                                    )
-                                    GlassIconCircleButton(
-                                        iconRes = R.drawable.ic_nm_more,
-                                        contentDescription = stringResource(R.string.action_more),
-                                        onClick = { moreMenuExpanded = true },
-                                        size = spec.topActionButtonSize
-                                    )
-                                }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 0.dp)
+                                    .offset(y = (-4).dp),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_nm_search,
+                                    contentDescription = stringResource(R.string.action_search),
+                                    onClick = { searchEnabled = true },
+                                    modifier = Modifier.padding(end = 10.dp),
+                                    size = spec.topActionButtonSize
+                                )
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_nm_more,
+                                    contentDescription = stringResource(R.string.action_more),
+                                    onClick = { moreMenuExpanded = true },
+                                    size = spec.topActionButtonSize
+                                )
+                            }
 
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 2.dp)
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.page_title),
-                                        color = palette.textPrimary,
-                                        fontSize = spec.titleSize,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp)
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.page_title),
+                                    color = palette.textPrimary,
+                                    fontSize = spec.titleSize,
+                                    fontWeight = FontWeight.Bold
+                                )
                             }
                         }
 
-                        Row(
-                            modifier = Modifier
-                                .padding(top = 14.dp)
-                                .horizontalScroll(rememberScrollState())
-                        ) {
-                            FilterChip(spec, stringResource(R.string.filter_all), selectedFilter == FILTER_ALL) {
-                                onFilterSelect(FILTER_ALL)
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            FilterChip(spec, stringResource(R.string.filter_quick), selectedFilter == FILTER_QUICK) {
-                                onFilterSelect(FILTER_QUICK)
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            FilterChip(spec, stringResource(R.string.filter_life), selectedFilter == FILTER_LIFE) {
-                                onFilterSelect(FILTER_LIFE)
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            FilterChip(spec, stringResource(R.string.filter_work), selectedFilter == FILTER_WORK) {
-                                onFilterSelect(FILTER_WORK)
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            FilterChip(spec, stringResource(R.string.filter_ai), selectedFilter == FILTER_AI) {
-                                onFilterSelect(FILTER_AI)
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            FilterChip(spec, stringResource(R.string.filter_archived), selectedFilter == FILTER_ARCHIVED) {
-                                onFilterSelect(FILTER_ARCHIVED)
+                        if (selectedRecords.isEmpty()) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(top = 14.dp)
+                                    .horizontalScroll(rememberScrollState())
+                            ) {
+                                FilterChip(spec, stringResource(R.string.filter_all), selectedFilter == FILTER_ALL) {
+                                    onFilterSelect(FILTER_ALL)
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                FilterChip(spec, stringResource(R.string.filter_quick), selectedFilter == FILTER_QUICK) {
+                                    onFilterSelect(FILTER_QUICK)
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                FilterChip(spec, stringResource(R.string.filter_life), selectedFilter == FILTER_LIFE) {
+                                    onFilterSelect(FILTER_LIFE)
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                FilterChip(spec, stringResource(R.string.filter_work), selectedFilter == FILTER_WORK) {
+                                    onFilterSelect(FILTER_WORK)
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                FilterChip(spec, stringResource(R.string.filter_ai), selectedFilter == FILTER_AI) {
+                                    onFilterSelect(FILTER_AI)
+                                }
+                                Spacer(modifier = Modifier.width(10.dp))
+                                FilterChip(spec, stringResource(R.string.filter_archived), selectedFilter == FILTER_ARCHIVED) {
+                                    onFilterSelect(FILTER_ARCHIVED)
+                                }
                             }
                         }
 
@@ -441,7 +451,7 @@ class MainActivity : BaseComposeActivity() {
                                 .weight(1f)
                                 .padding(top = 10.dp),
                             contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                bottom = spec.pageBottomPadding + 20.dp
+                                bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
                             ),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
@@ -463,6 +473,8 @@ class MainActivity : BaseComposeActivity() {
                                         }
                                     },
                                     onLongPress = {
+                                        searchEnabled = false
+                                        moreMenuExpanded = false
                                         selectedRecordIds = if (selectedRecordIds.contains(record.recordId)) {
                                             selectedRecordIds - record.recordId
                                         } else {
@@ -474,22 +486,42 @@ class MainActivity : BaseComposeActivity() {
                         }
                     }
 
-                    NoMemoBottomDock(
-                        selectedTab = NoMemoDockTab.MEMORY,
-                        spec = spec,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .padding(
-                                start = spec.pageHorizontalPadding,
-                                end = spec.pageHorizontalPadding,
-                                bottom = if (spec.isNarrow) 10.dp else 14.dp
-                            ),
-                        onOpenMemory = {},
-                        onOpenGroup = onOpenGroup,
-                        onOpenReminder = onOpenReminder,
-                        onAddClick = onAddClick
-                    )
+                    if (selectedRecords.isEmpty()) {
+                        NoMemoBottomDock(
+                            selectedTab = NoMemoDockTab.MEMORY,
+                            spec = spec,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(
+                                    start = spec.pageHorizontalPadding,
+                                    end = spec.pageHorizontalPadding,
+                                    bottom = if (spec.isNarrow) 10.dp else 14.dp
+                                ),
+                            onOpenMemory = {},
+                            onOpenGroup = onOpenGroup,
+                            onOpenReminder = onOpenReminder,
+                            onAddClick = onAddClick
+                        )
+                    } else {
+                        SelectionActionDock(
+                            spec = spec,
+                            selectedRecords = selectedRecords,
+                            onArchiveClick = {
+                                onArchiveRecords(selectedRecords)
+                                selectedRecordIds = emptySet()
+                            },
+                            onDeleteClick = { showDeleteConfirm = true },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(
+                                    start = spec.pageHorizontalPadding,
+                                    end = spec.pageHorizontalPadding,
+                                    bottom = if (spec.isNarrow) 10.dp else 14.dp
+                                )
+                        )
+                    }
 
                     if (showDeleteConfirm && selectedRecordIds.isNotEmpty()) {
                         AlertDialog(
@@ -731,6 +763,120 @@ class MainActivity : BaseComposeActivity() {
                     label = stringResource(R.string.action_settings),
                     onClick = onOpenSettings,
                     modifier = Modifier.padding(top = 6.dp)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SelectionActionDock(
+        spec: NoMemoAdaptiveSpec,
+        selectedRecords: List<MemoryRecord>,
+        onArchiveClick: () -> Unit,
+        onDeleteClick: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        val palette = rememberNoMemoPalette()
+        val archiveLabel = if (selectedRecords.all { it.isArchived }) {
+            stringResource(R.string.action_unarchive)
+        } else {
+            stringResource(R.string.action_archive)
+        }
+        Row(
+            modifier = modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            SelectionActionButton(
+                text = archiveLabel,
+                iconRes = R.drawable.ic_sheet_calendar,
+                onClick = onArchiveClick,
+                modifier = Modifier.weight(1f),
+                containerColor = palette.glassFill,
+                contentColor = palette.textPrimary,
+                borderColor = palette.glassStroke
+            )
+            SelectionActionButton(
+                text = stringResource(R.string.action_delete),
+                iconRes = R.drawable.ic_nm_delete,
+                onClick = onDeleteClick,
+                modifier = Modifier.weight(1f),
+                containerColor = palette.accent,
+                contentColor = palette.onAccent,
+                borderColor = palette.accent
+            )
+        }
+    }
+
+    @Composable
+    private fun SelectionActionButton(
+        text: String,
+        iconRes: Int,
+        onClick: () -> Unit,
+        modifier: Modifier = Modifier,
+        containerColor: Color,
+        contentColor: Color,
+        borderColor: Color
+    ) {
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(12.dp, RoundedCornerShape(26.dp)),
+                shape = RoundedCornerShape(26.dp),
+                colors = CardDefaults.cardColors(containerColor = containerColor),
+                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        painter = painterResource(iconRes),
+                        contentDescription = null,
+                        tint = contentColor,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = text,
+                        color = contentColor,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(start = 10.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SelectionHeaderTextButton(
+        text: String,
+        onClick: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        val palette = rememberNoMemoPalette()
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier
+        ) {
+            Card(
+                shape = RoundedCornerShape(999.dp),
+                colors = CardDefaults.cardColors(containerColor = palette.glassFill),
+                border = androidx.compose.foundation.BorderStroke(1.dp, palette.glassStroke)
+            ) {
+                Text(
+                    text = text,
+                    color = palette.textPrimary,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)
                 )
             }
         }

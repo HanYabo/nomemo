@@ -138,11 +138,6 @@ class AddMemoryActivity : BaseComposeActivity() {
         }
     }
 
-    override fun finish() {
-        super.finish()
-        overridePendingTransition(0, 0)
-    }
-
     private fun finishWithTransition() {
         finish()
     }
