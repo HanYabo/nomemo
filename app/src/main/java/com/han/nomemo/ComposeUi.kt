@@ -57,6 +57,7 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
@@ -918,6 +919,7 @@ fun RecordCard(
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
+    val isDark = isSystemInDarkTheme()
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val titleText = remember(record.recordId, record.title, record.memory) {
         record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
@@ -936,6 +938,9 @@ fun RecordCard(
         } else {
             context.getString(R.string.mode_label_normal)
         }
+    }
+    val categoryText = remember(record.categoryName, context) {
+        record.categoryName ?: context.getString(R.string.tag_quick)
     }
     val timeText = remember(record.createdAt, modeText, context) {
         context.getString(
@@ -956,7 +961,42 @@ fun RecordCard(
         NoMemoWidthClass.MEDIUM -> 122.dp
         NoMemoWidthClass.COMPACT -> if (adaptive.isNarrow) 94.dp else 108.dp
     }
-    val previewCornerRadius = if (adaptive.isNarrow) 16.dp else 18.dp
+    val previewCornerRadius = if (adaptive.isNarrow) 15.dp else 17.dp
+    val cardShape = RoundedCornerShape(if (adaptive.isNarrow) 28.dp else 30.dp)
+    val cardGradient = if (isDark) {
+        listOf(
+            Color(0xFF171A20).copy(alpha = 0.98f),
+            Color(0xFF14171C).copy(alpha = 0.98f)
+        )
+    } else {
+        listOf(
+            Color.White.copy(alpha = 0.995f),
+            Color(0xFFFCFCFD).copy(alpha = 0.995f)
+        )
+    }
+    val cardBorderColor = if (selected) {
+        if (isDark) Color.White.copy(alpha = 0.14f) else Color(0x26111111)
+    } else {
+        Color.Transparent
+    }
+    val cardShadow = if (isDark) 0.dp else if (selected) 7.dp else 4.dp
+    val summaryColor = if (isDark) {
+        palette.textSecondary.copy(alpha = 0.88f)
+    } else {
+        Color(0xFF697281)
+    }
+    val metaColor = if (isDark) {
+        Color.White.copy(alpha = 0.46f)
+    } else {
+        Color(0xFF98A1AE)
+    }
+    val aiMetaColor = if (isDark) {
+        Color.White.copy(alpha = 0.72f)
+    } else {
+        Color(0xFF6E7B92)
+    }
+    val thumbnailBackground = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF1F4F8)
+    val thumbnailBorder = if (isDark) Color.Transparent else Color.Transparent
 
     val gestureModifier = if (onLongPress == null && onClick == null) {
         Modifier
@@ -976,18 +1016,16 @@ fun RecordCard(
         modifier = modifier
             .fillMaxWidth()
             .then(gestureModifier),
-        shape = RoundedCornerShape(26.dp),
-        colors = CardDefaults.cardColors(containerColor = palette.glassFill),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
-        border = BorderStroke(
-            if (selected) 2.dp else 1.dp,
-            if (selected) palette.accent else palette.glassStroke
-        )
+        shape = cardShape,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+        elevation = CardDefaults.cardElevation(defaultElevation = cardShadow),
+        border = if (selected) BorderStroke(1.dp, cardBorderColor) else null
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .background(Brush.verticalGradient(cardGradient))
+                .padding(horizontal = 18.dp, vertical = 17.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Column(modifier = Modifier.weight(1f)) {
@@ -995,83 +1033,43 @@ fun RecordCard(
                     text = titleText,
                     color = palette.textPrimary,
                     fontSize = adaptive.recordTitleSize,
-                    fontWeight = FontWeight.Bold,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = if (compactCard) 2 else 3,
                     overflow = TextOverflow.Ellipsis
                 )
                 if (!summaryText.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(7.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = summaryText,
-                        color = palette.textSecondary,
+                        color = summaryColor,
                         fontSize = if (compactCard) 13.sp else 14.sp,
                         maxLines = if (compactCard) 2 else 3,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(modifier = Modifier.height(9.dp))
-                if (compactCard) {
-                    Text(
-                        text = timeText,
-                        color = palette.textTertiary,
-                        fontSize = 12.sp
-                    )
-                    Row(
-                        modifier = Modifier.padding(top = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        TinyTag(
-                            text = record.categoryName ?: stringResource(R.string.tag_quick),
-                            bg = palette.tagNoteBg,
-                            fg = palette.tagNoteText
-                        )
-                        if (record.mode == MemoryRecord.MODE_AI) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            TinyTag(
-                                text = stringResource(R.string.tag_ai),
-                                bg = palette.tagAiBg,
-                                fg = palette.tagAiText
-                            )
-                        }
-                    }
-                } else {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = timeText,
-                            color = palette.textTertiary,
-                            fontSize = 12.sp
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        TinyTag(
-                            text = record.categoryName ?: stringResource(R.string.tag_quick),
-                            bg = palette.tagNoteBg,
-                            fg = palette.tagNoteText
-                        )
-                        if (record.mode == MemoryRecord.MODE_AI) {
-                            Spacer(modifier = Modifier.width(6.dp))
-                            TinyTag(
-                                text = stringResource(R.string.tag_ai),
-                                bg = palette.tagAiBg,
-                                fg = palette.tagAiText
-                            )
-                        }
-                    }
-                }
+                Spacer(modifier = Modifier.height(10.dp))
+                RecordMetaLine(
+                    timeText = timeText,
+                    categoryText = categoryText,
+                    showAi = record.mode == MemoryRecord.MODE_AI,
+                    metaColor = metaColor,
+                    aiColor = aiMetaColor
+                )
             }
 
             if (showPreviewImage) {
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(14.dp))
                 if (allowImageLoading) {
                     MemoryThumbnail(
                         uriString = record.imageUri.orEmpty(),
                         width = previewWidth,
                         height = previewHeight,
-                        backgroundColor = palette.glassFillSoft,
+                        backgroundColor = thumbnailBackground,
                         cornerRadius = previewCornerRadius,
                         modifier = Modifier
                             .border(
                                 width = 1.dp,
-                                color = palette.glassStroke,
+                                color = thumbnailBorder,
                                 shape = RoundedCornerShape(previewCornerRadius)
                             )
                     )
@@ -1080,10 +1078,10 @@ fun RecordCard(
                         modifier = Modifier
                             .size(width = previewWidth, height = previewHeight)
                             .clip(RoundedCornerShape(previewCornerRadius))
-                            .background(palette.glassFillSoft)
+                            .background(thumbnailBackground)
                             .border(
                                 width = 1.dp,
-                                color = palette.glassStroke,
+                                color = thumbnailBorder,
                                 shape = RoundedCornerShape(previewCornerRadius)
                             )
                     )
@@ -1094,20 +1092,47 @@ fun RecordCard(
 }
 
 @Composable
-private fun TinyTag(text: String, bg: Color, fg: Color) {
+private fun RecordMetaLine(
+    timeText: String,
+    categoryText: String,
+    showAi: Boolean,
+    metaColor: Color,
+    aiColor: Color
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = timeText,
+            color = metaColor,
+            fontSize = 12.sp
+        )
+        MetaDividerDot(color = metaColor)
+        Text(
+            text = categoryText,
+            color = metaColor,
+            fontSize = 12.sp
+        )
+        if (showAi) {
+            MetaDividerDot(color = metaColor)
+            Text(
+                text = "AI",
+                color = aiColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun MetaDividerDot(color: Color) {
+    Spacer(modifier = Modifier.width(7.dp))
     Box(
         modifier = Modifier
-            .clip(RoundedCornerShape(999.dp))
-            .background(bg)
-            .padding(horizontal = 8.dp, vertical = 3.dp)
-    ) {
-        Text(
-            text = text,
-            color = fg,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold
-        )
-    }
+            .size(3.dp)
+            .clip(CircleShape)
+            .background(color.copy(alpha = 0.72f))
+    )
+    Spacer(modifier = Modifier.width(7.dp))
 }
 
 @Composable
