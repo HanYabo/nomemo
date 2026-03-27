@@ -24,6 +24,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -50,12 +51,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.BlurredEdgeTreatment
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -635,11 +639,178 @@ fun NoMemoBottomDock(
     onAddClick: () -> Unit,
     modifier: Modifier = Modifier,
     spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
-    animateFabHalo: Boolean = true
+    animateFabHalo: Boolean = true,
+    showEnhancedOutline: Boolean = false
 ) {
     val palette = rememberNoMemoPalette()
-    val addButtonBackground = palette.accent.copy(alpha = 0.82f)
+    val isDark = isSystemInDarkTheme()
+    val dockShape = RoundedCornerShape(42.dp)
+    val dockContainerBrush = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFF171B22).copy(alpha = 0.94f),
+                Color(0xFF1C2129).copy(alpha = 0.90f),
+                Color(0xFF11151B).copy(alpha = 0.92f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.90f),
+                Color(0xFFFAFBFD).copy(alpha = 0.87f),
+                Color(0xFFF2F5F8).copy(alpha = 0.88f)
+            )
+        )
+    }
+    val dockBlurTint = if (isDark) {
+        Color.White.copy(alpha = 0.12f)
+    } else {
+        Color.White.copy(alpha = 0.48f)
+    }
+    val dockHighlight = if (isDark) {
+        Color.White.copy(alpha = 0.24f)
+    } else {
+        Color.White.copy(alpha = 0.74f)
+    }
+    val dockTopHighlightBrush = Brush.verticalGradient(
+        listOf(
+            if (isDark) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.56f),
+            if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.20f),
+            Color.Transparent
+        )
+    )
+    val dockShadow = if (isDark) {
+        Color.Black.copy(alpha = 0.34f)
+    } else {
+        Color.Black.copy(alpha = 0.10f)
+    }
+    val selectedItemBackground = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFF2A3442).copy(alpha = 0.96f),
+                Color(0xFF222C39).copy(alpha = 0.94f),
+                Color(0xFF1C2430).copy(alpha = 0.92f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFFE7EEF8).copy(alpha = 0.98f),
+                Color(0xFFDCE7F4).copy(alpha = 0.97f),
+                Color(0xFFD1DEEF).copy(alpha = 0.96f)
+            )
+        )
+    }
+    val selectedItemStroke = if (isDark) {
+        Color(0xFF8EA4C0).copy(alpha = 0.32f)
+    } else {
+        Color(0xFF90A3BB).copy(alpha = 0.42f)
+    }
+    val selectedItemTopHighlight = if (isDark) {
+        Color.White.copy(alpha = 0.16f)
+    } else {
+        Color.White.copy(alpha = 0.42f)
+    }
+    val selectedItemContentColor = if (isDark) {
+        Color(0xFFF2F6FB)
+    } else {
+        Color(0xFF2D4258)
+    }
+    val enhancedOutlineColor = if (showEnhancedOutline) {
+        if (isDark) {
+            Color.White.copy(alpha = 0.18f)
+        } else {
+            Color(0xFF7E90A7).copy(alpha = 0.28f)
+        }
+    } else {
+        Color.Transparent
+    }
+    val enhancedInnerOutlineColor = if (showEnhancedOutline) {
+        if (isDark) {
+            Color.White.copy(alpha = 0.08f)
+        } else {
+            Color.White.copy(alpha = 0.52f)
+        }
+    } else {
+        Color.Transparent
+    }
+    val enhancedTopRimBrush = if (showEnhancedOutline) {
+        Brush.verticalGradient(
+            listOf(
+                if (isDark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.72f),
+                if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.24f),
+                Color.Transparent
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(Color.Transparent, Color.Transparent)
+        )
+    }
+    val fabFrameShape = RoundedCornerShape(39.dp)
+    val fabFrameBrush = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.10f),
+                Color.White.copy(alpha = 0.06f),
+                Color.White.copy(alpha = 0.08f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.60f),
+                Color.White.copy(alpha = 0.42f),
+                Color.White.copy(alpha = 0.52f)
+            )
+        )
+    }
     val addButtonSize = spec.fabButtonSize + 4.dp
+    val addButtonShape = RoundedCornerShape(34.dp)
+    val addButtonBrush = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFFF7F9FC),
+                Color(0xFFE7EBF1),
+                Color(0xFFD7DDE6)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFF33404F),
+                Color(0xFF242F3B),
+                Color(0xFF171E27)
+            )
+        )
+    }
+    val addButtonStroke = if (isDark) {
+        Color.White.copy(alpha = 0.34f)
+    } else {
+        Color.White.copy(alpha = 0.16f)
+    }
+    val addButtonTopHighlightBrush = Brush.verticalGradient(
+        listOf(
+            if (isDark) Color.White.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.18f),
+            if (isDark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.06f),
+            Color.Transparent
+        )
+    )
+    val addButtonInnerStroke = if (isDark) {
+        Color.White.copy(alpha = 0.12f)
+    } else {
+        Color.White.copy(alpha = 0.08f)
+    }
+    val addButtonShadow = if (isDark) {
+        Color.Black.copy(alpha = 0.30f)
+    } else {
+        Color(0xFF0E1620).copy(alpha = 0.26f)
+    }
+    val addButtonIconTint = if (isDark) {
+        Color(0xFF121821)
+    } else {
+        Color.White
+    }
     val haptic = LocalHapticFeedback.current
     val haloScale: Float
     val haloAlpha: Float
@@ -686,53 +857,135 @@ fun NoMemoBottomDock(
             .then(dockSwipeModifier),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Box(
             modifier = Modifier
                 .weight(1f)
                 .height(spec.bottomNavHeight)
-                .clip(RoundedCornerShape(42.dp))
-                .background(palette.glassFill)
-                .padding(horizontal = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .shadow(
+                    elevation = if (spec.isNarrow) 10.dp else 14.dp,
+                    shape = dockShape,
+                    ambientColor = dockShadow,
+                    spotColor = dockShadow
+                )
         ) {
-            DockNavItem(
-                iconRes = R.drawable.ic_nm_memory,
-                text = stringResource(R.string.nav_memory),
-                selected = selectedTab == NoMemoDockTab.MEMORY,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onOpenMemory()
-                },
-                spec = spec
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .blur(
+                        radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 28.dp else 18.dp,
+                        edgeTreatment = BlurredEdgeTreatment.Unbounded
+                    )
+                    .clip(dockShape)
+                    .background(dockBlurTint)
             )
-            DockNavItem(
-                iconRes = R.drawable.ic_nm_group,
-                text = stringResource(R.string.nav_group),
-                selected = selectedTab == NoMemoDockTab.GROUP,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onOpenGroup()
-                },
-                spec = spec
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(dockShape)
+                    .background(dockContainerBrush)
+                    .border(1.dp, dockHighlight, dockShape)
             )
-            DockNavItem(
-                iconRes = R.drawable.ic_nm_reminder,
-                text = stringResource(R.string.nav_reminder),
-                selected = selectedTab == NoMemoDockTab.REMINDER,
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onOpenReminder()
-                },
-                spec = spec
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(dockShape)
+                    .background(dockTopHighlightBrush)
             )
+            if (showEnhancedOutline) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(dockShape)
+                        .border(1.dp, enhancedOutlineColor, dockShape)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(1.dp)
+                        .clip(RoundedCornerShape(41.dp))
+                        .border(0.75.dp, enhancedInnerOutlineColor, RoundedCornerShape(41.dp))
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(dockShape)
+                        .background(enhancedTopRimBrush)
+                )
+            }
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DockNavItem(
+                    iconRes = R.drawable.ic_nm_memory,
+                    text = stringResource(R.string.nav_memory),
+                    selected = selectedTab == NoMemoDockTab.MEMORY,
+                    selectedBackground = selectedItemBackground,
+                    selectedStroke = selectedItemStroke,
+                    selectedTopHighlight = selectedItemTopHighlight,
+                    selectedContentColor = selectedItemContentColor,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onOpenMemory()
+                    },
+                    spec = spec
+                )
+                DockNavItem(
+                    iconRes = R.drawable.ic_nm_group,
+                    text = stringResource(R.string.nav_group),
+                    selected = selectedTab == NoMemoDockTab.GROUP,
+                    selectedBackground = selectedItemBackground,
+                    selectedStroke = selectedItemStroke,
+                    selectedTopHighlight = selectedItemTopHighlight,
+                    selectedContentColor = selectedItemContentColor,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onOpenGroup()
+                    },
+                    spec = spec
+                )
+                DockNavItem(
+                    iconRes = R.drawable.ic_nm_reminder,
+                    text = stringResource(R.string.nav_reminder),
+                    selected = selectedTab == NoMemoDockTab.REMINDER,
+                    selectedBackground = selectedItemBackground,
+                    selectedStroke = selectedItemStroke,
+                    selectedTopHighlight = selectedItemTopHighlight,
+                    selectedContentColor = selectedItemContentColor,
+                    onClick = {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onOpenReminder()
+                    },
+                    spec = spec
+                )
+            }
         }
 
         Spacer(modifier = Modifier.width(8.dp))
 
         Box(
-            modifier = Modifier.size(spec.fabFrameSize),
+            modifier = Modifier
+                .size(spec.fabFrameSize)
+                .shadow(
+                    elevation = if (spec.isNarrow) 10.dp else 12.dp,
+                    shape = fabFrameShape,
+                    ambientColor = dockShadow,
+                    spotColor = dockShadow
+                ),
             contentAlignment = Alignment.Center
         ) {
+            Box(
+                modifier = Modifier
+                    .size(spec.fabFrameSize)
+                    .blur(
+                        radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 24.dp else 16.dp,
+                        edgeTreatment = BlurredEdgeTreatment.Unbounded
+                    )
+                    .clip(fabFrameShape)
+                    .background(dockBlurTint)
+            )
             Box(
                 modifier = Modifier
                     .size(spec.fabFrameSize)
@@ -741,8 +994,9 @@ fun NoMemoBottomDock(
                         scaleY = haloScale
                         alpha = haloAlpha
                     }
-                    .clip(RoundedCornerShape(39.dp))
-                    .background(palette.glassFillSoft)
+                    .clip(fabFrameShape)
+                    .background(fabFrameBrush)
+                    .border(1.dp, dockHighlight, fabFrameShape)
             )
             PressScaleBox(
                 onClick = {
@@ -752,15 +1006,40 @@ fun NoMemoBottomDock(
                 pressedScale = 0.92f,
                 modifier = Modifier
                     .size(addButtonSize)
-                    .clip(RoundedCornerShape(34.dp))
-                    .background(addButtonBackground)
+                    .shadow(
+                        elevation = if (spec.isNarrow) 8.dp else 10.dp,
+                        shape = addButtonShape,
+                        ambientColor = addButtonShadow,
+                        spotColor = addButtonShadow
+                    )
             ) {
-                Text(
-                    text = stringResource(R.string.save_record),
-                    color = palette.onAccent,
-                    fontSize = if (spec.isNarrow) 22.sp else 24.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.align(Alignment.Center)
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(addButtonShape)
+                        .background(addButtonBrush)
+                        .border(1.dp, addButtonStroke, addButtonShape)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(1.dp)
+                        .clip(RoundedCornerShape(33.dp))
+                        .border(0.75.dp, addButtonInnerStroke, RoundedCornerShape(33.dp))
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(addButtonShape)
+                        .background(addButtonTopHighlightBrush)
+                )
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_nm_add),
+                    contentDescription = stringResource(R.string.save_record_desc),
+                    tint = addButtonIconTint,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(if (spec.isNarrow) 22.dp else 24.dp)
                 )
             }
         }
@@ -772,21 +1051,45 @@ private fun RowScope.DockNavItem(
     iconRes: Int,
     text: String,
     selected: Boolean,
+    selectedBackground: Brush,
+    selectedStroke: Color,
+    selectedTopHighlight: Color,
+    selectedContentColor: Color,
     onClick: () -> Unit,
     spec: NoMemoAdaptiveSpec
 ) {
     val palette = rememberNoMemoPalette()
-    val itemColor = if (selected) palette.accent else palette.textPrimary
-    val selectedBackground = if (selected) palette.glassFillSoft else Color.Transparent
+    val itemShape = RoundedCornerShape(32.dp)
+    val itemColor = if (selected) selectedContentColor else palette.textPrimary
 
     PressScaleBox(
         onClick = onClick,
         modifier = Modifier
             .weight(1f)
             .height(spec.bottomNavItemHeight)
-            .clip(RoundedCornerShape(32.dp))
-            .background(selectedBackground)
+            .clip(itemShape)
     ) {
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(selectedBackground)
+                    .border(1.dp, selectedStroke, itemShape)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(itemShape)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                selectedTopHighlight,
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+        }
         Column(
             modifier = Modifier.align(Alignment.Center),
             horizontalAlignment = Alignment.CenterHorizontally
@@ -1089,6 +1392,30 @@ fun RecordCard(
             }
         }
     }
+}
+
+@Composable
+fun rememberDockHasUnderContent(
+    listState: LazyListState,
+    spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
+    extraThreshold: Dp = 18.dp
+): Boolean {
+    val density = LocalDensity.current
+    val overlapThresholdPx = with(density) { (spec.bottomNavHeight + extraThreshold).roundToPx() }
+    return remember(listState, overlapThresholdPx) {
+        derivedStateOf {
+            val layoutInfo = listState.layoutInfo
+            val visibleItems = layoutInfo.visibleItemsInfo
+            if (visibleItems.isEmpty()) {
+                false
+            } else {
+                val cutoff = layoutInfo.viewportEndOffset - overlapThresholdPx
+                visibleItems.any { visibleItem ->
+                    visibleItem.offset + visibleItem.size > cutoff
+                }
+            }
+        }
+    }.value
 }
 
 @Composable

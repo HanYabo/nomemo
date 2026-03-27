@@ -238,6 +238,10 @@ class ReminderActivity : BaseComposeActivity() {
         var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
+        val dockHasUnderContent = rememberDockHasUnderContent(
+            listState = listState,
+            spec = adaptive
+        )
         val filteredRecords = remember(records, searchQuery) {
             records.filter { record ->
                 val query = searchQuery.trim()
@@ -375,10 +379,10 @@ class ReminderActivity : BaseComposeActivity() {
                         } else {
                             LazyColumn(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .padding(top = 12.dp),
+                                    .weight(1f),
                                 state = listState,
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    top = if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp,
                                     bottom = spec.pageBottomPadding + 20.dp
                                 ),
                                 verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp)
@@ -436,6 +440,7 @@ class ReminderActivity : BaseComposeActivity() {
                         onAddClick = onAddClick,
                         spec = spec,
                         animateFabHalo = !listState.isScrollInProgress,
+                        showEnhancedOutline = dockHasUnderContent,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()

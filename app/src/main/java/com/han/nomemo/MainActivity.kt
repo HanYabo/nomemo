@@ -275,6 +275,10 @@ class MainActivity : BaseComposeActivity() {
             records.filter { selectedRecordIds.contains(it.recordId) }
         }
         val listState = rememberLazyListState()
+        val dockHasUnderContent = rememberDockHasUnderContent(
+            listState = listState,
+            spec = adaptive
+        )
         val filteredRecords = remember(records, selectedFilter, searchQuery) {
             records.filter { record ->
                 val matchesFilter = when (selectedFilter) {
@@ -412,7 +416,7 @@ class MainActivity : BaseComposeActivity() {
                         if (selectedRecords.isEmpty()) {
                             Row(
                                 modifier = Modifier
-                                    .padding(top = 14.dp)
+                                    .padding(top = 14.dp, bottom = 10.dp)
                                     .horizontalScroll(rememberScrollState())
                             ) {
                                 FilterChip(spec, stringResource(R.string.filter_all), selectedFilter == FILTER_ALL) {
@@ -446,10 +450,10 @@ class MainActivity : BaseComposeActivity() {
                         } else {
                             LazyColumn(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .padding(top = 10.dp),
+                                    .weight(1f),
                                 state = listState,
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    top = 12.dp,
                                     bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
                                 ),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -528,7 +532,8 @@ class MainActivity : BaseComposeActivity() {
                             onOpenGroup = onOpenGroup,
                             onOpenReminder = onOpenReminder,
                             onAddClick = onAddClick,
-                            animateFabHalo = !listState.isScrollInProgress
+                            animateFabHalo = !listState.isScrollInProgress,
+                            showEnhancedOutline = dockHasUnderContent
                         )
                     } else {
                         SelectionActionDock(

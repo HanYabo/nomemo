@@ -196,6 +196,10 @@ class GroupActivity : BaseComposeActivity() {
         var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
+        val dockHasUnderContent = rememberDockHasUnderContent(
+            listState = listState,
+            spec = adaptive
+        )
         val filtered = remember(allRecords, selectedCategoryCode, searchQuery) {
             allRecords.filter { record ->
                 val matchesCategory = selectedCategoryCode == null || selectedCategoryCode == record.categoryCode
@@ -360,10 +364,10 @@ class GroupActivity : BaseComposeActivity() {
                         } else {
                             LazyColumn(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .padding(top = 12.dp),
+                                    .weight(1f),
                                 state = listState,
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                    top = if (spec.widthClass == NoMemoWidthClass.EXPANDED) 14.dp else 12.dp,
                                     bottom = spec.pageBottomPadding + 20.dp
                                 ),
                                 verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 14.dp else 12.dp)
@@ -423,6 +427,7 @@ class GroupActivity : BaseComposeActivity() {
                         onAddClick = onAddClick,
                         spec = spec,
                         animateFabHalo = !listState.isScrollInProgress,
+                        showEnhancedOutline = dockHasUnderContent,
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
