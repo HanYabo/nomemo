@@ -1,28 +1,36 @@
-package com.han.nomemo
+﻿package com.han.nomemo
 
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -33,10 +41,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import org.json.JSONArray
@@ -56,7 +67,7 @@ class SettingsActivity : BaseComposeActivity() {
         memoryStore = MemoryStore(this)
         setContent {
             SettingsContent(
-                onBack = { finish() },
+                onClose = { finish() },
                 onBaseUrlChange = { value ->
                     settingsStore.apiBaseUrl = value
                     setResult(RESULT_OK)
@@ -77,7 +88,7 @@ class SettingsActivity : BaseComposeActivity() {
                 onClearData = {
                     memoryStore.clearAll()
                     setResult(RESULT_OK)
-                    Toast.makeText(this, R.string.settings_data_cleared, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, "本地数据已清空", Toast.LENGTH_SHORT).show()
                 },
                 onTestApi = { baseUrl, apiKey, model, onResult ->
                     testApiConnection(baseUrl, apiKey, model, onResult)
@@ -97,7 +108,7 @@ class SettingsActivity : BaseComposeActivity() {
         val resolvedModel = model.trim().ifBlank { BuildConfig.OPENAI_MODEL }
 
         if (resolvedBaseUrl.isBlank() || resolvedApiKey.isBlank() || resolvedModel.isBlank()) {
-            onResult(false, "请先填写完整的 Base URL、API Key 和 Model。")
+            onResult(false, "请先补全 Base URL、API Key 与 Model。")
             return
         }
 
@@ -109,7 +120,7 @@ class SettingsActivity : BaseComposeActivity() {
                 result.fold(
                     onSuccess = { onResult(true, it) },
                     onFailure = { error ->
-                        onResult(false, error.message ?: "请求失败，请检查网络或配置。")
+                        onResult(false, error.message ?: "API 连接测试失败，请检查当前配置。")
                     }
                 )
             }
@@ -158,16 +169,16 @@ class SettingsActivity : BaseComposeActivity() {
             val code = connection.responseCode
             val responseBody = readResponse(connection)
             if (code !in 200..299) {
-                throw IllegalStateException("连接失败（HTTP $code）。${extractErrorMessage(responseBody)}")
+                throw IllegalStateException("HTTP $code：${extractErrorMessage(responseBody)}")
             }
 
             val responseJson = JSONObject(responseBody)
             val choices = responseJson.optJSONArray("choices")
             if (choices == null || choices.length() == 0) {
-                throw IllegalStateException("接口已连通，但返回内容不符合预期。")
+                throw IllegalStateException("接口已响应，但没有返回有效内容。")
             }
 
-            "连接成功，当前 API 配置可以正常访问。"
+            "连接成功，当前 API 配置可正常访问。"
         } finally {
             connection.disconnect()
         }
@@ -196,7 +207,7 @@ class SettingsActivity : BaseComposeActivity() {
 
     private fun extractErrorMessage(responseBody: String): String {
         if (responseBody.isBlank()) {
-            return "请检查 Base URL、API Key、Model 或网络连接。"
+            return "未收到服务端返回，请检查 Base URL、API Key 与 Model。"
         }
         return runCatching {
             val json = JSONObject(responseBody)
@@ -213,7 +224,7 @@ class SettingsActivity : BaseComposeActivity() {
 
     @Composable
     private fun SettingsContent(
-        onBack: () -> Unit,
+        onClose: () -> Unit,
         onBaseUrlChange: (String) -> Unit,
         onApiKeyChange: (String) -> Unit,
         onModelChange: (String) -> Unit,
@@ -224,111 +235,298 @@ class SettingsActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val sectionSurface = if (isDark) Color(0xFF181B20).copy(alpha = 0.98f) else Color.White.copy(alpha = 0.97f)
-        val fieldSurface = if (isDark) Color(0xFF111418) else Color(0xFFF9FAFC)
-        val subtleBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000)
-        val dangerSurface = if (isDark) Color(0xFF231618) else Color.White.copy(alpha = 0.96f)
-        val dangerText = if (isDark) Color(0xFFFF8A80) else Color(0xFFB42318)
+        val pageBackground = if (isDark) Color(0xFF111318) else Color(0xFFF5F5F7)
+        val cardSurface = if (isDark) Color(0xFF1A1D23) else Color.White
+        val softSurface = if (isDark) Color(0xFF22262E) else Color(0xFFF7F7FA)
+        val titleColor = if (isDark) Color(0xFFF7F8FA) else Color(0xFF111111)
+        val subtitleColor = if (isDark) Color.White.copy(alpha = 0.58f) else Color(0xFF8E8E93)
+        val sectionLabelColor = if (isDark) Color.White.copy(alpha = 0.42f) else Color(0xFF9A9AA1)
+        val dividerColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE8E8EE)
+        val borderColor = if (isDark) Color.White.copy(alpha = 0.04f) else Color(0xFFF1F1F5)
+
         var baseUrl by remember { mutableStateOf(settingsStore.apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }) }
         var apiKey by remember { mutableStateOf(settingsStore.apiKey) }
         var model by remember { mutableStateOf(settingsStore.apiModel.ifBlank { BuildConfig.OPENAI_MODEL }) }
         var themeMode by remember { mutableStateOf(settingsStore.themeMode) }
+        var currentRoute by remember { mutableStateOf<SettingsRoute>(SettingsRoute.Home) }
         var showClearConfirm by remember { mutableStateOf(false) }
         var testingApi by remember { mutableStateOf(false) }
         var showTestResult by remember { mutableStateOf(false) }
         var testResultSuccess by remember { mutableStateOf(false) }
         var testResultMessage by remember { mutableStateOf("") }
 
-        NoMemoBackground {
+        BackHandler {
+            if (currentRoute == SettingsRoute.Home) {
+                onClose()
+            } else {
+                currentRoute = SettingsRoute.Home
+            }
+        }
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(pageBackground)
+        ) {
             ResponsiveContentFrame(spec = adaptive) { spec ->
-                Box(
+                Column(
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
                         .navigationBarsPadding()
                         .padding(
                             start = spec.pageHorizontalPadding,
-                            top = spec.pageTopPadding,
+                            top = 10.dp,
                             end = spec.pageHorizontalPadding,
-                            bottom = 18.dp
+                            bottom = 24.dp
                         )
+                        .verticalScroll(rememberScrollState())
                 ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .verticalScroll(rememberScrollState())
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            GlassIconCircleButton(
-                                iconRes = R.drawable.ic_sheet_close,
-                                contentDescription = getString(R.string.back),
-                                onClick = onBack
+                    SettingsHeader(
+                        title = when (currentRoute) {
+                            SettingsRoute.Home -> "设置"
+                            SettingsRoute.AiConfig -> "AI 功能设置"
+                            SettingsRoute.AiGuide -> "AI 功能说明"
+                            SettingsRoute.Appearance -> "显示与主题"
+                            SettingsRoute.Tools -> "API 连接测试"
+                            SettingsRoute.Data -> "数据管理"
+                        },
+                        onBack = {
+                            if (currentRoute == SettingsRoute.Home) {
+                                onClose()
+                            } else {
+                                currentRoute = SettingsRoute.Home
+                            }
+                        },
+                        buttonSurface = cardSurface,
+                        titleColor = titleColor,
+                        borderColor = borderColor,
+                        isDark = isDark
+                    )
+
+                    when (currentRoute) {
+                        SettingsRoute.Home -> {
+                            Spacer(modifier = Modifier.height(14.dp))
+                            SettingsHomePage(
+                                sectionLabelColor = sectionLabelColor,
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor,
+                                cardSurface = cardSurface,
+                                dividerColor = dividerColor,
+                                borderColor = borderColor,
+                                onNavigate = { currentRoute = it }
                             )
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 14.dp)
+                        }
+
+                        SettingsRoute.AiConfig -> {
+                            Spacer(modifier = Modifier.height(18.dp))
+                            SettingsSectionLabel("AI 功能", sectionLabelColor)
+                            SettingsSurfaceCard(
+                                surface = cardSurface,
+                                borderColor = borderColor,
+                                modifier = Modifier.padding(top = 12.dp)
                             ) {
-                                Text(
-                                    text = getString(R.string.settings_title),
-                                    color = palette.textPrimary,
-                                    fontSize = if (spec.isNarrow) 24.sp else 28.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
-                                Text(
-                                    text = getString(R.string.settings_theme_section),
-                                    color = palette.textSecondary,
-                                    fontSize = 13.sp
-                                )
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    SettingsField(
+                                        label = "Base URL",
+                                        value = baseUrl,
+                                        onValueChange = {
+                                            baseUrl = it
+                                            onBaseUrlChange(it)
+                                        },
+                                        placeholder = BuildConfig.OPENAI_BASE_URL,
+                                        fieldSurface = softSurface,
+                                        borderColor = borderColor,
+                                        titleColor = titleColor,
+                                        subtitleColor = subtitleColor,
+                                        accentColor = palette.accent
+                                    )
+                                    SettingsField(
+                                        label = "API Key",
+                                        value = apiKey,
+                                        onValueChange = {
+                                            apiKey = it
+                                            onApiKeyChange(it)
+                                        },
+                                        placeholder = "sk-...",
+                                        isSecret = true,
+                                        fieldSurface = softSurface,
+                                        borderColor = borderColor,
+                                        titleColor = titleColor,
+                                        subtitleColor = subtitleColor,
+                                        accentColor = palette.accent
+                                    )
+                                    SettingsField(
+                                        label = "Model",
+                                        value = model,
+                                        onValueChange = {
+                                            model = it
+                                            onModelChange(it)
+                                        },
+                                        placeholder = BuildConfig.OPENAI_MODEL,
+                                        fieldSurface = softSurface,
+                                        borderColor = borderColor,
+                                        titleColor = titleColor,
+                                        subtitleColor = subtitleColor,
+                                        accentColor = palette.accent
+                                    )
+                                }
                             }
                         }
 
-                        SettingsSection(
-                            title = getString(R.string.settings_api_section),
-                            modifier = Modifier.padding(top = 18.dp),
-                            sectionSurface = sectionSurface,
-                            borderColor = subtleBorder
-                        ) {
-                            SettingField(
-                                label = getString(R.string.settings_base_url),
-                                value = baseUrl,
-                                onValueChange = {
-                                    baseUrl = it
-                                    onBaseUrlChange(it)
+                        SettingsRoute.AiGuide -> {
+                            Spacer(modifier = Modifier.height(18.dp))
+                            SettingsSectionLabel("说明", sectionLabelColor)
+                            SettingsSurfaceCard(
+                                surface = cardSurface,
+                                borderColor = borderColor,
+                                modifier = Modifier.padding(top = 12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    SettingsInfoBlock(
+                                        title = "分析方式",
+                                        text = "新增记忆时可以提交文本或图片，应用会读取当前 AI 配置完成内容提取与摘要生成。",
+                                        titleColor = titleColor,
+                                        textColor = subtitleColor
+                                    )
+                                    SettingsInfoDivider(dividerColor)
+                                    SettingsInfoBlock(
+                                        title = "保存逻辑",
+                                        text = "点击确认后会先生成对应条目，分析完成后再热更新摘要、记忆与分析结果。",
+                                        titleColor = titleColor,
+                                        textColor = subtitleColor
+                                    )
+                                    SettingsInfoDivider(dividerColor)
+                                    SettingsInfoBlock(
+                                        title = "兜底策略",
+                                        text = "当网络或模型调用失败时，应用会使用本地 fallback，避免普通录入流程被阻塞。",
+                                        titleColor = titleColor,
+                                        textColor = subtitleColor
+                                    )
+                                }
+                            }
+                        }
+
+                        SettingsRoute.Appearance -> {
+                            Spacer(modifier = Modifier.height(18.dp))
+                            SettingsSectionLabel("个性化", sectionLabelColor)
+                            SettingsSurfaceCard(
+                                surface = cardSurface,
+                                borderColor = borderColor,
+                                modifier = Modifier.padding(top = 12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
+                                ) {
+                                    Text(
+                                        text = "显示模式",
+                                        color = titleColor,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "选中后立即生效，不需要额外保存。",
+                                        color = subtitleColor,
+                                        fontSize = 14.sp,
+                                        modifier = Modifier.padding(top = 6.dp)
+                                    )
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(top = 18.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                    ) {
+                                        ThemeChoicePill(
+                                            text = "跟随系统",
+                                            selected = themeMode == SettingsStore.THEME_SYSTEM,
+                                            onClick = {
+                                                themeMode = SettingsStore.THEME_SYSTEM
+                                                onThemeModeChange(SettingsStore.THEME_SYSTEM)
+                                            },
+                                            selectedColor = palette.accent,
+                                            surface = softSurface,
+                                            textColor = titleColor
+                                        )
+                                        ThemeChoicePill(
+                                            text = "浅色",
+                                            selected = themeMode == SettingsStore.THEME_LIGHT,
+                                            onClick = {
+                                                themeMode = SettingsStore.THEME_LIGHT
+                                                onThemeModeChange(SettingsStore.THEME_LIGHT)
+                                            },
+                                            selectedColor = palette.accent,
+                                            surface = softSurface,
+                                            textColor = titleColor
+                                        )
+                                        ThemeChoicePill(
+                                            text = "深色",
+                                            selected = themeMode == SettingsStore.THEME_DARK,
+                                            onClick = {
+                                                themeMode = SettingsStore.THEME_DARK
+                                                onThemeModeChange(SettingsStore.THEME_DARK)
+                                            },
+                                            selectedColor = palette.accent,
+                                            surface = softSurface,
+                                            textColor = titleColor
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        SettingsRoute.Tools -> {
+                            Spacer(modifier = Modifier.height(18.dp))
+                            SettingsSectionLabel("辅助功能", sectionLabelColor)
+                            SettingsSurfaceCard(
+                                surface = cardSurface,
+                                borderColor = borderColor,
+                                modifier = Modifier.padding(top = 12.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    SettingsInfoPair(
+                                        label = "当前地址",
+                                        value = baseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL },
+                                        titleColor = titleColor,
+                                        textColor = subtitleColor
+                                    )
+                                    SettingsInfoDivider(dividerColor)
+                                    SettingsInfoPair(
+                                        label = "当前模型",
+                                        value = model.ifBlank { BuildConfig.OPENAI_MODEL },
+                                        titleColor = titleColor,
+                                        textColor = subtitleColor
+                                    )
+                                    SettingsInfoDivider(dividerColor)
+                                    SettingsInfoPair(
+                                        label = "API Key",
+                                        value = maskedApiKey(apiKey),
+                                        titleColor = titleColor,
+                                        textColor = subtitleColor
+                                    )
+                                }
+                            }
+
+                            SettingsPrimaryAction(
+                                title = if (testingApi) "正在测试..." else "测试 API 连接",
+                                subtitle = if (testingApi) {
+                                    "正在校验当前 Base URL、API Key 与 Model。"
+                                } else {
+                                    "验证当前 AI 配置是否可正常访问。"
                                 },
-                                placeholder = BuildConfig.OPENAI_BASE_URL,
-                                fieldSurface = fieldSurface,
-                                borderColor = subtleBorder
-                            )
-                            SettingField(
-                                label = getString(R.string.settings_api_key),
-                                value = apiKey,
-                                onValueChange = {
-                                    apiKey = it
-                                    onApiKeyChange(it)
-                                },
-                                placeholder = "sk-...",
-                                isSecret = true,
-                                fieldSurface = fieldSurface,
-                                borderColor = subtleBorder
-                            )
-                            SettingField(
-                                label = getString(R.string.settings_model),
-                                value = model,
-                                onValueChange = {
-                                    model = it
-                                    onModelChange(it)
-                                },
-                                placeholder = BuildConfig.OPENAI_MODEL,
-                                fieldSurface = fieldSurface,
-                                borderColor = subtleBorder
-                            )
-                            PressScaleBox(
+                                modifier = Modifier.padding(top = 14.dp),
+                                accentColor = palette.accent,
+                                borderColor = borderColor,
                                 onClick = {
-                                    if (testingApi) return@PressScaleBox
+                                    if (testingApi) return@SettingsPrimaryAction
                                     testingApi = true
                                     onTestApi(baseUrl, apiKey, model) { success, message ->
                                         testingApi = false
@@ -336,105 +534,43 @@ class SettingsActivity : BaseComposeActivity() {
                                         testResultMessage = message
                                         showTestResult = true
                                     }
-                                },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 4.dp)
-                            ) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
-                                    colors = CardDefaults.cardColors(containerColor = fieldSurface),
-                                    border = BorderStroke(1.dp, subtleBorder)
-                                ) {
-                                    Column(
-                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp)
-                                    ) {
-                                        Text(
-                                            text = if (testingApi) "测试连接中..." else "测试 API 连接",
-                                            color = palette.textPrimary,
-                                            fontSize = 15.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                        Text(
-                                            text = if (testingApi) {
-                                                "正在验证当前 Base URL、API Key 和 Model 是否可用。"
-                                            } else {
-                                                "不需要先保存，直接测试当前输入的 AI 配置。"
-                                            },
-                                            color = palette.textSecondary,
-                                            fontSize = 12.sp,
-                                            modifier = Modifier.padding(top = 4.dp)
-                                        )
-                                    }
                                 }
-                            }
-                        }
-
-                        SettingsSection(
-                            title = getString(R.string.settings_theme_section),
-                            modifier = Modifier.padding(top = 16.dp),
-                            sectionSurface = sectionSurface,
-                            borderColor = subtleBorder
-                        ) {
-                            Text(
-                                text = getString(R.string.settings_theme),
-                                color = palette.textSecondary,
-                                fontSize = 12.sp
-                            )
-                            TwoLineChoiceGroup(
-                                modifier = Modifier.padding(top = 10.dp),
-                                firstRow = listOf(
-                                    ChoiceItem(getString(R.string.settings_theme_system), themeMode == SettingsStore.THEME_SYSTEM) {
-                                        themeMode = SettingsStore.THEME_SYSTEM
-                                        onThemeModeChange(SettingsStore.THEME_SYSTEM)
-                                    },
-                                    ChoiceItem(getString(R.string.settings_theme_light), themeMode == SettingsStore.THEME_LIGHT) {
-                                        themeMode = SettingsStore.THEME_LIGHT
-                                        onThemeModeChange(SettingsStore.THEME_LIGHT)
-                                    }
-                                ),
-                                secondRow = listOf(
-                                    ChoiceItem(getString(R.string.settings_theme_dark), themeMode == SettingsStore.THEME_DARK) {
-                                        themeMode = SettingsStore.THEME_DARK
-                                        onThemeModeChange(SettingsStore.THEME_DARK)
-                                    }
-                                )
                             )
                         }
 
-                        SettingsSection(
-                            title = getString(R.string.settings_data_section),
-                            modifier = Modifier.padding(top = 16.dp),
-                            sectionSurface = sectionSurface,
-                            borderColor = subtleBorder
-                        ) {
-                            GlassPanelText(
-                                text = getString(R.string.settings_clear_data_desc),
-                                modifier = Modifier.padding(top = 4.dp),
-                                color = palette.textSecondary
-                            )
-                            PressScaleBox(
-                                onClick = { showClearConfirm = true },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 12.dp)
+                        SettingsRoute.Data -> {
+                            Spacer(modifier = Modifier.height(18.dp))
+                            SettingsSectionLabel("数据管理", sectionLabelColor)
+                            SettingsSurfaceCard(
+                                surface = cardSurface,
+                                borderColor = borderColor,
+                                modifier = Modifier.padding(top = 12.dp)
                             ) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = androidx.compose.foundation.shape.RoundedCornerShape(24.dp),
-                                    colors = CardDefaults.cardColors(containerColor = dangerSurface),
-                                    border = BorderStroke(1.dp, subtleBorder)
+                                Column(
+                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     Text(
-                                        text = getString(R.string.settings_clear_data),
-                                        color = dangerText,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp)
+                                        text = "本地数据管理",
+                                        color = titleColor,
+                                        fontSize = 18.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                    Text(
+                                        text = "清空后会同步删除本地记忆、分组统计与提醒数据，此操作不可恢复。",
+                                        color = subtitleColor,
+                                        fontSize = 14.sp
                                     )
                                 }
                             }
+
+                            SettingsDangerAction(
+                                title = "清空本地数据",
+                                subtitle = "删除当前设备上的所有本地记录",
+                                modifier = Modifier.padding(top = 14.dp),
+                                borderColor = borderColor,
+                                onClick = { showClearConfirm = true }
+                            )
                         }
                     }
                 }
@@ -444,8 +580,8 @@ class SettingsActivity : BaseComposeActivity() {
         if (showClearConfirm) {
             AlertDialog(
                 onDismissRequest = { showClearConfirm = false },
-                title = { Text(getString(R.string.settings_clear_confirm_title)) },
-                text = { Text(getString(R.string.settings_clear_confirm_message)) },
+                title = { Text("确认清空数据") },
+                text = { Text("该操作会删除当前设备上的全部本地数据，且无法恢复。") },
                 confirmButton = {
                     TextButton(
                         onClick = {
@@ -453,12 +589,12 @@ class SettingsActivity : BaseComposeActivity() {
                             onClearData()
                         }
                     ) {
-                        Text(getString(R.string.confirm))
+                        Text("确认")
                     }
                 },
                 dismissButton = {
                     TextButton(onClick = { showClearConfirm = false }) {
-                        Text(getString(R.string.cancel))
+                        Text("取消")
                     }
                 }
             )
@@ -467,12 +603,8 @@ class SettingsActivity : BaseComposeActivity() {
         if (showTestResult) {
             AlertDialog(
                 onDismissRequest = { showTestResult = false },
-                title = {
-                    Text(if (testResultSuccess) "API 测试成功" else "API 测试失败")
-                },
-                text = {
-                    Text(testResultMessage)
-                },
+                title = { Text(if (testResultSuccess) "API 测试成功" else "API 测试失败") },
+                text = { Text(testResultMessage) },
                 confirmButton = {
                     TextButton(onClick = { showTestResult = false }) {
                         Text("知道了")
@@ -483,66 +615,282 @@ class SettingsActivity : BaseComposeActivity() {
     }
 
     @Composable
-    private fun SettingsSection(
-        title: String,
-        modifier: Modifier = Modifier,
-        sectionSurface: Color,
+    private fun SettingsHomePage(
+        sectionLabelColor: Color,
+        titleColor: Color,
+        subtitleColor: Color,
+        cardSurface: Color,
+        dividerColor: Color,
         borderColor: Color,
-        content: @Composable () -> Unit
+        onNavigate: (SettingsRoute) -> Unit
     ) {
-        val palette = rememberNoMemoPalette()
-        Card(
-            modifier = modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = sectionSurface),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(30.dp),
-            border = BorderStroke(1.dp, borderColor)
+        SettingsSectionLabel("AI 功能", sectionLabelColor)
+        SettingsMenuGroup(
+            surface = cardSurface,
+            borderColor = borderColor,
+            dividerColor = dividerColor,
+            modifier = Modifier.padding(top = 12.dp),
+            items = listOf(
+                SettingsMenuItem("AI 功能设置", "配置 API 地址、密钥和模型", SettingsRoute.AiConfig),
+                SettingsMenuItem("AI 功能说明", "了解文本与图片分析的工作方式", SettingsRoute.AiGuide)
+            ),
+            titleColor = titleColor,
+            subtitleColor = subtitleColor,
+            onClick = onNavigate
+        )
+
+        Spacer(modifier = Modifier.height(22.dp))
+        SettingsSectionLabel("个性化", sectionLabelColor)
+        SettingsMenuGroup(
+            surface = cardSurface,
+            borderColor = borderColor,
+            dividerColor = dividerColor,
+            modifier = Modifier.padding(top = 12.dp),
+            items = listOf(
+                SettingsMenuItem("显示与主题", "显示模式、主题切换", SettingsRoute.Appearance)
+            ),
+            titleColor = titleColor,
+            subtitleColor = subtitleColor,
+            onClick = onNavigate
+        )
+
+        Spacer(modifier = Modifier.height(22.dp))
+        SettingsSectionLabel("辅助功能", sectionLabelColor)
+        SettingsMenuGroup(
+            surface = cardSurface,
+            borderColor = borderColor,
+            dividerColor = dividerColor,
+            modifier = Modifier.padding(top = 12.dp),
+            items = listOf(
+                SettingsMenuItem("API 连接测试", "验证当前配置是否可正常访问", SettingsRoute.Tools)
+            ),
+            titleColor = titleColor,
+            subtitleColor = subtitleColor,
+            onClick = onNavigate
+        )
+
+        Spacer(modifier = Modifier.height(22.dp))
+        SettingsSectionLabel("数据管理", sectionLabelColor)
+        SettingsMenuGroup(
+            surface = cardSurface,
+            borderColor = borderColor,
+            dividerColor = dividerColor,
+            modifier = Modifier.padding(top = 12.dp),
+            items = listOf(
+                SettingsMenuItem("本地数据管理", "清空当前设备上的本地数据", SettingsRoute.Data)
+            ),
+            titleColor = titleColor,
+            subtitleColor = subtitleColor,
+            onClick = onNavigate
+        )
+    }
+
+    @Composable
+    private fun SettingsHeader(
+        title: String,
+        onBack: () -> Unit,
+        buttonSurface: Color,
+        titleColor: Color,
+        borderColor: Color,
+        isDark: Boolean
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp)
         ) {
-            Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
-                Text(
-                    text = title,
-                    color = palette.textPrimary,
-                    fontSize = 18.sp,
-                    fontWeight = FontWeight.Bold
+            SettingsCircleBackButton(
+                onClick = onBack,
+                surface = buttonSurface,
+                borderColor = borderColor,
+                iconTint = titleColor,
+                modifier = Modifier.align(Alignment.CenterStart),
+                elevated = !isDark
+            )
+            Text(
+                text = title,
+                color = titleColor,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+    }
+
+    @Composable
+    private fun SettingsCircleBackButton(
+        onClick: () -> Unit,
+        surface: Color,
+        borderColor: Color,
+        iconTint: Color,
+        modifier: Modifier = Modifier,
+        elevated: Boolean = true
+    ) {
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier.size(56.dp),
+            pressedScale = 0.96f
+        ) {
+            Card(
+                modifier = Modifier.fillMaxSize(),
+                shape = CircleShape,
+                colors = CardDefaults.cardColors(containerColor = surface),
+                border = BorderStroke(1.dp, borderColor),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (elevated) 6.dp else 0.dp
                 )
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 10.dp)
-                ) {
-                    content()
+            ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_sheet_chevron_down),
+                        contentDescription = "返回",
+                        tint = iconTint,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(24.dp)
+                            .graphicsLayer { rotationZ = 90f }
+                    )
                 }
             }
         }
     }
 
     @Composable
-    private fun SettingField(
+    private fun SettingsSectionLabel(text: String, color: Color) {
+        Text(
+            text = text,
+            color = color,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(start = 2.dp)
+        )
+    }
+
+    @Composable
+    private fun SettingsSurfaceCard(
+        surface: Color,
+        borderColor: Color,
+        modifier: Modifier = Modifier,
+        content: @Composable () -> Unit
+    ) {
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = surface),
+            shape = RoundedCornerShape(30.dp),
+            border = BorderStroke(1.dp, borderColor)
+        ) {
+            content()
+        }
+    }
+
+    @Composable
+    private fun SettingsMenuGroup(
+        surface: Color,
+        borderColor: Color,
+        dividerColor: Color,
+        modifier: Modifier = Modifier,
+        items: List<SettingsMenuItem>,
+        titleColor: Color,
+        subtitleColor: Color,
+        onClick: (SettingsRoute) -> Unit
+    ) {
+        SettingsSurfaceCard(
+            surface = surface,
+            borderColor = borderColor,
+            modifier = modifier
+        ) {
+            Column {
+                items.forEachIndexed { index, item ->
+                    SettingsMenuRow(
+                        item = item,
+                        titleColor = titleColor,
+                        subtitleColor = subtitleColor,
+                        onClick = { onClick(item.route) }
+                    )
+                    if (index != items.lastIndex) {
+                        SettingsInfoDivider(dividerColor, modifier = Modifier.padding(horizontal = 24.dp))
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsMenuRow(
+        item: SettingsMenuItem,
+        titleColor: Color,
+        subtitleColor: Color,
+        onClick: () -> Unit
+    ) {
+        PressScaleBox(
+            onClick = onClick,
+            modifier = Modifier.fillMaxWidth(),
+            pressedScale = 0.985f
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 22.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = item.title,
+                        color = titleColor,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (item.subtitle.isNotBlank()) {
+                        Text(
+                            text = item.subtitle,
+                            color = subtitleColor,
+                            fontSize = 14.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 5.dp)
+                        )
+                    }
+                }
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_sheet_chevron_down),
+                    contentDescription = null,
+                    tint = subtitleColor,
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .size(20.dp)
+                        .graphicsLayer { rotationZ = -90f }
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsField(
         label: String,
         value: String,
         onValueChange: (String) -> Unit,
         placeholder: String,
-        isSecret: Boolean = false,
         fieldSurface: Color,
-        borderColor: Color
+        borderColor: Color,
+        titleColor: Color,
+        subtitleColor: Color,
+        accentColor: Color,
+        isSecret: Boolean = false
     ) {
-        val palette = rememberNoMemoPalette()
         var secretVisible by remember(isSecret) { mutableStateOf(!isSecret) }
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = 14.dp)
-        ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
             Text(
                 text = label,
-                color = palette.textSecondary,
-                fontSize = 12.sp
+                color = titleColor,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
             )
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 8.dp),
                 colors = CardDefaults.cardColors(containerColor = fieldSurface),
-                shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+                shape = RoundedCornerShape(20.dp),
                 border = BorderStroke(1.dp, borderColor)
             ) {
                 BasicTextField(
@@ -555,7 +903,7 @@ class SettingsActivity : BaseComposeActivity() {
                         VisualTransformation.None
                     },
                     textStyle = TextStyle(
-                        color = palette.textPrimary,
+                        color = titleColor,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Medium
                     ),
@@ -567,7 +915,7 @@ class SettingsActivity : BaseComposeActivity() {
                         if (value.isBlank()) {
                             Text(
                                 text = placeholder,
-                                color = palette.textTertiary,
+                                color = subtitleColor,
                                 fontSize = 15.sp
                             )
                         }
@@ -580,8 +928,8 @@ class SettingsActivity : BaseComposeActivity() {
                             }
                             if (isSecret) {
                                 Text(
-                                    text = if (secretVisible) "\u9690\u85CF" else "\u663E\u793A",
-                                    color = palette.accent,
+                                    text = if (secretVisible) "隐藏" else "显示",
+                                    color = accentColor,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium,
                                     modifier = Modifier
@@ -597,51 +945,197 @@ class SettingsActivity : BaseComposeActivity() {
     }
 
     @Composable
-    private fun ChoiceChip(text: String, selected: Boolean, onClick: () -> Unit) {
-        GlassChip(
-            text = text,
-            selected = selected,
-            onClick = onClick,
-            modifier = Modifier.widthIn(min = 72.dp)
-        )
-    }
-
-    @Composable
-    private fun TwoLineChoiceGroup(
-        modifier: Modifier = Modifier,
-        firstRow: List<ChoiceItem>,
-        secondRow: List<ChoiceItem>
+    private fun RowScope.ThemeChoicePill(
+        text: String,
+        selected: Boolean,
+        onClick: () -> Unit,
+        selectedColor: Color,
+        surface: Color,
+        textColor: Color
     ) {
-        Column(
-            modifier = modifier,
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+        PressScaleBox(
+            onClick = onClick,
+            modifier = Modifier.weight(1f),
+            pressedScale = 0.97f
         ) {
-            ChoiceRow(firstRow)
-            if (secondRow.isNotEmpty()) {
-                ChoiceRow(secondRow)
-            }
-        }
-    }
-
-    @Composable
-    private fun ChoiceRow(items: List<ChoiceItem>) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            items.forEach { item ->
-                ChoiceChip(
-                    text = item.text,
-                    selected = item.selected,
-                    onClick = item.onClick
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(
+                        color = if (selected) selectedColor else surface,
+                        shape = RoundedCornerShape(999.dp)
+                    )
+            ) {
+                Text(
+                    text = text,
+                    color = if (selected) Color.White else textColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(vertical = 13.dp)
                 )
             }
         }
     }
 
-    private data class ChoiceItem(
-        val text: String,
-        val selected: Boolean,
-        val onClick: () -> Unit
+    @Composable
+    private fun SettingsPrimaryAction(
+        title: String,
+        subtitle: String,
+        accentColor: Color,
+        borderColor: Color,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            pressedScale = 0.985f
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = accentColor.copy(alpha = 0.12f)),
+                shape = RoundedCornerShape(28.dp),
+                border = BorderStroke(1.dp, borderColor)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
+                ) {
+                    Text(
+                        text = title,
+                        color = accentColor,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        color = accentColor.copy(alpha = 0.82f),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsDangerAction(
+        title: String,
+        subtitle: String,
+        borderColor: Color,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier.fillMaxWidth(),
+            pressedScale = 0.985f
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF4F4)),
+                shape = RoundedCornerShape(28.dp),
+                border = BorderStroke(1.dp, borderColor)
+            ) {
+                Column(
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
+                ) {
+                    Text(
+                        text = title,
+                        color = Color(0xFFB42318),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        color = Color(0xFFB42318).copy(alpha = 0.74f),
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsInfoBlock(
+        title: String,
+        text: String,
+        titleColor: Color,
+        textColor: Color
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = title,
+                color = titleColor,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = text,
+                color = textColor,
+                fontSize = 14.sp,
+                lineHeight = 22.sp
+            )
+        }
+    }
+
+    @Composable
+    private fun SettingsInfoPair(
+        label: String,
+        value: String,
+        titleColor: Color,
+        textColor: Color
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                text = label,
+                color = titleColor,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = value,
+                color = textColor,
+                fontSize = 14.sp,
+                lineHeight = 22.sp
+            )
+        }
+    }
+
+    @Composable
+    private fun SettingsInfoDivider(color: Color, modifier: Modifier = Modifier) {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(color)
+        )
+    }
+
+    private fun maskedApiKey(value: String): String {
+        if (value.isBlank()) {
+            return "未填写"
+        }
+        if (value.length <= 8) {
+            return "已填写"
+        }
+        return value.take(4) + " •••• " + value.takeLast(4)
+    }
+
+    private sealed interface SettingsRoute {
+        data object Home : SettingsRoute
+        data object AiConfig : SettingsRoute
+        data object AiGuide : SettingsRoute
+        data object Appearance : SettingsRoute
+        data object Tools : SettingsRoute
+        data object Data : SettingsRoute
+    }
+
+    private data class SettingsMenuItem(
+        val title: String,
+        val subtitle: String,
+        val route: SettingsRoute
     )
 }

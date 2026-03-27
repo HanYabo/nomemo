@@ -956,7 +956,7 @@ fun RecordCard(
         NoMemoWidthClass.MEDIUM -> 122.dp
         NoMemoWidthClass.COMPACT -> if (adaptive.isNarrow) 94.dp else 108.dp
     }
-    val previewCornerRadius = if (adaptive.isNarrow) 18.dp else 20.dp
+    val previewCornerRadius = if (adaptive.isNarrow) 16.dp else 18.dp
 
     val gestureModifier = if (onLongPress == null && onClick == null) {
         Modifier
