@@ -75,6 +75,8 @@ class GroupActivity : BaseComposeActivity() {
         }
     }
 
+    override fun enableDoubleBackToDesktop(): Boolean = true
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
@@ -228,6 +230,12 @@ class GroupActivity : BaseComposeActivity() {
         BackHandler(enabled = selectedRecordId != null) {
             selectedRecordId = null
             showDeleteConfirm = false
+            resetDoubleBackExitState()
+        }
+        BackHandler(enabled = searchEnabled) {
+            searchEnabled = false
+            searchQuery = ""
+            resetDoubleBackExitState()
         }
 
         fun countByCode(code: String): Int = allRecords.count { it.categoryCode == code }

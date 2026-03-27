@@ -141,6 +141,8 @@ class MainActivity : BaseComposeActivity() {
         super.onStop()
     }
 
+    override fun enableDoubleBackToDesktop(): Boolean = true
+
     private fun refreshRecords() {
         val filterSnapshot = selectedFilter
         refreshJob?.cancel()
@@ -319,6 +321,12 @@ class MainActivity : BaseComposeActivity() {
         BackHandler(enabled = selectedRecordIds.isNotEmpty()) {
             selectedRecordIds = emptySet()
             showDeleteConfirm = false
+            resetDoubleBackExitState()
+        }
+        BackHandler(enabled = searchEnabled) {
+            searchEnabled = false
+            searchQuery = ""
+            resetDoubleBackExitState()
         }
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
