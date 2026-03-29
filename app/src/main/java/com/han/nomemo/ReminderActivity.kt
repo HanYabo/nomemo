@@ -452,26 +452,15 @@ class ReminderActivity : BaseComposeActivity() {
                     )
 
                     if (showDeleteConfirm && selectedRecord != null) {
-                        AlertDialog(
-                            onDismissRequest = { showDeleteConfirm = false },
-                            title = { Text(stringResource(R.string.delete_selected_title)) },
-                            text = { Text(stringResource(R.string.delete_selected_message)) },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        onDeleteRecord(selectedRecord)
-                                        selectedRecordId = null
-                                        showDeleteConfirm = false
-                                    }
-                                ) {
-                                    Text(stringResource(R.string.action_delete))
-                                }
+                        NoMemoDeleteConfirmDialog(
+                            title = stringResource(R.string.delete_selected_title),
+                            message = stringResource(R.string.delete_selected_message),
+                            onConfirm = {
+                                onDeleteRecord(selectedRecord)
+                                selectedRecordId = null
+                                showDeleteConfirm = false
                             },
-                            dismissButton = {
-                                TextButton(onClick = { showDeleteConfirm = false }) {
-                                    Text(stringResource(R.string.cancel))
-                                }
-                            }
+                            onDismiss = { showDeleteConfirm = false }
                         )
                     }
 

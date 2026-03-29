@@ -1,4 +1,4 @@
-package com.han.nomemo
+﻿package com.han.nomemo
 
 import android.content.BroadcastReceiver
 import android.content.Context
@@ -60,6 +60,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -287,7 +288,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun buildEnhancedAiContext(record: MemoryRecord): String {
         val parts = buildList {
-            add("当前分类: ${record.categoryName ?: "小记"}")
+            add("褰撳墠鍒嗙被: ${record.categoryName ?: "灏忚"}")
             record.title?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有标题: $it") }
             record.summary?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有摘要: $it") }
             record.analysis?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有分析: $it") }
@@ -349,6 +350,18 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val summaryText = deriveInsightText(currentRecord)
                     val createdAtText = rememberTime(currentRecord.createdAt)
                     val detailTextStartPadding = if (spec.isNarrow) 12.dp else 18.dp
+                    val pickupInfo = remember(
+                        currentRecord.recordId,
+                        currentRecord.categoryCode,
+                        currentRecord.title,
+                        currentRecord.summary,
+                        currentRecord.analysis,
+                        currentRecord.memory,
+                        currentRecord.sourceText,
+                        currentRecord.note
+                    ) {
+                        MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
+                    }
                     var draftTitle by remember(currentRecord.recordId, currentRecord.title) {
                         mutableStateOf(titleText)
                     }
@@ -442,22 +455,22 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         .padding(top = 12.dp),
                                     horizontalArrangement = Arrangement.Center
                                 ) {
-                                    DetailActionButton(
-                                        text = "更换图片",
+                                    NoMemoDetailActionButton(
+                                        text = "鏇存崲鍥剧墖",
                                         primary = false,
                                         onClick = { imagePickerLauncher.launch(arrayOf("image/*")) }
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
-                                    DetailActionButton(
-                                        text = "删除图片",
+                                    NoMemoDetailActionButton(
+                                        text = "鍒犻櫎鍥剧墖",
                                         primary = false,
                                         onClick = { draftImageUri = "" }
                                     )
                                 }
                             }
                         } else if (editing) {
-                            DetailActionButton(
-                                text = "添加图片",
+                            NoMemoDetailActionButton(
+                                text = "娣诲姞鍥剧墖",
                                 primary = false,
                                 modifier = Modifier.align(Alignment.CenterHorizontally),
                                 onClick = { imagePickerLauncher.launch(arrayOf("image/*")) }
@@ -515,7 +528,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             )
                             DetailMetaDivider(color = metaColor)
                             Text(
-                                text = currentRecord.categoryName ?: "小记",
+                                text = currentRecord.categoryName ?: "灏忚",
                                 color = metaColor,
                                 fontSize = 13.sp
                             )
@@ -538,7 +551,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp)
                         )
 
-                        DetailSummaryBox(
+                        NoMemoDetailSummaryBox(
                             value = if (editing) draftSummary else summaryText,
                             editing = editing,
                             modifier = Modifier.padding(
@@ -549,12 +562,50 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             onValueChange = { draftSummary = it }
                         )
 
+                        if (!editing) {
+                            pickupInfo?.let { info ->
+                                Text(
+                                    text = info.sectionTitle,
+                                    color = palette.textPrimary,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp)
+                                )
+                                NoMemoPickupCodeCard(
+                                    info = info,
+                                    modifier = Modifier.padding(
+                                        start = detailTextStartPadding,
+                                        end = detailTextStartPadding,
+                                        top = 10.dp
+                                    )
+                                )
+                                if (!info.locationTitle.isNullOrBlank() || !info.addressDetail.isNullOrBlank()) {
+                                    Text(
+                                        text = "地点",
+                                        color = palette.textPrimary,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp)
+                                    )
+                                    NoMemoPickupLocationCard(
+                                        info = info,
+                                        modifier = Modifier.padding(
+                                            start = detailTextStartPadding,
+                                            end = detailTextStartPadding,
+                                            top = 10.dp
+                                        ),
+                                        onNavigate = { query -> openNavigation(query) }
+                                    )
+                                }
+                            }
+                        }
+
                         if (editing) {
                             Row(
                                 modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp),
                                 horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                DetailActionButton(
+                                NoMemoDetailActionButton(
                                     text = "取消",
                                     primary = false,
                                     onClick = {
@@ -564,7 +615,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         draftImageUri = currentRecord.imageUri.orEmpty()
                                     }
                                 )
-                                DetailActionButton(
+                                NoMemoDetailActionButton(
                                     text = "保存修改",
                                     primary = true,
                                     onClick = {
@@ -583,7 +634,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     }
                                 )
                             }
-                        } else ReanalyzeButton(
+                        } else NoMemoDetailReanalyzeButton(
                             text = if (reanalyzing) "正在重新分析..." else "重新分析",
                             enabled = !reanalyzing,
                             modifier = Modifier.padding(top = 28.dp),
@@ -695,25 +746,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
 
                     if (showDeleteConfirm) {
-                        AlertDialog(
-                            onDismissRequest = { showDeleteConfirm = false },
-                            title = { Text("确认删除") },
-                            text = { Text("确定删除这条记忆吗？") },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        showDeleteConfirm = false
-                                        onDelete(currentRecord)
-                                    }
-                                ) {
-                                    Text(text = getString(R.string.action_delete))
-                                }
+                        NoMemoDeleteConfirmDialog(
+                            title = "确认删除",
+                            message = "确定删除这条记忆吗？",
+                            onConfirm = {
+                                showDeleteConfirm = false
+                                onDelete(currentRecord)
                             },
-                            dismissButton = {
-                                TextButton(onClick = { showDeleteConfirm = false }) {
-                                    Text(text = getString(R.string.cancel))
-                                }
-                            }
+                            onDismiss = { showDeleteConfirm = false }
                         )
                     }
                 }
@@ -748,6 +788,26 @@ class MemoryDetailActivity : BaseComposeActivity() {
             ?: "暂无分析结果"
     }
 
+
+    private fun openNavigation(query: String) {
+        if (query.isBlank()) {
+            return
+        }
+        val encoded = Uri.encode(query)
+        val intents = listOf(
+            Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encoded")),
+            Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=$encoded"))
+        )
+        for (intent in intents) {
+            try {
+                startActivity(intent)
+                return
+            } catch (_: Exception) {
+            }
+        }
+        Toast.makeText(this, "未找到可用地图应用", Toast.LENGTH_SHORT).show()
+    }
+
     @Composable
     private fun DetailMetaDivider(color: Color) {
         Spacer(modifier = Modifier.width(7.dp))
@@ -760,137 +820,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         Spacer(modifier = Modifier.width(7.dp))
     }
 
-    @Composable
-    private fun ReanalyzeButton(
-        text: String,
-        enabled: Boolean,
-        modifier: Modifier = Modifier,
-        onClick: () -> Unit
-    ) {
-        val palette = rememberNoMemoPalette()
-        PressScaleBox(
-            onClick = {
-                if (enabled) {
-                    onClick()
-                }
-            },
-            modifier = modifier.fillMaxWidth()
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(24.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (enabled) palette.accent else palette.glassFill
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (enabled) palette.accent else palette.glassStroke
-                )
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(vertical = 16.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = text,
-                        color = if (enabled) palette.onAccent else palette.textSecondary,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun DetailSummaryBox(
-        value: String,
-        editing: Boolean,
-        modifier: Modifier = Modifier,
-        onValueChange: (String) -> Unit
-    ) {
-        val palette = rememberNoMemoPalette()
-        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-        Card(
-            modifier = modifier
-                .fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = if (isDark) Color(0xFF1A1A1D) else Color.White
-            )
-        ) {
-            if (editing) {
-                BasicTextField(
-                    value = value,
-                    onValueChange = onValueChange,
-                    textStyle = TextStyle(
-                        color = palette.textPrimary,
-                        fontSize = 16.sp,
-                        lineHeight = 25.sp
-                    ),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 16.dp)
-                        .heightIn(min = 120.dp)
-                ) { innerTextField ->
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        if (value.isBlank()) {
-                            Text(
-                                text = "输入摘要",
-                                color = palette.textTertiary,
-                                fontSize = 16.sp
-                            )
-                        }
-                        innerTextField()
-                    }
-                }
-            } else {
-                Text(
-                    text = value,
-                    color = palette.textPrimary,
-                    fontSize = 16.sp,
-                    lineHeight = 25.sp,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
-                )
-            }
-        }
-    }
-
-    @Composable
-    private fun DetailActionButton(
-        text: String,
-        primary: Boolean,
-        modifier: Modifier = Modifier,
-        onClick: () -> Unit
-    ) {
-        val palette = rememberNoMemoPalette()
-        PressScaleBox(
-            onClick = onClick,
-            modifier = modifier
-        ) {
-            Card(
-                shape = RoundedCornerShape(18.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (primary) palette.accent else palette.glassFill
-                ),
-                border = BorderStroke(1.dp, if (primary) palette.accent else palette.glassStroke)
-            ) {
-                Box(
-                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = text,
-                        color = if (primary) palette.onAccent else palette.textPrimary,
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-            }
-        }
-    }
 
     @Composable
     private fun DetailMoreMenuPanel(
@@ -901,86 +830,25 @@ class MemoryDetailActivity : BaseComposeActivity() {
         onDelete: () -> Unit,
         modifier: Modifier = Modifier
     ) {
-        val palette = rememberNoMemoPalette()
-        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-        val menuSurface = if (isDark) {
-            Color(0xFF171B22).copy(alpha = 0.95f)
-        } else {
-            Color(0xFFFBFBFC).copy(alpha = 0.94f)
-        }
-        Card(
+        NoMemoActionMenuPanel(
+            actions = listOf(
+                NoMemoMenuActionItem(
+                    R.drawable.ic_nm_more,
+                    if (editing) "结束编辑" else "编辑",
+                    onEditToggle
+                ),
+                NoMemoMenuActionItem(
+                    R.drawable.ic_sheet_calendar,
+                    if (archived) getString(R.string.action_unarchive) else getString(R.string.action_archive),
+                    onArchiveToggle
+                ),
+                NoMemoMenuActionItem(
+                    R.drawable.ic_nm_delete,
+                    getString(R.string.action_delete),
+                    onDelete
+                )
+            ),
             modifier = modifier
-                .width(176.dp)
-                .shadow(14.dp, RoundedCornerShape(22.dp)),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(containerColor = menuSurface),
-            border = BorderStroke(1.dp, palette.glassStroke)
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                DetailMoreMenuRow(
-                    iconRes = R.drawable.ic_nm_more,
-                    label = if (editing) "结束编辑" else "编辑",
-                    onClick = onEditToggle
-                )
-                DetailMoreMenuRow(
-                    iconRes = R.drawable.ic_sheet_calendar,
-                    label = if (archived) getString(R.string.action_unarchive) else getString(R.string.action_archive),
-                    onClick = onArchiveToggle,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-                DetailMoreMenuRow(
-                    iconRes = R.drawable.ic_nm_delete,
-                    label = getString(R.string.action_delete),
-                    onClick = onDelete,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-            }
-        }
-    }
-
-    @Composable
-    private fun DetailMoreMenuRow(
-        iconRes: Int,
-        label: String,
-        onClick: () -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        val palette = rememberNoMemoPalette()
-        PressScaleBox(
-            onClick = onClick,
-            modifier = modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(palette.glassFillSoft)
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(34.dp)
-                        .clip(CircleShape)
-                        .background(palette.glassFill)
-                        .border(1.dp, palette.glassStroke, CircleShape),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        tint = palette.textPrimary,
-                        modifier = Modifier.size(18.dp)
-                    )
-                }
-                Text(
-                    text = label,
-                    color = palette.textPrimary,
-                    fontSize = 14.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(start = 12.dp)
-                )
-            }
-        }
+        )
     }
 }

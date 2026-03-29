@@ -8,6 +8,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 
 object WindowStyleManager {
     fun apply(activity: Activity, config: AppWindowStyleConfig) {
+        // 获取window对象
         val window = activity.window
         WindowCompat.setDecorFitsSystemWindows(window, false)
 

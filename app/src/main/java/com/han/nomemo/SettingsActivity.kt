@@ -27,12 +27,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -546,38 +544,26 @@ class SettingsActivity : BaseComposeActivity() {
         }
 
         if (showClearConfirm) {
-            AlertDialog(
-                onDismissRequest = { showClearConfirm = false },
-                title = { Text("确认清空数据") },
-                text = { Text("该操作会删除当前设备上的全部本地数据，且无法恢复。") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showClearConfirm = false
-                            onClearData()
-                        }
-                    ) {
-                        Text("确认")
-                    }
+            NoMemoConfirmDialog(
+                title = "确认清空数据",
+                message = "该操作会删除当前设备上的全部本地数据，且无法恢复。",
+                confirmText = "确认",
+                dismissText = "取消",
+                destructive = true,
+                onConfirm = {
+                    showClearConfirm = false
+                    onClearData()
                 },
-                dismissButton = {
-                    TextButton(onClick = { showClearConfirm = false }) {
-                        Text("取消")
-                    }
-                }
+                onDismiss = { showClearConfirm = false }
             )
         }
 
         if (showTestResult) {
-            AlertDialog(
-                onDismissRequest = { showTestResult = false },
-                title = { Text(if (testResultSuccess) "API 测试成功" else "API 测试失败") },
-                text = { Text(testResultMessage) },
-                confirmButton = {
-                    TextButton(onClick = { showTestResult = false }) {
-                        Text("知道了")
-                    }
-                }
+            NoMemoMessageDialog(
+                title = if (testResultSuccess) "API 测试成功" else "API 测试失败",
+                message = testResultMessage,
+                confirmText = "知道了",
+                onDismiss = { showTestResult = false }
             )
         }
     }

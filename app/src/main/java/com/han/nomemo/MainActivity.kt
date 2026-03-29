@@ -402,7 +402,7 @@ class MainActivity : BaseComposeActivity() {
                                         fontWeight = FontWeight.Bold
                                     )
                                 }
-                                SelectionHeaderTextButton(
+                                NoMemoSelectionHeaderButton(
                                     text = if (allFilteredSelected) "\u53D6\u6D88\u5168\u9009" else stringResource(R.string.action_select_all),
                                     onClick = {
                                         selectedRecordIds = if (allFilteredSelected) {
@@ -545,8 +545,7 @@ class MainActivity : BaseComposeActivity() {
                             showEnhancedOutline = dockHasUnderContent
                         )
                     } else {
-                        SelectionActionDock(
-                            spec = spec,
+                        NoMemoSelectionActionDock(
                             selectedRecords = selectedRecords,
                             onArchiveClick = {
                                 onArchiveRecords(selectedRecords)
@@ -565,26 +564,15 @@ class MainActivity : BaseComposeActivity() {
                     }
 
                     if (showDeleteConfirm && selectedRecordIds.isNotEmpty()) {
-                        AlertDialog(
-                            onDismissRequest = { showDeleteConfirm = false },
-                            title = { Text(stringResource(R.string.delete_selected_title)) },
-                            text = { Text(getString(R.string.delete_selected_batch_message, selectedRecordIds.size)) },
-                            confirmButton = {
-                                TextButton(
-                                    onClick = {
-                                        onDeleteRecords(selectedRecordIds)
-                                        selectedRecordIds = emptySet()
-                                        showDeleteConfirm = false
-                                    }
-                                ) {
-                                    Text(stringResource(R.string.action_delete))
-                                }
+                        NoMemoDeleteConfirmDialog(
+                            title = stringResource(R.string.delete_selected_title),
+                            message = getString(R.string.delete_selected_batch_message, selectedRecordIds.size),
+                            onConfirm = {
+                                onDeleteRecords(selectedRecordIds)
+                                selectedRecordIds = emptySet()
+                                showDeleteConfirm = false
                             },
-                            dismissButton = {
-                                TextButton(onClick = { showDeleteConfirm = false }) {
-                                    Text(stringResource(R.string.cancel))
-                                }
-                            }
+                            onDismiss = { showDeleteConfirm = false }
                         )
                     }
 
@@ -707,219 +695,6 @@ class MainActivity : BaseComposeActivity() {
                 TextButton(onClick = onClose) {
                     Text(text = stringResource(R.string.cancel))
                 }
-            }
-        }
-    }
-
-    @Composable
-    private fun MoreMenuItemContent(
-        iconRes: Int,
-        label: String
-    ) {
-        val palette = rememberNoMemoPalette()
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 2.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(palette.glassFill)
-                    .border(1.dp, palette.glassStroke, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(iconRes),
-                    contentDescription = null,
-                    tint = palette.textPrimary,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
-            Text(
-                text = label,
-                color = palette.textPrimary,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(start = 12.dp)
-            )
-        }
-    }
-
-    @Composable
-    private fun MoreMenuActionRow(
-        iconRes: Int,
-        label: String,
-        onClick: () -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        val palette = rememberNoMemoPalette()
-        PressScaleBox(
-            onClick = onClick,
-            modifier = modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(18.dp))
-                .background(palette.glassFillSoft)
-                .padding(horizontal = 12.dp, vertical = 10.dp)
-        ) {
-            MoreMenuItemContent(
-                iconRes = iconRes,
-                label = label
-            )
-        }
-    }
-
-    @Composable
-    private fun MoreMenuPanel(
-        onSelectAll: () -> Unit,
-        onOpenSettings: () -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        val palette = rememberNoMemoPalette()
-        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-        val menuSurface = if (isDark) {
-            Color(0xFF171B22).copy(alpha = 0.95f)
-        } else {
-            Color(0xFFFBFBFC).copy(alpha = 0.94f)
-        }
-        Card(
-            modifier = modifier
-                .width(176.dp)
-                .shadow(14.dp, RoundedCornerShape(22.dp)),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = menuSurface
-            ),
-            border = androidx.compose.foundation.BorderStroke(1.dp, palette.glassStroke)
-        ) {
-            Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-                MoreMenuActionRow(
-                    iconRes = R.drawable.ic_sheet_check,
-                    label = stringResource(R.string.action_select_all),
-                    onClick = onSelectAll
-                )
-                MoreMenuActionRow(
-                    iconRes = R.drawable.ic_nm_settings,
-                    label = stringResource(R.string.action_settings),
-                    onClick = onOpenSettings,
-                    modifier = Modifier.padding(top = 6.dp)
-                )
-            }
-        }
-    }
-
-    @Composable
-    private fun SelectionActionDock(
-        spec: NoMemoAdaptiveSpec,
-        selectedRecords: List<MemoryRecord>,
-        onArchiveClick: () -> Unit,
-        onDeleteClick: () -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        val palette = rememberNoMemoPalette()
-        val archiveLabel = if (selectedRecords.all { it.isArchived }) {
-            stringResource(R.string.action_unarchive)
-        } else {
-            stringResource(R.string.action_archive)
-        }
-        Row(
-            modifier = modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            SelectionActionButton(
-                text = archiveLabel,
-                iconRes = R.drawable.ic_sheet_calendar,
-                onClick = onArchiveClick,
-                modifier = Modifier.weight(1f),
-                containerColor = palette.glassFill,
-                contentColor = palette.textPrimary,
-                borderColor = palette.glassStroke
-            )
-            SelectionActionButton(
-                text = stringResource(R.string.action_delete),
-                iconRes = R.drawable.ic_nm_delete,
-                onClick = onDeleteClick,
-                modifier = Modifier.weight(1f),
-                containerColor = palette.accent,
-                contentColor = palette.onAccent,
-                borderColor = palette.accent
-            )
-        }
-    }
-
-    @Composable
-    private fun SelectionActionButton(
-        text: String,
-        iconRes: Int,
-        onClick: () -> Unit,
-        modifier: Modifier = Modifier,
-        containerColor: Color,
-        contentColor: Color,
-        borderColor: Color
-    ) {
-        PressScaleBox(
-            onClick = onClick,
-            modifier = modifier
-        ) {
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .shadow(12.dp, RoundedCornerShape(26.dp)),
-                shape = RoundedCornerShape(26.dp),
-                colors = CardDefaults.cardColors(containerColor = containerColor),
-                border = androidx.compose.foundation.BorderStroke(1.dp, borderColor)
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 16.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        tint = contentColor,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Text(
-                        text = text,
-                        color = contentColor,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        modifier = Modifier.padding(start = 10.dp)
-                    )
-                }
-            }
-        }
-    }
-
-    @Composable
-    private fun SelectionHeaderTextButton(
-        text: String,
-        onClick: () -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        val palette = rememberNoMemoPalette()
-        PressScaleBox(
-            onClick = onClick,
-            modifier = modifier
-        ) {
-            Card(
-                shape = RoundedCornerShape(999.dp),
-                colors = CardDefaults.cardColors(containerColor = palette.glassFill),
-                border = androidx.compose.foundation.BorderStroke(1.dp, palette.glassStroke)
-            ) {
-                Text(
-                    text = text,
-                    color = palette.textPrimary,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)
-                )
             }
         }
     }

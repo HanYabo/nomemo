@@ -44,6 +44,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -550,10 +551,181 @@ fun NoMemoSearchBarCard(
 }
 
 @Composable
+fun NoMemoConfirmDialog(
+    title: String,
+    message: String,
+    confirmText: String,
+    dismissText: String,
+    destructive: Boolean = false,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        containerColor = if (isDark) Color(0xFF171B22).copy(alpha = 0.98f) else Color.White.copy(alpha = 0.995f),
+        title = {
+            Text(
+                text = title,
+                color = palette.textPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Text(
+                text = message,
+                color = palette.textSecondary,
+                fontSize = 14.sp,
+                lineHeight = 22.sp
+            )
+        },
+        confirmButton = {
+            NoMemoDialogActionButton(
+                text = confirmText,
+                primary = true,
+                destructive = destructive,
+                onClick = onConfirm
+            )
+        },
+        dismissButton = {
+            NoMemoDialogActionButton(
+                text = dismissText,
+                primary = false,
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
+@Composable
+fun NoMemoDeleteConfirmDialog(
+    title: String,
+    message: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    NoMemoConfirmDialog(
+        title = title,
+        message = message,
+        confirmText = "删除",
+        dismissText = "取消",
+        destructive = true,
+        onConfirm = onConfirm,
+        onDismiss = onDismiss
+    )
+}
+
+@Composable
+fun NoMemoMessageDialog(
+    title: String,
+    message: String,
+    confirmText: String = "知道了",
+    onDismiss: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        shape = RoundedCornerShape(28.dp),
+        containerColor = if (isDark) Color(0xFF171B22).copy(alpha = 0.98f) else Color.White.copy(alpha = 0.995f),
+        title = {
+            Text(
+                text = title,
+                color = palette.textPrimary,
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold
+            )
+        },
+        text = {
+            Text(
+                text = message,
+                color = palette.textSecondary,
+                fontSize = 14.sp,
+                lineHeight = 22.sp
+            )
+        },
+        confirmButton = {
+            NoMemoDialogActionButton(
+                text = confirmText,
+                primary = true,
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
+@Composable
+private fun NoMemoDialogActionButton(
+    text: String,
+    primary: Boolean,
+    destructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = Modifier
+            .widthIn(min = 84.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .clip(RoundedCornerShape(18.dp))
+                .background(
+                    if (primary) {
+                        if (destructive) Color(0xFFB42318) else palette.accent
+                    } else {
+                        palette.glassFill
+                    }
+                )
+                .border(
+                    1.dp,
+                    if (primary) {
+                        if (destructive) Color(0xFFB42318) else palette.accent
+                    } else {
+                        palette.glassStroke
+                    },
+                    RoundedCornerShape(18.dp)
+                )
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = text,
+                color = if (primary) palette.onAccent else palette.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+    }
+}
+
+@Composable
 fun NoMemoMoreMenuPanel(
     modifier: Modifier = Modifier,
     onOpenSettings: (() -> Unit)? = null,
     onSelectAll: (() -> Unit)? = null
+) {
+    val actions = buildList {
+        if (onSelectAll != null) {
+            add(NoMemoMenuActionItem(R.drawable.ic_sheet_check, stringResource(R.string.action_select_all), onSelectAll))
+        }
+        if (onOpenSettings != null) {
+            add(NoMemoMenuActionItem(R.drawable.ic_nm_settings, stringResource(R.string.action_settings), onOpenSettings))
+        }
+    }
+    NoMemoActionMenuPanel(
+        actions = actions,
+        modifier = modifier
+    )
+}
+
+@Composable
+fun NoMemoActionMenuPanel(
+    actions: List<NoMemoMenuActionItem>,
+    modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
     val menuSurface = if (isSystemInDarkTheme()) {
@@ -570,19 +742,12 @@ fun NoMemoMoreMenuPanel(
         border = BorderStroke(1.dp, palette.glassStroke)
     ) {
         Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
-            if (onSelectAll != null) {
-                NoMemoMoreMenuActionRow(
-                    iconRes = R.drawable.ic_sheet_check,
-                    label = stringResource(R.string.action_select_all),
-                    onClick = onSelectAll
-                )
-            }
-            if (onOpenSettings != null) {
-                NoMemoMoreMenuActionRow(
-                    iconRes = R.drawable.ic_nm_settings,
-                    label = stringResource(R.string.action_settings),
-                    onClick = onOpenSettings,
-                    modifier = Modifier.padding(top = if (onSelectAll != null) 6.dp else 0.dp)
+            actions.forEachIndexed { index, item ->
+                NoMemoActionMenuRow(
+                    iconRes = item.iconRes,
+                    label = item.label,
+                    onClick = item.onClick,
+                    modifier = Modifier.padding(top = if (index == 0) 0.dp else 6.dp)
                 )
             }
         }
@@ -590,7 +755,7 @@ fun NoMemoMoreMenuPanel(
 }
 
 @Composable
-private fun NoMemoMoreMenuActionRow(
+fun NoMemoActionMenuRow(
     iconRes: Int,
     label: String,
     onClick: () -> Unit,
@@ -633,6 +798,86 @@ private fun NoMemoMoreMenuActionRow(
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(start = 12.dp)
             )
+        }
+    }
+}
+
+data class NoMemoMenuActionItem(
+    val iconRes: Int,
+    val label: String,
+    val onClick: () -> Unit
+)
+
+@Composable
+fun NoMemoPillTextButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Card(
+            shape = RoundedCornerShape(999.dp),
+            colors = CardDefaults.cardColors(containerColor = palette.glassFill),
+            border = BorderStroke(1.dp, palette.glassStroke)
+        ) {
+            Text(
+                text = text,
+                color = palette.textPrimary,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp)
+            )
+        }
+    }
+}
+
+@Composable
+fun NoMemoWideActionButton(
+    text: String,
+    iconRes: Int,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: Color,
+    contentColor: Color,
+    borderColor: Color
+) {
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .shadow(12.dp, RoundedCornerShape(26.dp)),
+            shape = RoundedCornerShape(26.dp),
+            colors = CardDefaults.cardColors(containerColor = containerColor),
+            border = BorderStroke(1.dp, borderColor)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                horizontalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = text,
+                    color = contentColor,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(start = 10.dp)
+                )
+            }
         }
     }
 }
