@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -552,7 +553,13 @@ class ReminderActivity : BaseComposeActivity() {
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(20.dp))
-                .background(if (selected) palette.glassFillSoft else palette.glassFill)
+                .background(
+                    if (selected) {
+                        if (isSystemInDarkTheme()) noMemoCardSurfaceColor(true) else palette.glassFillSoft
+                    } else {
+                        if (isSystemInDarkTheme()) noMemoCardSurfaceColor(true) else palette.glassFill
+                    }
+                )
                 .border(
                     if (selected) 2.dp else 0.dp,
                     if (selected) palette.accent else palette.glassStroke,

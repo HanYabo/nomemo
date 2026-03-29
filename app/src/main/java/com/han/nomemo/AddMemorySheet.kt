@@ -110,9 +110,9 @@ fun AddMemorySheet(
     var dismissCommitted by remember { mutableStateOf(false) }
 
     val allCategories = remember { CategoryCatalog.getAllCategories() }
-    val panelSurface = if (isDark) Color(0xFF1A1F27).copy(alpha = 0.985f) else Color.White.copy(alpha = 0.985f)
+    val panelSurface = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.985f))
     val panelBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000)
-    val sheetSurface = if (isDark) Color(0xFF161A20) else Color(0xFFF6F6F7)
+    val sheetSurface = if (isDark) noMemoCardSurfaceColor(true) else Color(0xFFF6F6F7)
     val accentMono = palette.accent
     val accentSoft = if (isDark) Color.White.copy(alpha = 0.13f) else Color.Black.copy(alpha = 0.07f)
     val accentStroke = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)
@@ -1148,7 +1148,7 @@ private fun ReminderPickerDialog(
                 ),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isDark) Color(0xFF171C23) else Color(0xFFF8F8FA)
+                containerColor = if (isDark) noMemoCardSurfaceColor(true) else Color(0xFFF8F8FA)
             ),
             border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
         ) {
@@ -1348,7 +1348,7 @@ private fun ReminderAdjustCard(
         modifier = modifier,
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f)
+            containerColor = if (isDark) noMemoCardSurfaceColor(true) else Color.Black.copy(alpha = 0.03f)
         ),
         border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
     ) {

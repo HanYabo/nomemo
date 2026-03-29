@@ -2,7 +2,6 @@ package com.han.nomemo
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -24,6 +23,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -98,7 +98,7 @@ fun NoMemoDetailSummaryBox(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isDark) Color(0xFF1A1A1D) else Color.White
+            containerColor = noMemoCardSurfaceColor(isDark)
         )
     ) {
         if (editing) {
@@ -149,7 +149,7 @@ fun NoMemoPickupCodeCard(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isDark) Color(0xFF1A1A1D) else Color.White
+            containerColor = noMemoCardSurfaceColor(isDark)
         )
     ) {
         Column(
@@ -187,15 +187,6 @@ fun NoMemoPickupCodeCard(
                     modifier = Modifier.padding(top = 4.dp)
                 )
             }
-            (info.addressDetail ?: info.locationTitle)?.let {
-                Text(
-                    text = "${if (info.sectionTitle == "取件码") "取件地址" else "取餐地点"}：$it",
-                    color = palette.textSecondary,
-                    fontSize = 14.sp,
-                    lineHeight = 22.sp,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
-            }
         }
     }
 }
@@ -208,11 +199,14 @@ fun NoMemoPickupLocationCard(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val supportingLocationText = buildPickupLocationSupportingText(info)
+    val hasSupportingText = !supportingLocationText.isNullOrBlank()
+    val hasNavigation = info.navigationQuery.isNotBlank()
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isDark) Color(0xFF1A1A1D) else Color.White
+            containerColor = noMemoCardSurfaceColor(isDark)
         )
     ) {
         Column(
@@ -220,38 +214,106 @@ fun NoMemoPickupLocationCard(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 16.dp)
         ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = info.locationTitle ?: info.addressDetail.orEmpty(),
-                    color = palette.textPrimary,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.weight(1f)
-                )
-                if (info.navigationQuery.isNotBlank()) {
-                    Text(
+            Box(modifier = Modifier.fillMaxWidth()) {
+                val textAreaModifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = if (hasNavigation) 98.dp else 0.dp)
+                if (hasSupportingText) {
+                    Column(
+                        modifier = textAreaModifier,
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = info.locationTitle ?: info.addressDetail.orEmpty(),
+                            color = palette.textPrimary,
+                            fontSize = 17.sp,
+                            lineHeight = 24.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        supportingLocationText?.let {
+                            Text(
+                                text = it,
+                                color = palette.textSecondary,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp
+                            )
+                        }
+                    }
+                } else {
+                    Box(
+                        modifier = textAreaModifier.heightIn(min = 40.dp),
+                        contentAlignment = Alignment.CenterStart
+                    ) {
+                        Text(
+                            text = info.locationTitle ?: info.addressDetail.orEmpty(),
+                            color = palette.textPrimary,
+                            fontSize = 17.sp,
+                            lineHeight = 24.sp,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                }
+                if (hasNavigation) {
+                    NoMemoLocationNavigateButton(
                         text = "导航",
-                        color = palette.accent,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.clickable { onNavigate(info.navigationQuery) }
+                        onClick = { onNavigate(info.navigationQuery) },
+                        modifier = Modifier.align(Alignment.CenterEnd)
                     )
                 }
             }
-            info.addressDetail
-                ?.takeIf { it.isNotBlank() && it != info.locationTitle }
-                ?.let {
-                    Text(
-                        text = "地址：$it",
-                        color = palette.textSecondary,
-                        fontSize = 14.sp,
-                        lineHeight = 22.sp,
-                        modifier = Modifier.padding(top = 8.dp)
-                    )
-                }
+        }
+    }
+}
+
+private fun buildPickupLocationSupportingText(info: StructuredPickupInfo): String? {
+    val detail = info.addressDetail
+        ?.trim()
+        ?.takeIf { it.isNotBlank() && it != info.locationTitle }
+        ?: return null
+
+    val title = info.locationTitle?.trim().orEmpty()
+    if (title.isNotBlank() && detail.startsWith(title)) {
+        return detail
+            .removePrefix(title)
+            .trimStart('：', ':', '，', ',', '-', ' ')
+            .removeSurrounding("（", "）")
+            .removeSurrounding("(", ")")
+            .trim()
+            .takeIf { it.isNotBlank() }
+    }
+
+    return detail
+}
+
+@Composable
+private fun NoMemoLocationNavigateButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Card(
+            shape = RoundedCornerShape(999.dp),
+            colors = CardDefaults.cardColors(containerColor = palette.accent),
+            border = BorderStroke(1.dp, palette.accent)
+        ) {
+            Text(
+                text = text,
+                color = palette.onAccent,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp)
+            )
         }
     }
 }

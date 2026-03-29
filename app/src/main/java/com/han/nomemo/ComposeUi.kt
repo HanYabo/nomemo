@@ -160,6 +160,10 @@ data class NoMemoAdaptiveSpec(
 private val LocalNoMemoPalette = staticCompositionLocalOf<NoMemoPalette?> { null }
 private val LocalNoMemoAdaptiveSpec = staticCompositionLocalOf<NoMemoAdaptiveSpec?> { null }
 
+fun noMemoCardSurfaceColor(isDark: Boolean, lightColor: Color = Color.White): Color {
+    return if (isDark) Color(0xFF121212) else lightColor
+}
+
 @Composable
 fun rememberNoMemoAdaptiveSpec(): NoMemoAdaptiveSpec {
     LocalNoMemoAdaptiveSpec.current?.let { return it }
@@ -496,12 +500,13 @@ fun NoMemoSearchBarCard(
     modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
     Card(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 8.dp),
         shape = RoundedCornerShape(28.dp),
-        colors = CardDefaults.cardColors(containerColor = palette.glassFill),
+        colors = CardDefaults.cardColors(containerColor = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))),
         border = BorderStroke(1.dp, palette.glassStroke)
     ) {
         Row(
@@ -565,7 +570,7 @@ fun NoMemoConfirmDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(28.dp),
-        containerColor = if (isDark) Color(0xFF171B22).copy(alpha = 0.98f) else Color.White.copy(alpha = 0.995f),
+        containerColor = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f)),
         title = {
             Text(
                 text = title,
@@ -630,7 +635,7 @@ fun NoMemoMessageDialog(
     AlertDialog(
         onDismissRequest = onDismiss,
         shape = RoundedCornerShape(28.dp),
-        containerColor = if (isDark) Color(0xFF171B22).copy(alpha = 0.98f) else Color.White.copy(alpha = 0.995f),
+        containerColor = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f)),
         title = {
             Text(
                 text = title,
@@ -728,11 +733,8 @@ fun NoMemoActionMenuPanel(
     modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
-    val menuSurface = if (isSystemInDarkTheme()) {
-        Color(0xFF171B22).copy(alpha = 0.95f)
-    } else {
-        Color(0xFFFBFBFC).copy(alpha = 0.94f)
-    }
+    val isDark = isSystemInDarkTheme()
+    val menuSurface = noMemoCardSurfaceColor(isDark, Color(0xFFFBFBFC).copy(alpha = 0.94f))
     Card(
         modifier = modifier
             .width(176.dp)
@@ -900,9 +902,9 @@ fun NoMemoBottomDock(
     val dockContainerBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF171B22).copy(alpha = 0.94f),
-                Color(0xFF1C2129).copy(alpha = 0.90f),
-                Color(0xFF11151B).copy(alpha = 0.92f)
+                Color(0xFF121212).copy(alpha = 0.98f),
+                Color(0xFF121212).copy(alpha = 0.98f),
+                Color(0xFF121212).copy(alpha = 0.98f)
             )
         )
     } else {
@@ -915,18 +917,18 @@ fun NoMemoBottomDock(
         )
     }
     val dockBlurTint = if (isDark) {
-        Color.White.copy(alpha = 0.12f)
+        Color(0xFF121212).copy(alpha = 0.92f)
     } else {
         Color.White.copy(alpha = 0.48f)
     }
     val dockHighlight = if (isDark) {
-        Color.White.copy(alpha = 0.24f)
+        Color.White.copy(alpha = 0.16f)
     } else {
         Color.White.copy(alpha = 0.74f)
     }
     val dockTopHighlightBrush = Brush.verticalGradient(
         listOf(
-            if (isDark) Color.White.copy(alpha = 0.20f) else Color.White.copy(alpha = 0.56f),
+            if (isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.56f),
             if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.20f),
             Color.Transparent
         )
@@ -939,9 +941,9 @@ fun NoMemoBottomDock(
     val selectedItemBackground = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF2A3442).copy(alpha = 0.96f),
-                Color(0xFF222C39).copy(alpha = 0.94f),
-                Color(0xFF1C2430).copy(alpha = 0.92f)
+                Color.White.copy(alpha = 0.14f),
+                Color.White.copy(alpha = 0.10f),
+                Color.White.copy(alpha = 0.08f)
             )
         )
     } else {
@@ -954,17 +956,17 @@ fun NoMemoBottomDock(
         )
     }
     val selectedItemStroke = if (isDark) {
-        Color(0xFF8EA4C0).copy(alpha = 0.32f)
+        Color.White.copy(alpha = 0.18f)
     } else {
         Color(0xFF90A3BB).copy(alpha = 0.42f)
     }
     val selectedItemTopHighlight = if (isDark) {
-        Color.White.copy(alpha = 0.16f)
+        Color.White.copy(alpha = 0.10f)
     } else {
         Color.White.copy(alpha = 0.42f)
     }
     val selectedItemContentColor = if (isDark) {
-        Color(0xFFF2F6FB)
+        Color.White.copy(alpha = 0.96f)
     } else {
         Color(0xFF2D4258)
     }
@@ -1471,7 +1473,8 @@ fun RecordCard(
     palette: NoMemoPalette = rememberNoMemoPalette(),
     adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
     allowImageLoading: Boolean = true,
-    showShadow: Boolean = true
+    showShadow: Boolean = true,
+    darkCardBackgroundOverride: Color? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -1510,9 +1513,10 @@ fun RecordCard(
     val previewCornerRadius = if (adaptive.isNarrow) 15.dp else 17.dp
     val cardShape = RoundedCornerShape(if (adaptive.isNarrow) 28.dp else 30.dp)
     val cardGradient = if (isDark) {
+        val darkCardColor = darkCardBackgroundOverride ?: noMemoCardSurfaceColor(true)
         listOf(
-            Color(0xFF171A20).copy(alpha = 0.98f),
-            Color(0xFF14171C).copy(alpha = 0.98f)
+            darkCardColor,
+            darkCardColor
         )
     } else {
         listOf(

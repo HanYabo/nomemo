@@ -235,8 +235,8 @@ class SettingsActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
         val pageBackground = if (isDark) Color.Black else Color.White
-        val cardSurface = if (isDark) Color(0xFF1A1D23) else Color.White
-        val softSurface = if (isDark) Color(0xFF22262E) else Color(0xFFF7F7FA)
+        val cardSurface = noMemoCardSurfaceColor(isDark)
+        val softSurface = if (isDark) noMemoCardSurfaceColor(true) else Color(0xFFF7F7FA)
         val titleColor = if (isDark) Color(0xFFF7F8FA) else Color(0xFF111111)
         val subtitleColor = if (isDark) Color.White.copy(alpha = 0.58f) else Color(0xFF8E8E93)
         val sectionLabelColor = if (isDark) Color.White.copy(alpha = 0.42f) else Color(0xFF9A9AA1)

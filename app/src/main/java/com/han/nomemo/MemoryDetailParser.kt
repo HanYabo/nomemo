@@ -3,6 +3,31 @@ package com.han.nomemo
 import java.util.Locale
 
 object MemoryDetailParser {
+    private val stationNamePattern = Regex("""([\u4E00-\u9FA5A-Za-z0-9]{2,50}(?:驿站|自提点|快递柜|门店|食堂|窗口|前台))""")
+    private val locationStopTokens = listOf(
+        "状态",
+        "取件码",
+        "取餐码",
+        "提货码",
+        "取货码",
+        "验证码",
+        "核销码",
+        "领取码",
+        "尾号",
+        "格口号",
+        "柜口号",
+        "柜号",
+        "货架号",
+        "架位号",
+        "货位号",
+        "快递单号",
+        "物流单号",
+        "运单号",
+        "单号",
+        "凭码",
+        "号码"
+    )
+
     fun parseStructuredPickupInfo(record: MemoryRecord): StructuredPickupInfo? {
         val source = listOfNotNull(
             record.title,
@@ -198,29 +223,73 @@ object MemoryDetailParser {
     }
 
     private fun extractLocationBlock(source: String, lines: List<String>, isDelivery: Boolean): String? {
-        val labeled = extractLabeledValue(
-            source,
-            if (isDelivery) listOf("取件地址", "地址", "驿站", "地点", "取货地址") else listOf("取餐地址", "地址", "地点", "门店", "取餐点")
+        val labeled = extractLabeledLocationValue(
+            lines,
+            if (isDelivery) {
+                listOf("取件地址", "取货地址", "收货地址", "地址", "地点", "驿站")
+            } else {
+                listOf("取餐地址", "门店地址", "地址", "地点", "门店", "取餐点")
+            }
         )
         if (!labeled.isNullOrBlank()) {
-            return cleanLocationCandidate(
-                trimAfterStopTokens(labeled, listOf("状态", "取件码", "取餐码", "快递单号", "单号", "尾号"))
-            )
+            return labeled
         }
 
         val stationLike = extractStationLikeName(source)
-        val detailLike = lines.firstOrNull {
-            containsAnyKeyword(it, "楼", "校区", "路", "号楼", "前台", "东北角", "西南角", "东门", "西门", "南门", "北门") &&
-                !containsAnyKeyword(it, "状态", "取件码", "取餐码", "快递单号", "单号")
-        }?.let(::cleanLocationCandidate)
+        val detailLike = lines.asSequence()
+            .map(::cleanLocationCandidate)
+            .firstOrNull { candidate ->
+                candidate.isNotBlank() &&
+                    candidate != stationLike &&
+                    !isStatusLikeText(candidate) &&
+                    !isLikelyCodeOrLogisticsText(candidate) &&
+                    looksLikeLocationText(candidate)
+            }
+        val fallbackDetail = lines.asSequence()
+            .map(::cleanLocationCandidate)
+            .firstOrNull { candidate ->
+                candidate.isNotBlank() &&
+                    candidate != stationLike &&
+                    !isStatusLikeText(candidate) &&
+                    !isLikelyCodeOrLogisticsText(candidate)
+            }
 
         return when {
             !stationLike.isNullOrBlank() && !detailLike.isNullOrBlank() && detailLike != stationLike ->
                 stationLike + "\n" + detailLike
             !stationLike.isNullOrBlank() -> stationLike
             !detailLike.isNullOrBlank() -> detailLike
+            !fallbackDetail.isNullOrBlank() -> fallbackDetail
             else -> null
         }
+    }
+
+    private fun extractLabeledLocationValue(lines: List<String>, labels: List<String>): String? {
+        labels.forEach { label ->
+            lines.forEach { rawLine ->
+                val line = rawLine.trim()
+                extractLocationValueFromLine(line, label)?.let { value ->
+                    val cleaned = cleanLocationCandidate(trimAfterStopTokens(value, locationStopTokens))
+                    if (cleaned.isNotBlank() && !isLikelyCodeOrLogisticsText(cleaned)) {
+                        return cleaned
+                    }
+                }
+            }
+        }
+        return null
+    }
+
+    private fun extractLocationValueFromLine(line: String, label: String): String? {
+        listOf("$label：", "$label:").forEach { token ->
+            val index = line.indexOf(token)
+            if (index >= 0) {
+                return line.substring(index + token.length).trim()
+            }
+        }
+        if (line.startsWith(label)) {
+            return line.removePrefix(label).trimStart('：', ':', ' ', '　')
+        }
+        return null
     }
 
     private fun extractLabeledValue(source: String, labels: List<String>): String? {
@@ -242,8 +311,7 @@ object MemoryDetailParser {
     }
 
     private fun extractStationLikeName(source: String): String? {
-        return Regex("""([\u4E00-\u9FA5A-Za-z0-9]{2,50}(?:驿站|自提点|快递柜|门店|食堂|窗口|前台))""")
-            .find(source)
+        return stationNamePattern.find(source)
             ?.groupValues
             ?.getOrNull(1)
             ?.let(::cleanLocationCandidate)
@@ -257,8 +325,7 @@ object MemoryDetailParser {
         if (cleaned.isBlank() || isStatusLikeText(cleaned)) {
             return null
         }
-        val stationMatch = Regex("""([\u4E00-\u9FA5A-Za-z0-9]{2,50}(?:驿站|自提点|快递柜|门店|食堂|窗口|前台))""")
-            .find(cleaned)
+        val stationMatch = stationNamePattern.find(cleaned)
             ?.groupValues
             ?.getOrNull(1)
         if (!stationMatch.isNullOrBlank()) {
@@ -266,8 +333,13 @@ object MemoryDetailParser {
         }
         return cleaned.lineSequence()
             .map { it.trim() }
-            .firstOrNull { it.isNotBlank() && !isStatusLikeText(it) }
+            .firstOrNull {
+                it.isNotBlank() &&
+                    !isStatusLikeText(it) &&
+                    !isLikelyCodeOrLogisticsText(it)
+            }
             ?.ifBlank { cleaned }
+            ?: cleaned.takeIf { !isLikelyCodeOrLogisticsText(it) }
     }
 
     private fun extractAddressDetail(rawLocation: String?, locationTitle: String?): String? {
@@ -276,13 +348,26 @@ object MemoryDetailParser {
         }
         val cleaned = cleanLocationCandidate(rawLocation)
         val lines = cleaned.lines().map { it.trim() }.filter { it.isNotBlank() }
-        val firstNonTitle = lines.firstOrNull { it != locationTitle && !isStatusLikeText(it) }
+        val locationLike = lines.firstOrNull {
+            it != locationTitle &&
+                !isStatusLikeText(it) &&
+                !isLikelyCodeOrLogisticsText(it) &&
+                looksLikeLocationText(it)
+        }
+        if (!locationLike.isNullOrBlank()) {
+            return locationLike
+        }
+        val firstNonTitle = lines.firstOrNull {
+            it != locationTitle &&
+                !isStatusLikeText(it) &&
+                !isLikelyCodeOrLogisticsText(it)
+        }
         if (!firstNonTitle.isNullOrBlank()) {
             return firstNonTitle
         }
         if (!locationTitle.isNullOrBlank()) {
             val removed = cleanLocationCandidate(cleaned.replace(locationTitle, ""))
-            if (removed.isNotBlank() && !isStatusLikeText(removed)) {
+            if (removed.isNotBlank() && !isStatusLikeText(removed) && !isLikelyCodeOrLogisticsText(removed)) {
                 return removed
             }
         }
@@ -305,6 +390,77 @@ object MemoryDetailParser {
             .replace(Regex("""状态\s*[:：]?\s*[^\n，。]*"""), "")
             .replace(Regex("""[（(]\s*(今天|今日|现在)?\s*\d{1,2}[:：]\d{2}\s*[)）]"""), "")
         return sanitizeLocationText(withoutStatus).trim('，', '。', ' ', '\n')
+    }
+
+    private fun isLikelyCodeOrLogisticsText(text: String): Boolean {
+        val candidate = text.trim()
+        if (candidate.isBlank()) {
+            return false
+        }
+        if (
+            containsAnyKeyword(
+                candidate,
+                "取件码",
+                "取餐码",
+                "提货码",
+                "取货码",
+                "验证码",
+                "核销码",
+                "领取码",
+                "收货码",
+                "尾号",
+                "格口号",
+                "柜口号",
+                "柜号",
+                "货架号",
+                "架位号",
+                "货位号",
+                "快递单号",
+                "物流单号",
+                "运单号",
+                "单号",
+                "凭码",
+                "号码"
+            )
+        ) {
+            return true
+        }
+        return candidate.matches(Regex("""[A-Za-z]?\d{4,6}""")) ||
+            candidate.matches(Regex("""[A-Za-z]?\d{1,2}-\d{1,2}-\d{2,4}""")) ||
+            candidate.matches(Regex("""[A-Za-z0-9-]{4,20}"""))
+    }
+
+    private fun looksLikeLocationText(text: String): Boolean {
+        if (text.isBlank() || isLikelyCodeOrLogisticsText(text)) {
+            return false
+        }
+        if (stationNamePattern.containsMatchIn(text)) {
+            return true
+        }
+        return containsAnyKeyword(
+            text,
+            "楼",
+            "栋",
+            "层",
+            "室",
+            "路",
+            "街",
+            "道",
+            "号",
+            "校区",
+            "园区",
+            "大厦",
+            "广场",
+            "中心",
+            "前台",
+            "门口",
+            "东门",
+            "西门",
+            "南门",
+            "北门",
+            "附近",
+            "旁"
+        )
     }
 
     private fun isStatusLikeText(text: String): Boolean {

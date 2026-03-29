@@ -327,6 +327,7 @@ class MainActivity : BaseComposeActivity() {
                     adaptive = adaptive,
                     allowImageLoading = true,
                     showShadow = false,
+                    darkCardBackgroundOverride = Color(0xFF121212),
                     onClick = {
                         when {
                             selectedRecordIds.contains(record.recordId) -> {
