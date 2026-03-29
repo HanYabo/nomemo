@@ -392,10 +392,12 @@ fun GlassChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     horizontalPadding: Dp = 18.dp,
+    showBorder: Boolean = true,
     textStyle: TextStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold)
 ) {
     val palette = rememberNoMemoPalette()
-    val bg = if (selected) palette.accent else palette.glassFill
+    val isDark = isSystemInDarkTheme()
+    val bg = if (selected) palette.accent else if (isDark) palette.glassFill else Color.White
     val textColor = if (selected) palette.onAccent else palette.textPrimary
     PressScaleBox(
         onClick = onClick,
@@ -405,7 +407,11 @@ fun GlassChip(
             modifier = Modifier
                 .clip(RoundedCornerShape(999.dp))
                 .background(bg)
-                .border(1.dp, palette.glassStroke, RoundedCornerShape(999.dp))
+                .border(
+                    width = if (showBorder) 1.dp else 0.dp,
+                    color = if (showBorder) palette.glassStroke else Color.Transparent,
+                    shape = RoundedCornerShape(999.dp)
+                )
         ) {
             Text(
                 text = text,
@@ -426,6 +432,7 @@ fun GlassIconCircleButton(
     size: Dp = 56.dp
 ) {
     val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
@@ -435,7 +442,7 @@ fun GlassIconCircleButton(
             modifier = Modifier
                 .fillMaxSize()
                 .clip(CircleShape)
-                .background(palette.glassFill)
+                .background(if (isDark) palette.glassFill else Color.White)
         ) {
             Icon(
                 painter = painterResource(id = iconRes),
@@ -770,46 +777,46 @@ fun NoMemoBottomDock(
     val addButtonBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFFF7F9FC),
                 Color(0xFFE7EBF1),
-                Color(0xFFD7DDE6)
+                Color(0xFFD8DEE6),
+                Color(0xFFC7D0DA)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF33404F),
-                Color(0xFF242F3B),
-                Color(0xFF171E27)
+                Color(0xFF2F3742),
+                Color(0xFF252D37),
+                Color(0xFF1C232C)
             )
         )
     }
     val addButtonStroke = if (isDark) {
-        Color.White.copy(alpha = 0.34f)
+        Color.White.copy(alpha = 0.22f)
     } else {
-        Color.White.copy(alpha = 0.16f)
+        Color.White.copy(alpha = 0.12f)
     }
     val addButtonTopHighlightBrush = Brush.verticalGradient(
         listOf(
-            if (isDark) Color.White.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.18f),
-            if (isDark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.06f),
+            if (isDark) Color.White.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.12f),
+            if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.04f),
             Color.Transparent
         )
     )
     val addButtonInnerStroke = if (isDark) {
-        Color.White.copy(alpha = 0.12f)
-    } else {
         Color.White.copy(alpha = 0.08f)
+    } else {
+        Color.White.copy(alpha = 0.05f)
     }
     val addButtonShadow = if (isDark) {
-        Color.Black.copy(alpha = 0.30f)
+        Color.Black.copy(alpha = 0.22f)
     } else {
-        Color(0xFF0E1620).copy(alpha = 0.26f)
+        Color(0xFF0E1620).copy(alpha = 0.18f)
     }
     val addButtonIconTint = if (isDark) {
-        Color(0xFF121821)
+        Color(0xFF141A22)
     } else {
-        Color.White
+        Color.White.copy(alpha = 0.96f)
     }
     val haptic = LocalHapticFeedback.current
     val haloScale: Float
@@ -818,7 +825,7 @@ fun NoMemoBottomDock(
         val haloTransition = rememberInfiniteTransition(label = "dockHaloTransition")
         haloScale = haloTransition.animateFloat(
             initialValue = 1f,
-            targetValue = 1.08f,
+            targetValue = 1.04f,
             animationSpec = infiniteRepeatable(
                 animation = tween(durationMillis = 2100, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse
@@ -826,8 +833,8 @@ fun NoMemoBottomDock(
             label = "dockHaloScale"
         ).value
         haloAlpha = haloTransition.animateFloat(
-            initialValue = 0.18f,
-            targetValue = 0.36f,
+            initialValue = 0.10f,
+            targetValue = 0.22f,
             animationSpec = infiniteRepeatable(
                 animation = tween(durationMillis = 2100, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse
@@ -836,7 +843,7 @@ fun NoMemoBottomDock(
         ).value
     } else {
         haloScale = 1f
-        haloAlpha = 0.18f
+        haloAlpha = 0.10f
     }
 
     val dockSwipeModifier = when (selectedTab) {
@@ -1003,11 +1010,11 @@ fun NoMemoBottomDock(
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onAddClick()
                 },
-                pressedScale = 0.92f,
+                pressedScale = 0.95f,
                 modifier = Modifier
                     .size(addButtonSize)
                     .shadow(
-                        elevation = if (spec.isNarrow) 8.dp else 10.dp,
+                        elevation = if (spec.isNarrow) 6.dp else 8.dp,
                         shape = addButtonShape,
                         ambientColor = addButtonShadow,
                         spotColor = addButtonShadow
@@ -1039,7 +1046,7 @@ fun NoMemoBottomDock(
                     tint = addButtonIconTint,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .size(if (spec.isNarrow) 22.dp else 24.dp)
+                        .size(if (spec.isNarrow) 20.dp else 22.dp)
                 )
             }
         }
@@ -1218,7 +1225,8 @@ fun RecordCard(
     onLongPress: (() -> Unit)? = null,
     palette: NoMemoPalette = rememberNoMemoPalette(),
     adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
-    allowImageLoading: Boolean = true
+    allowImageLoading: Boolean = true,
+    showShadow: Boolean = true
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -1227,30 +1235,20 @@ fun RecordCard(
     val titleText = remember(record.recordId, record.title, record.memory) {
         record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
     }
-    val summaryText = remember(record.recordId, record.summary, record.memory, record.sourceText, titleText) {
+    val summaryText = remember(record.recordId, record.analysis, record.summary, record.memory, record.sourceText) {
         when {
+            !record.analysis.isNullOrBlank() -> record.analysis
+            !record.memory.isNullOrBlank() -> record.memory
             !record.summary.isNullOrBlank() -> record.summary
-            !record.memory.isNullOrBlank() && record.memory != titleText -> record.memory
             !record.sourceText.isNullOrBlank() -> record.sourceText
             else -> ""
-        }
-    }
-    val modeText = remember(record.mode, context) {
-        if (record.mode == MemoryRecord.MODE_AI) {
-            context.getString(R.string.mode_label_ai)
-        } else {
-            context.getString(R.string.mode_label_normal)
         }
     }
     val categoryText = remember(record.categoryName, context) {
         record.categoryName ?: context.getString(R.string.tag_quick)
     }
-    val timeText = remember(record.createdAt, modeText, context) {
-        context.getString(
-            R.string.record_time_mode,
-            timeFormat.format(Date(record.createdAt)),
-            modeText
-        )
+    val timeText = remember(record.createdAt) {
+        timeFormat.format(Date(record.createdAt))
     }
     val compactCard = adaptive.widthClass == NoMemoWidthClass.COMPACT
     val showPreviewImage = !record.imageUri.isNullOrBlank()
@@ -1282,7 +1280,11 @@ fun RecordCard(
     } else {
         Color.Transparent
     }
-    val cardShadow = if (isDark) 0.dp else if (selected) 7.dp else 4.dp
+    val cardShadow = if (showShadow) {
+        if (isDark) 0.dp else if (selected) 7.dp else 4.dp
+    } else {
+        0.dp
+    }
     val summaryColor = if (isDark) {
         palette.textSecondary.copy(alpha = 0.88f)
     } else {
@@ -1346,7 +1348,7 @@ fun RecordCard(
                         text = summaryText,
                         color = summaryColor,
                         fontSize = if (compactCard) 13.sp else 14.sp,
-                        maxLines = if (compactCard) 2 else 3,
+                        maxLines = 2,
                         overflow = TextOverflow.Ellipsis
                     )
                 }

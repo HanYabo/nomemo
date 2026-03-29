@@ -10,10 +10,21 @@ import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -23,6 +34,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -47,9 +59,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -175,6 +189,39 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }
     }
 
+    private fun saveEditedRecord(
+        currentRecord: MemoryRecord,
+        title: String,
+        summary: String,
+        imageUri: String?
+    ): Boolean {
+        val trimmedDetail = summary.trim()
+        val updated = MemoryRecord(
+            currentRecord.recordId,
+            currentRecord.createdAt,
+            currentRecord.mode,
+            title.trim().ifBlank { deriveTitle(currentRecord) },
+            if (currentRecord.mode == MemoryRecord.MODE_AI) currentRecord.summary else trimmedDetail,
+            currentRecord.sourceText,
+            currentRecord.note,
+            imageUri.orEmpty(),
+            if (currentRecord.mode == MemoryRecord.MODE_AI) trimmedDetail else currentRecord.analysis,
+            currentRecord.memory,
+            currentRecord.engine,
+            currentRecord.categoryGroupCode,
+            currentRecord.categoryCode,
+            currentRecord.categoryName,
+            currentRecord.reminderAt,
+            currentRecord.isReminderDone,
+            currentRecord.isArchived
+        )
+        val saved = memoryStore.updateRecord(updated)
+        if (saved) {
+            record = updated
+        }
+        return saved
+    }
+
     private fun reanalyzeRecord(currentRecord: MemoryRecord) {
         if (reanalyzing) {
             return
@@ -187,7 +234,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val imageUri = currentRecord.imageUri
                         ?.takeIf { it.isNotBlank() }
                         ?.let(Uri::parse)
-                    val result = aiMemoryService.generateMemory(input, imageUri)
+                    val result = aiMemoryService.generateEnhancedMemory(
+                        input,
+                        imageUri,
+                        buildEnhancedAiContext(currentRecord)
+                    )
                     MemoryRecord(
                         currentRecord.recordId,
                         currentRecord.createdAt,
@@ -234,6 +285,17 @@ class MemoryDetailActivity : BaseComposeActivity() {
         return parts.joinToString("\n").ifBlank { deriveTitle(record) }
     }
 
+    private fun buildEnhancedAiContext(record: MemoryRecord): String {
+        val parts = buildList {
+            add("当前分类: ${record.categoryName ?: "小记"}")
+            record.title?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有标题: $it") }
+            record.summary?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有摘要: $it") }
+            record.analysis?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有分析: $it") }
+            record.memory?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有记忆正文: $it") }
+        }
+        return parts.joinToString("\n")
+    }
+
     @Composable
     private fun DetailContent(
         record: MemoryRecord?,
@@ -248,12 +310,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var showImagePreview by remember { mutableStateOf(false) }
+        var editing by remember(record?.recordId) { mutableStateOf(false) }
 
-        BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showImagePreview) {
+        BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showImagePreview || editing) {
             when {
                 showImagePreview -> showImagePreview = false
                 showDeleteConfirm -> showDeleteConfirm = false
                 moreMenuExpanded -> moreMenuExpanded = false
+                editing -> editing = false
             }
         }
 
@@ -266,7 +330,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         .navigationBarsPadding()
                         .padding(
                             start = spec.pageHorizontalPadding,
-                            top = spec.pageTopPadding,
+                            top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
                             end = spec.pageHorizontalPadding,
                             bottom = 20.dp
                         )
@@ -284,11 +348,33 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val titleText = deriveTitle(currentRecord)
                     val summaryText = deriveInsightText(currentRecord)
                     val createdAtText = rememberTime(currentRecord.createdAt)
-
+                    val detailTextStartPadding = if (spec.isNarrow) 12.dp else 18.dp
+                    var draftTitle by remember(currentRecord.recordId, currentRecord.title) {
+                        mutableStateOf(titleText)
+                    }
+                    var draftSummary by remember(currentRecord.recordId, currentRecord.summary, currentRecord.analysis) {
+                        mutableStateOf(summaryText)
+                    }
+                    var draftImageUri by remember(currentRecord.recordId, currentRecord.imageUri) {
+                        mutableStateOf(currentRecord.imageUri.orEmpty())
+                    }
+                    val imagePickerLauncher = rememberLauncherForActivityResult(
+                        ActivityResultContracts.OpenDocument()
+                    ) { uri ->
+                        if (uri == null) return@rememberLauncherForActivityResult
+                        try {
+                            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        } catch (_: Exception) {
+                        }
+                        draftImageUri = uri.toString()
+                    }
+                    val displayImageUri = if (editing) draftImageUri else currentRecord.imageUri.orEmpty()
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .align(Alignment.TopCenter)
+                            .align(Alignment.TopStart)
+                            .padding(top = 0.dp)
+                            .offset(y = (-4).dp)
                             .zIndex(2f),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -310,15 +396,21 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = spec.topActionButtonSize + 18.dp)
+                            .padding(top = spec.topActionButtonSize + 14.dp)
                             .verticalScroll(rememberScrollState())
                     ) {
-                        if (!currentRecord.imageUri.isNullOrBlank()) {
+                        if (displayImageUri.isNotBlank()) {
                             Card(
                                 modifier = Modifier
-                                    .fillMaxWidth(0.72f)
+                                    .fillMaxWidth(0.64f)
                                     .align(Alignment.CenterHorizontally)
-                                    .clickable { showImagePreview = true },
+                                    .clickable {
+                                        if (editing) {
+                                            imagePickerLauncher.launch(arrayOf("image/*"))
+                                        } else {
+                                            showImagePreview = true
+                                        }
+                                    },
                                 shape = RoundedCornerShape(28.dp),
                                 colors = CardDefaults.cardColors(containerColor = palette.glassFill),
                                 border = BorderStroke(1.dp, palette.glassStroke)
@@ -336,42 +428,106 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         .clip(RoundedCornerShape(28.dp)),
                                     update = { imageView ->
                                         try {
-                                            imageView.setImageURI(Uri.parse(currentRecord.imageUri))
+                                            imageView.setImageURI(Uri.parse(displayImageUri))
                                         } catch (_: Exception) {
                                             imageView.setImageDrawable(null)
                                         }
                                     }
                                 )
                             }
+                            if (editing) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 12.dp),
+                                    horizontalArrangement = Arrangement.Center
+                                ) {
+                                    DetailActionButton(
+                                        text = "更换图片",
+                                        primary = false,
+                                        onClick = { imagePickerLauncher.launch(arrayOf("image/*")) }
+                                    )
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    DetailActionButton(
+                                        text = "删除图片",
+                                        primary = false,
+                                        onClick = { draftImageUri = "" }
+                                    )
+                                }
+                            }
+                        } else if (editing) {
+                            DetailActionButton(
+                                text = "添加图片",
+                                primary = false,
+                                modifier = Modifier.align(Alignment.CenterHorizontally),
+                                onClick = { imagePickerLauncher.launch(arrayOf("image/*")) }
+                            )
                         }
 
-                        Text(
-                            text = titleText,
-                            color = palette.textPrimary,
-                            fontSize = if (spec.isNarrow) 27.sp else 31.sp,
-                            fontWeight = FontWeight.Bold,
-                            lineHeight = if (spec.isNarrow) 35.sp else 39.sp,
-                            maxLines = 3,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.padding(top = 20.dp)
-                        )
+                        if (editing) {
+                            BasicTextField(
+                                value = draftTitle,
+                                onValueChange = { draftTitle = it },
+                                textStyle = TextStyle(
+                                    color = palette.textPrimary,
+                                    fontSize = if (spec.isNarrow) 27.sp else 31.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    lineHeight = if (spec.isNarrow) 35.sp else 39.sp
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = detailTextStartPadding, top = 20.dp, end = 8.dp)
+                            ) { innerTextField ->
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    if (draftTitle.isBlank()) {
+                                        Text(
+                                            text = "输入标题",
+                                            color = palette.textTertiary,
+                                            fontSize = if (spec.isNarrow) 27.sp else 31.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        } else {
+                            Text(
+                                text = titleText,
+                                color = palette.textPrimary,
+                                fontSize = if (spec.isNarrow) 27.sp else 31.sp,
+                                fontWeight = FontWeight.Bold,
+                                lineHeight = if (spec.isNarrow) 35.sp else 39.sp,
+                                maxLines = 3,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.padding(start = detailTextStartPadding, top = 20.dp)
+                            )
+                        }
 
                         Row(
-                            modifier = Modifier.padding(top = 10.dp),
+                            modifier = Modifier.padding(start = detailTextStartPadding, top = 10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val metaColor = palette.textSecondary
                             Text(
                                 text = createdAtText,
-                                color = palette.textSecondary,
+                                color = metaColor,
                                 fontSize = 13.sp
                             )
+                            DetailMetaDivider(color = metaColor)
                             Text(
-                                text = " · ",
-                                color = palette.textTertiary,
-                                fontSize = 13.sp,
-                                modifier = Modifier.padding(horizontal = 6.dp)
+                                text = currentRecord.categoryName ?: "小记",
+                                color = metaColor,
+                                fontSize = 13.sp
                             )
-                            DetailMetaPill(text = currentRecord.categoryName ?: "小记")
+                            if (currentRecord.mode == MemoryRecord.MODE_AI) {
+                                DetailMetaDivider(color = metaColor)
+                                Text(
+                                    text = "AI",
+                                    color = palette.accent,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
                         }
 
                         Text(
@@ -379,18 +535,55 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             color = palette.textPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(top = 24.dp)
+                            modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp)
                         )
 
-                        Text(
-                            text = summaryText,
-                            color = palette.textSecondary,
-                            fontSize = 16.sp,
-                            lineHeight = 25.sp,
-                            modifier = Modifier.padding(top = 10.dp)
+                        DetailSummaryBox(
+                            value = if (editing) draftSummary else summaryText,
+                            editing = editing,
+                            modifier = Modifier.padding(
+                                start = detailTextStartPadding,
+                                end = detailTextStartPadding,
+                                top = 10.dp
+                            ),
+                            onValueChange = { draftSummary = it }
                         )
 
-                        ReanalyzeButton(
+                        if (editing) {
+                            Row(
+                                modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                DetailActionButton(
+                                    text = "取消",
+                                    primary = false,
+                                    onClick = {
+                                        editing = false
+                                        draftTitle = titleText
+                                        draftSummary = summaryText
+                                        draftImageUri = currentRecord.imageUri.orEmpty()
+                                    }
+                                )
+                                DetailActionButton(
+                                    text = "保存修改",
+                                    primary = true,
+                                    onClick = {
+                                        val saved = saveEditedRecord(
+                                            currentRecord,
+                                            draftTitle,
+                                            draftSummary,
+                                            draftImageUri
+                                        )
+                                        if (saved) {
+                                            editing = false
+                                            Toast.makeText(this@MemoryDetailActivity, "已保存修改", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            Toast.makeText(this@MemoryDetailActivity, "保存失败", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                )
+                            }
+                        } else ReanalyzeButton(
                             text = if (reanalyzing) "正在重新分析..." else "重新分析",
                             enabled = !reanalyzing,
                             modifier = Modifier.padding(top = 28.dp),
@@ -401,6 +594,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
 
                     if (moreMenuExpanded) {
+                        val dismissInteraction = remember { MutableInteractionSource() }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -409,10 +603,24 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             Box(
                                 modifier = Modifier
                                     .matchParentSize()
-                                    .clickable { moreMenuExpanded = false }
+                                    .clickable(
+                                        interactionSource = dismissInteraction,
+                                        indication = null,
+                                        onClick = { moreMenuExpanded = false }
+                                    )
                             )
                             DetailMoreMenuPanel(
                                 archived = currentRecord.isArchived,
+                                editing = editing,
+                                onEditToggle = {
+                                    moreMenuExpanded = false
+                                    editing = !editing
+                                    if (!editing) {
+                                        draftTitle = titleText
+                                        draftSummary = summaryText
+                                        draftImageUri = currentRecord.imageUri.orEmpty()
+                                    }
+                                },
                                 onArchiveToggle = {
                                     moreMenuExpanded = false
                                     onToggleArchive(currentRecord)
@@ -428,14 +636,32 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         }
                     }
 
-                    if (showImagePreview && !currentRecord.imageUri.isNullOrBlank()) {
+                    AnimatedVisibility(
+                        visible = showImagePreview && !currentRecord.imageUri.isNullOrBlank(),
+                        enter = fadeIn(animationSpec = tween(220)) + scaleIn(
+                            initialScale = 0.94f,
+                            animationSpec = tween(260)
+                        ),
+                        exit = fadeOut(animationSpec = tween(180)) + scaleOut(
+                            targetScale = 0.96f,
+                            animationSpec = tween(200)
+                        )
+                    ) {
+                        val previewDismissInteraction = remember { MutableInteractionSource() }
                         Box(
                             modifier = Modifier
                                 .fillMaxSize()
-                                .background(palette.memoBgStart)
                                 .zIndex(6f)
-                                .clickable { showImagePreview = false }
                         ) {
+                            Box(
+                                modifier = Modifier
+                                    .matchParentSize()
+                                    .clickable(
+                                        interactionSource = previewDismissInteraction,
+                                        indication = null,
+                                        onClick = { showImagePreview = false }
+                                    )
+                            )
                             AndroidView(
                                 factory = { ctx ->
                                     ImageView(ctx).apply {
@@ -446,9 +672,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 },
                                 modifier = Modifier
                                     .align(Alignment.Center)
-                                    .fillMaxWidth()
-                                    .wrapContentHeight()
-                                    .padding(horizontal = 18.dp, vertical = 24.dp),
+                                    .fillMaxSize()
+                                    .padding(horizontal = 12.dp, vertical = 24.dp),
                                 update = { imageView ->
                                     try {
                                         imageView.setImageURI(Uri.parse(currentRecord.imageUri))
@@ -456,6 +681,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         imageView.setImageDrawable(null)
                                     }
                                 }
+                            )
+                            GlassIconCircleButton(
+                                iconRes = R.drawable.ic_sheet_close,
+                                contentDescription = getString(R.string.cancel),
+                                onClick = { showImagePreview = false },
+                                size = spec.topActionButtonSize,
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .offset(y = (-4).dp)
                             )
                         }
                     }
@@ -515,22 +749,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
     }
 
     @Composable
-    private fun DetailMetaPill(text: String) {
-        val palette = rememberNoMemoPalette()
+    private fun DetailMetaDivider(color: Color) {
+        Spacer(modifier = Modifier.width(7.dp))
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
-                .background(palette.glassFill)
-                .border(1.dp, palette.glassStroke, RoundedCornerShape(999.dp))
-                .padding(horizontal = 10.dp, vertical = 4.dp)
-        ) {
-            Text(
-                text = text,
-                color = palette.textSecondary,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
+                .size(3.dp)
+                .clip(CircleShape)
+                .background(color.copy(alpha = 0.72f))
+        )
+        Spacer(modifier = Modifier.width(7.dp))
     }
 
     @Composable
@@ -578,26 +805,128 @@ class MemoryDetailActivity : BaseComposeActivity() {
     }
 
     @Composable
+    private fun DetailSummaryBox(
+        value: String,
+        editing: Boolean,
+        modifier: Modifier = Modifier,
+        onValueChange: (String) -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        Card(
+            modifier = modifier
+                .fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isDark) Color(0xFF1A1A1D) else Color.White
+            )
+        ) {
+            if (editing) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    textStyle = TextStyle(
+                        color = palette.textPrimary,
+                        fontSize = 16.sp,
+                        lineHeight = 25.sp
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 16.dp)
+                        .heightIn(min = 120.dp)
+                ) { innerTextField ->
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        if (value.isBlank()) {
+                            Text(
+                                text = "输入摘要",
+                                color = palette.textTertiary,
+                                fontSize = 16.sp
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            } else {
+                Text(
+                    text = value,
+                    color = palette.textPrimary,
+                    fontSize = 16.sp,
+                    lineHeight = 25.sp,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun DetailActionButton(
+        text: String,
+        primary: Boolean,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier
+        ) {
+            Card(
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (primary) palette.accent else palette.glassFill
+                ),
+                border = BorderStroke(1.dp, if (primary) palette.accent else palette.glassStroke)
+            ) {
+                Box(
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = text,
+                        color = if (primary) palette.onAccent else palette.textPrimary,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
     private fun DetailMoreMenuPanel(
         archived: Boolean,
+        editing: Boolean,
+        onEditToggle: () -> Unit,
         onArchiveToggle: () -> Unit,
         onDelete: () -> Unit,
         modifier: Modifier = Modifier
     ) {
         val palette = rememberNoMemoPalette()
-        val menuSurface = Color(0xFFFBFBFC).copy(alpha = 0.94f)
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        val menuSurface = if (isDark) {
+            Color(0xFF171B22).copy(alpha = 0.95f)
+        } else {
+            Color(0xFFFBFBFC).copy(alpha = 0.94f)
+        }
         Card(
             modifier = modifier
-                .width(176.dp),
+                .width(176.dp)
+                .shadow(14.dp, RoundedCornerShape(22.dp)),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = menuSurface),
             border = BorderStroke(1.dp, palette.glassStroke)
         ) {
             Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
                 DetailMoreMenuRow(
+                    iconRes = R.drawable.ic_nm_more,
+                    label = if (editing) "结束编辑" else "编辑",
+                    onClick = onEditToggle
+                )
+                DetailMoreMenuRow(
                     iconRes = R.drawable.ic_sheet_calendar,
                     label = if (archived) getString(R.string.action_unarchive) else getString(R.string.action_archive),
-                    onClick = onArchiveToggle
+                    onClick = onArchiveToggle,
+                    modifier = Modifier.padding(top = 6.dp)
                 )
                 DetailMoreMenuRow(
                     iconRes = R.drawable.ic_nm_delete,

@@ -30,6 +30,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -53,8 +54,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -311,6 +312,46 @@ class MainActivity : BaseComposeActivity() {
                 filteredRecords.all { selectedRecordIds.contains(it.recordId) }
         }
         val showCenteredEmptyState = hasLoadedRecords && filteredRecords.isEmpty()
+        val recordItems: LazyListScope.() -> Unit = {
+            items(
+                items = filteredRecords,
+                key = { it.recordId },
+                contentType = {
+                    if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
+                }
+            ) { record ->
+                RecordCard(
+                    record = record,
+                    selected = selectedRecordIds.contains(record.recordId),
+                    palette = palette,
+                    adaptive = adaptive,
+                    allowImageLoading = true,
+                    showShadow = false,
+                    onClick = {
+                        when {
+                            selectedRecordIds.contains(record.recordId) -> {
+                                selectedRecordIds = selectedRecordIds - record.recordId
+                            }
+                            selectedRecordIds.isNotEmpty() -> {
+                                selectedRecordIds = selectedRecordIds + record.recordId
+                            }
+                            else -> {
+                                onOpenDetail(record)
+                            }
+                        }
+                    },
+                    onLongPress = {
+                        searchEnabled = false
+                        moreMenuExpanded = false
+                        selectedRecordIds = if (selectedRecordIds.contains(record.recordId)) {
+                            selectedRecordIds - record.recordId
+                        } else {
+                            selectedRecordIds + record.recordId
+                        }
+                    }
+                )
+            }
+        }
 
         LaunchedEffect(filteredRecords, selectedRecordIds) {
             val visibleIds = filteredRecords.map { it.recordId }.toSet()
@@ -448,55 +489,23 @@ class MainActivity : BaseComposeActivity() {
                         if (!hasLoadedRecords || filteredRecords.isEmpty()) {
                             Spacer(modifier = Modifier.weight(1f))
                         } else {
-                            LazyColumn(
+                            Box(
                                 modifier = Modifier
-                                    .weight(1f),
-                                state = listState,
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                    top = 12.dp,
-                                    bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
-                                ),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    .weight(1f)
                             ) {
-                                items(
-                                    items = filteredRecords,
-                                    key = { it.recordId },
-                                    contentType = {
-                                        if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
-                                    }
-                                ) { record ->
-                                    RecordCard(
-                                        record = record,
-                                        selected = selectedRecordIds.contains(record.recordId),
-                                        palette = palette,
-                                        adaptive = spec,
-                                        allowImageLoading = true,
-                                        onClick = {
-                                            when {
-                                                selectedRecordIds.contains(record.recordId) -> {
-                                                    selectedRecordIds = selectedRecordIds - record.recordId
-                                                }
-                                                selectedRecordIds.isNotEmpty() -> {
-                                                    selectedRecordIds = selectedRecordIds + record.recordId
-                                                }
-                                                else -> {
-                                                    onOpenDetail(record)
-                                                }
-                                            }
-                                        },
-                                        onLongPress = {
-                                            searchEnabled = false
-                                            moreMenuExpanded = false
-                                            selectedRecordIds = if (selectedRecordIds.contains(record.recordId)) {
-                                                selectedRecordIds - record.recordId
-                                            } else {
-                                                selectedRecordIds + record.recordId
-                                            }
-                                        }
-                                    )
-                                }
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    state = listState,
+                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                        top = 12.dp,
+                                        bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
+                                    ),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    content = recordItems
+                                )
                             }
                         }
+
                     }
 
                     if (showCenteredEmptyState) {
@@ -636,6 +645,7 @@ class MainActivity : BaseComposeActivity() {
             selected = selected,
             onClick = onClick,
             horizontalPadding = if (spec.isNarrow) 16.dp else 22.dp,
+            showBorder = false,
             textStyle = TextStyle(fontSize = spec.chipTextSize, fontWeight = FontWeight.Bold)
         )
     }
@@ -913,5 +923,6 @@ class MainActivity : BaseComposeActivity() {
             }
         }
     }
+
 }
 

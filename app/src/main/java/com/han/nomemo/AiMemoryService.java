@@ -39,15 +39,35 @@ public class AiMemoryService {
     }
 
     public GenerationResult generateMemory(String userText, @Nullable Uri imageUri) {
+        return generateMemoryInternal(userText, imageUri, false, null);
+    }
+
+    public GenerationResult generateEnhancedMemory(
+            String userText,
+            @Nullable Uri imageUri,
+            @Nullable String detailContext
+    ) {
+        return generateMemoryInternal(userText, imageUri, true, detailContext);
+    }
+
+    private GenerationResult generateMemoryInternal(
+            String userText,
+            @Nullable Uri imageUri,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) {
         String safeText = userText == null ? "" : userText.trim();
+        String safeContext = detailContext == null ? "" : detailContext.trim();
         if (hasCloudConfig()) {
             try {
-                return generateByCloud(safeText, imageUri);
+                return generateByCloud(safeText, imageUri, enhanced, safeContext);
             } catch (Exception ignored) {
                 // Falls back to local generation below.
             }
         }
-        return generateByRules(safeText, imageUri);
+        return enhanced
+                ? generateByRulesEnhanced(safeText, imageUri, safeContext)
+                : generateByRules(safeText, imageUri);
     }
 
     private boolean hasCloudConfig() {
@@ -56,11 +76,16 @@ public class AiMemoryService {
                 && !TextUtils.isEmpty(settingsStore.resolvedApiModel());
     }
 
-    private GenerationResult generateByCloud(String userText, @Nullable Uri imageUri) throws Exception {
+    private GenerationResult generateByCloud(
+            String userText,
+            @Nullable Uri imageUri,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) throws Exception {
         JSONObject payload = new JSONObject();
         payload.put("model", settingsStore.resolvedApiModel());
         payload.put("temperature", 0.35);
-        payload.put("messages", buildMessages(userText, imageUri));
+        payload.put("messages", buildMessages(userText, imageUri, enhanced, detailContext));
 
         Exception firstError = null;
         try {
@@ -185,16 +210,19 @@ public class AiMemoryService {
             "  \"suggestedCategoryCode\": \"必须是上述定义的枚举值之一\"\n" +
             "}";
 
-    private JSONArray buildMessages(String userText, @Nullable Uri imageUri) throws Exception {
+    private JSONArray buildMessages(
+            String userText,
+            @Nullable Uri imageUri,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) throws Exception {
         JSONArray messages = new JSONArray();
         messages.put(new JSONObject()
                 .put("role", "system")
-                .put("content", SYSTEM_PROMPT));
+                .put("content", buildSystemPrompt(enhanced)));
 
         JSONArray userContent = new JSONArray();
-        String textForModel = "User text:\n" + (TextUtils.isEmpty(userText) ? "(none)" : userText) + "\n\n" +
-                "If screenshot exists, include important visual cues. " +
-                "Return a short title and a short summary suitable for a memory card.";
+        String textForModel = buildUserPrompt(userText, enhanced, detailContext);
         userContent.put(new JSONObject()
                 .put("type", "text")
                 .put("text", textForModel));
@@ -212,6 +240,47 @@ public class AiMemoryService {
                 .put("role", "user")
                 .put("content", userContent));
         return messages;
+    }
+
+    private String buildSystemPrompt(boolean enhanced) {
+        if (!enhanced) {
+            return SYSTEM_PROMPT;
+        }
+        return SYSTEM_PROMPT + "\n\n" +
+                "# Reanalysis Upgrade\n" +
+                "- Treat this request as a second-pass enhancement, not a first draft.\n" +
+                "- Correct OCR noise, restore structure, and preserve hard facts such as codes, dates, addresses and times.\n" +
+                "- Produce a richer analysis and a cleaner memory body than the existing version.\n" +
+                "- Prefer more precise titles and summaries when the evidence supports them.\n";
+    }
+
+    private String buildUserPrompt(
+            String userText,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) {
+        if (!enhanced) {
+            return "User text:\n" + (TextUtils.isEmpty(userText) ? "(none)" : userText) + "\n\n" +
+                    "If screenshot exists, include important visual cues. " +
+                    "Return a short title and a short summary suitable for a memory card.";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("Task: Reanalyze an existing memory entry and improve it.\n\n");
+        builder.append("Raw user text:\n")
+                .append(TextUtils.isEmpty(userText) ? "(none)" : userText)
+                .append("\n\n");
+        if (!TextUtils.isEmpty(detailContext)) {
+            builder.append("Existing memory context:\n")
+                    .append(detailContext)
+                    .append("\n\n");
+        }
+        builder.append("Requirements:\n")
+                .append("1. Keep all confirmed facts, codes, pickup numbers, addresses, names, times and dates.\n")
+                .append("2. Fix OCR noise conservatively and infer missing structure only when confidence is high.\n")
+                .append("3. Make title more focused, summary more readable, analysis more insightful, and memory body more complete.\n")
+                .append("4. If screenshot exists, use visual cues to补充 missing details without inventing facts.\n");
+        return builder.toString();
     }
 
     @Nullable
@@ -356,6 +425,32 @@ public class AiMemoryService {
         }
 
         return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "local");
+    }
+
+    private GenerationResult generateByRulesEnhanced(
+            String userText,
+            @Nullable Uri imageUri,
+            @Nullable String detailContext
+    ) {
+        GenerationResult base = generateByRules(userText, imageUri);
+        String analysis = base.getAnalysis();
+        if (!TextUtils.isEmpty(detailContext)) {
+            analysis = analysis + " 已结合现有条目内容进行二次整理与校对。";
+        } else {
+            analysis = analysis + " 已执行更细致的二次整理。";
+        }
+        String memory = base.getMemory();
+        if (!TextUtils.isEmpty(detailContext)) {
+            memory = memory + " 这次结果已参考旧版本信息并尽量补足上下文。";
+        }
+        return new GenerationResult(
+                base.getTitle(),
+                base.getSummary(),
+                analysis,
+                memory,
+                base.getSuggestedCategoryCode(),
+                base.getEngine()
+        );
     }
 
     private String classifyCategoryCode(String text, boolean hasImage) {

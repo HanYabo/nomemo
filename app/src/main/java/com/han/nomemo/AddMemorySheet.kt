@@ -2,8 +2,6 @@ package com.han.nomemo
 
 import android.Manifest
 import android.app.Activity
-import android.app.DatePickerDialog
-import android.app.TimePickerDialog
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.ContextWrapper
@@ -21,6 +19,8 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -42,16 +43,16 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
@@ -63,6 +64,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -98,15 +102,32 @@ fun AddMemorySheet(
     var categoryMenuExpanded by remember { mutableStateOf(false) }
     var reminderEnabled by remember { mutableStateOf(false) }
     var reminderAt by remember { mutableStateOf(0L) }
+    var showReminderPicker by remember { mutableStateOf(false) }
+    var reminderPickerAt by remember { mutableStateOf(defaultReminderPickerTime()) }
     var saving by remember { mutableStateOf(false) }
     var pendingAiInput by remember { mutableStateOf<String?>(null) }
     var visible by remember { mutableStateOf(false) }
     var dismissCommitted by remember { mutableStateOf(false) }
 
     val allCategories = remember { CategoryCatalog.getAllCategories() }
-    val panelSurface = palette.glassFill
-    val panelBorder = palette.glassStroke
+    val panelSurface = if (isDark) Color(0xFF1A1F27).copy(alpha = 0.985f) else Color.White.copy(alpha = 0.985f)
+    val panelBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000)
     val sheetSurface = if (isDark) Color(0xFF161A20) else Color(0xFFF6F6F7)
+    val accentMono = palette.accent
+    val accentSoft = if (isDark) Color.White.copy(alpha = 0.13f) else Color.Black.copy(alpha = 0.07f)
+    val accentStroke = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)
+    val sheetBodyHeight = if (adaptive.isNarrow) 650.dp else 720.dp
+    val openReminderPicker = remember {
+        { initial: Long ->
+            reminderPickerAt = if (initial > 0L) initial else defaultReminderPickerTime()
+            showReminderPicker = true
+        }
+    }
+    val dismissAfterSave = remember {
+        {
+            visible = false
+        }
+    }
     val requestDismiss = remember(onDismiss, saving) {
         {
             if (!saving) {
@@ -128,6 +149,18 @@ fun AddMemorySheet(
 
     LaunchedEffect(Unit) {
         visible = true
+    }
+
+    LaunchedEffect(aiMode) {
+        if (aiMode) {
+            categoryMenuExpanded = false
+        }
+    }
+
+    LaunchedEffect(reminderEnabled) {
+        if (!reminderEnabled) {
+            showReminderPicker = false
+        }
     }
 
     LaunchedEffect(visible) {
@@ -165,7 +198,7 @@ fun AddMemorySheet(
             reminderEnabled = reminderEnabled,
             reminderAt = reminderAt
         )
-        requestDismiss()
+        dismissAfterSave()
     }
 
     BackHandler(enabled = true) {
@@ -202,15 +235,21 @@ fun AddMemorySheet(
             modifier = Modifier.align(Alignment.BottomCenter)
         ) {
             Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(topStart = 32.dp, topEnd = 32.dp),
-                colors = CardDefaults.cardColors(containerColor = sheetSurface)
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
+                        shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp)
+                    ),
+                shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+                colors = CardDefaults.cardColors(containerColor = sheetSurface),
+                border = BorderStroke(1.dp, panelBorder)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .navigationBarsPadding()
-                        .heightIn(min = if (adaptive.isNarrow) 560.dp else 620.dp, max = if (adaptive.isNarrow) 700.dp else 760.dp)
+                        .height(sheetBodyHeight)
                         .verticalScroll(rememberScrollState())
                         .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 18.dp)
                 ) {
@@ -221,123 +260,81 @@ fun AddMemorySheet(
                             .clip(RoundedCornerShape(999.dp))
                             .background(if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000))
                     )
-            Row(
-                modifier = Modifier.padding(top = 10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                GlassIconCircleButton(
-                    iconRes = R.drawable.ic_sheet_close,
-                    contentDescription = "\u5173\u95ED",
-                    onClick = requestDismiss,
-                    size = adaptive.topActionButtonSize
-                )
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .padding(horizontal = 12.dp)
-                        .clip(RoundedCornerShape(999.dp))
-                        .background(panelSurface)
-                        .border(1.dp, panelBorder, RoundedCornerShape(999.dp))
-                        .padding(4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    SheetModeChip("\u666E\u901A", !aiMode, Modifier.weight(1f)) {
-                        aiMode = false
-                    }
-                    SheetModeChip("AI", aiMode, Modifier.weight(1f)) {
-                        aiMode = true
-                    }
-                }
-                GlassIconCircleButton(
-                    iconRes = R.drawable.ic_sheet_check,
-                    contentDescription = "\u786E\u8BA4",
-                    onClick = {
-                        val input = inputText.trim()
-                        if (TextUtils.isEmpty(input) && selectedImageUri == null) {
-                            Toast.makeText(context, "\u8BF7\u8F93\u5165\u6587\u5B57\u6216\u6DFB\u52A0\u56FE\u7247", Toast.LENGTH_SHORT).show()
-                            return@GlassIconCircleButton
-                        }
-                        saving = true
-                        if (aiMode && shouldRequestNotificationPermission(context)) {
-                            pendingAiInput = input
-                            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-                        } else {
-                            saveRecord(
-                                context = context,
-                                memoryStore = memoryStore,
-                                aiMemoryService = aiMemoryService,
-                                input = input,
-                                imageUri = selectedImageUri,
-                                aiMode = aiMode,
-                                category = if (aiMode) CategoryCatalog.getQuickCategories().first() else selectedCategory,
-                                reminderEnabled = reminderEnabled,
-                                reminderAt = reminderAt
-                            )
-                            requestDismiss()
-                        }
-                    },
-                    size = adaptive.topActionButtonSize
-                )
-            }
-
-            if (!aiMode) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
-                    shape = RoundedCornerShape(24.dp),
-                    colors = CardDefaults.cardColors(containerColor = panelSurface),
-                    border = BorderStroke(1.dp, panelBorder)
-                ) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clickable { categoryMenuExpanded = true }
-                            .padding(horizontal = 16.dp, vertical = 16.dp),
+                            .padding(top = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "\u8BB0\u5FC6\u7C7B\u522B",
-                                color = palette.textSecondary,
-                                fontSize = 12.sp
-                            )
-                            Text(
-                                text = selectedCategory.categoryName,
-                                color = palette.textPrimary,
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        Icon(
-                            painter = painterResource(R.drawable.ic_sheet_chevron_down),
-                            contentDescription = null,
-                            tint = palette.textSecondary
+                        SheetHeaderButton(
+                            iconRes = R.drawable.ic_sheet_close,
+                            contentDescription = "关闭",
+                            onClick = requestDismiss,
+                            size = adaptive.topActionButtonSize
                         )
-                        DropdownMenu(
-                            expanded = categoryMenuExpanded,
-                            onDismissRequest = { categoryMenuExpanded = false }
-                        ) {
-                            allCategories.forEach { item ->
-                                DropdownMenuItem(
-                                    text = { Text(item.categoryName) },
-                                    onClick = {
-                                        selectedCategory = item
-                                        categoryMenuExpanded = false
-                                    }
-                                )
-                            }
-                        }
+                        SheetModeSwitch(
+                            aiMode = aiMode,
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 12.dp),
+                            onSelectNormal = { aiMode = false },
+                            onSelectAi = { aiMode = true }
+                        )
+                        SheetHeaderButton(
+                            iconRes = R.drawable.ic_sheet_check,
+                            contentDescription = "确认",
+                            onClick = {
+                                val input = inputText.trim()
+                                if (TextUtils.isEmpty(input) && selectedImageUri == null) {
+                                    Toast.makeText(context, "请输入文字或添加图片", Toast.LENGTH_SHORT).show()
+                                    return@SheetHeaderButton
+                                }
+                                saving = true
+                                if (aiMode && shouldRequestNotificationPermission(context)) {
+                                    pendingAiInput = input
+                                    permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                } else {
+                                    saveRecord(
+                                        context = context,
+                                        memoryStore = memoryStore,
+                                        aiMemoryService = aiMemoryService,
+                                        input = input,
+                                        imageUri = selectedImageUri,
+                                        aiMode = aiMode,
+                                        category = if (aiMode) CategoryCatalog.getQuickCategories().first() else selectedCategory,
+                                        reminderEnabled = reminderEnabled,
+                                        reminderAt = reminderAt
+                                    )
+                                    dismissAfterSave()
+                                }
+                            },
+                            size = adaptive.topActionButtonSize,
+                            primary = true
+                        )
                     }
-                }
-            }
+
+                    if (!aiMode) {
+                        SheetCategorySection(
+                            categories = allCategories,
+                            selectedCategory = selectedCategory,
+                            expanded = categoryMenuExpanded,
+                            accentColor = accentMono,
+                            accentSoft = accentSoft,
+                            accentStroke = accentStroke,
+                            modifier = Modifier.padding(top = 14.dp),
+                            onToggleExpanded = { categoryMenuExpanded = !categoryMenuExpanded },
+                            onSelectCategory = { item ->
+                                selectedCategory = item
+                                categoryMenuExpanded = false
+                            }
+                        )
+                    }
 
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 14.dp),
-                shape = RoundedCornerShape(28.dp),
+                shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(containerColor = panelSurface),
                 border = BorderStroke(1.dp, panelBorder)
             ) {
@@ -355,6 +352,11 @@ fun AddMemorySheet(
                         .height(if (adaptive.isNarrow) 154.dp else 164.dp)
                 ) { inner ->
                     Box(Modifier.fillMaxWidth()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(end = if (inputText.isBlank()) 0.dp else 42.dp)
+                        ) {
                         if (inputText.isBlank()) {
                             Text(
                                 text = if (aiMode) {
@@ -368,6 +370,17 @@ fun AddMemorySheet(
                             )
                         }
                         inner()
+                        }
+                        if (inputText.isNotBlank()) {
+                            SheetMiniIconButton(
+                                iconRes = R.drawable.ic_sheet_close,
+                                contentDescription = "\u6E05\u7A7A\u6587\u5B57",
+                                modifier = Modifier
+                                    .align(Alignment.TopEnd)
+                                    .padding(top = 2.dp),
+                                onClick = { inputText = "" }
+                            )
+                        }
                     }
                 }
             }
@@ -434,22 +447,44 @@ fun AddMemorySheet(
                         }
                         Switch(
                             checked = reminderEnabled,
+                            enabled = !saving,
                             onCheckedChange = { enabled ->
                                 reminderEnabled = enabled
-                                if (!enabled) reminderAt = 0L
-                            }
+                                if (!enabled) {
+                                    reminderAt = 0L
+                                } else if (reminderAt <= 0L) {
+                                    openReminderPicker(reminderAt)
+                                }
+                            },
+                            colors = SwitchDefaults.colors(
+                                checkedThumbColor = if (isDark) Color.Black else Color.White,
+                                checkedTrackColor = accentMono,
+                                uncheckedThumbColor = if (isDark) Color.White.copy(alpha = 0.88f) else Color.White,
+                                uncheckedTrackColor = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.12f),
+                                uncheckedBorderColor = Color.Transparent
+                            )
                         )
                     }
                     if (reminderEnabled) {
-                        SheetInlineButton(
-                            text = if (reminderAt > 0L) "\u91CD\u65B0\u9009\u62E9\u65F6\u95F4" else "\u9009\u62E9\u65F6\u95F4",
-                            modifier = Modifier.padding(top = 10.dp),
-                            onClick = {
-                                openDateTimePicker(activity, reminderAt) { selected ->
-                                    reminderAt = selected
-                                }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            SheetInlineButton(
+                                text = if (reminderAt > 0L) "\u91CD\u65B0\u9009\u62E9\u65F6\u95F4" else "\u9009\u62E9\u65F6\u95F4",
+                                modifier = Modifier.weight(1f),
+                                onClick = { openReminderPicker(reminderAt) }
+                            )
+                            if (reminderAt > 0L) {
+                                SheetInlineButton(
+                                    text = "\u6E05\u9664",
+                                    modifier = Modifier,
+                                    onClick = { reminderAt = 0L }
+                                )
                             }
-                        )
+                        }
                     }
                 }
             }
@@ -482,6 +517,176 @@ fun AddMemorySheet(
         }
             }
         }
+        if (showReminderPicker) {
+            ReminderPickerDialog(
+                initialMillis = reminderPickerAt,
+                onDismiss = { showReminderPicker = false },
+                onConfirm = { selected ->
+                    reminderAt = selected
+                    reminderEnabled = true
+                    showReminderPicker = false
+                }
+            )
+        }
+    }
+}
+
+@Composable
+private fun SheetHeaderButton(
+    iconRes: Int,
+    contentDescription: String,
+    onClick: () -> Unit,
+    size: androidx.compose.ui.unit.Dp,
+    primary: Boolean = false
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val borderColor = if (primary) {
+        if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.08f)
+    } else if (isDark) {
+        Color.White.copy(alpha = 0.12f)
+    } else {
+        Color.Black.copy(alpha = 0.08f)
+    }
+    val innerBorder = if (primary) {
+        if (isDark) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.16f)
+    } else if (isDark) {
+        Color.White.copy(alpha = 0.08f)
+    } else {
+        Color.White.copy(alpha = 0.72f)
+    }
+    val surfaceBrush = if (primary) {
+        Brush.verticalGradient(
+            listOf(
+                palette.accent,
+                palette.accent.copy(alpha = 0.90f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                if (isDark) Color(0xFF1E232B) else Color.White,
+                if (isDark) Color(0xFF151920) else Color(0xFFF1F2F5)
+            )
+        )
+    }
+    val topHighlight = Brush.verticalGradient(
+        listOf(
+            if (primary) {
+                if (isDark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.14f)
+            } else if (isDark) {
+                Color.White.copy(alpha = 0.08f)
+            } else {
+                Color.White.copy(alpha = 0.86f)
+            },
+            Color.Transparent
+        )
+    )
+    PressScaleBox(
+        onClick = onClick,
+        modifier = Modifier
+            .size(size)
+            .shadow(
+                elevation = if (primary) 10.dp else 6.dp,
+                shape = CircleShape,
+                ambientColor = if (isDark) Color.Black.copy(alpha = 0.24f) else Color.Black.copy(alpha = 0.10f),
+                spotColor = if (isDark) Color.Black.copy(alpha = 0.24f) else Color.Black.copy(alpha = 0.10f)
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+                .background(surfaceBrush)
+                .border(1.dp, borderColor, CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(1.dp)
+                .clip(CircleShape)
+                .border(0.75.dp, innerBorder, CircleShape)
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(CircleShape)
+                .background(topHighlight)
+        )
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription,
+            tint = if (primary) palette.onAccent else palette.textPrimary,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(24.dp)
+        )
+    }
+}
+
+@Composable
+private fun SheetModeSwitch(
+    aiMode: Boolean,
+    modifier: Modifier = Modifier,
+    onSelectNormal: () -> Unit,
+    onSelectAi: () -> Unit
+) {
+    val isDark = isSystemInDarkTheme()
+    val shape = RoundedCornerShape(32.dp)
+    val borderColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+    val surfaceBrush = Brush.verticalGradient(
+        listOf(
+            if (isDark) Color(0xFF1D232A) else Color.White,
+            if (isDark) Color(0xFF151A20) else Color(0xFFF1F2F5)
+        )
+    )
+    Box(
+        modifier = modifier
+            .height(58.dp)
+            .shadow(
+                elevation = 10.dp,
+                shape = shape,
+                ambientColor = if (isDark) Color.Black.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.08f),
+                spotColor = if (isDark) Color.Black.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.08f)
+            )
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .clip(shape)
+                .background(surfaceBrush)
+                .border(1.dp, borderColor, shape)
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(1.dp)
+                .clip(RoundedCornerShape(31.dp))
+                .border(
+                    0.75.dp,
+                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.72f),
+                    RoundedCornerShape(31.dp)
+                )
+        )
+        Row(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(5.dp),
+            horizontalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            SheetModeChip(
+                text = "普通",
+                selected = !aiMode,
+                modifier = Modifier.weight(1f),
+                onClick = onSelectNormal
+            )
+            SheetModeChip(
+                text = "AI",
+                selected = aiMode,
+                modifier = Modifier.weight(1f),
+                onClick = onSelectAi
+            )
+        }
     }
 }
 
@@ -492,37 +697,245 @@ private fun SheetModeChip(
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val isDark = isSystemInDarkTheme()
     val palette = rememberNoMemoPalette()
-    val selectedBackground = if (isDark) {
-        Color.White.copy(alpha = 0.08f)
-    } else {
-        Color.Black.copy(alpha = 0.06f)
+    val isDark = isSystemInDarkTheme()
+    val shape = RoundedCornerShape(28.dp)
+    val selectedBrush = Brush.verticalGradient(
+        listOf(
+            if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f),
+            if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f)
+        )
+    )
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+            .height(48.dp)
+            .clip(shape)
+    ) {
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(selectedBrush)
+                    .border(
+                        1.dp,
+                        if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.08f),
+                        shape
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(shape)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                if (isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.78f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+        }
+        Text(
+            text = text,
+            color = if (selected) palette.accent else palette.textSecondary,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Center)
+        )
     }
+}
+
+@Composable
+private fun SheetCategorySection(
+    categories: List<CategoryCatalog.CategoryOption>,
+    selectedCategory: CategoryCatalog.CategoryOption,
+    expanded: Boolean,
+    accentColor: Color,
+    accentSoft: Color,
+    accentStroke: Color,
+    modifier: Modifier = Modifier,
+    onToggleExpanded: () -> Unit,
+    onSelectCategory: (CategoryCatalog.CategoryOption) -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val borderSoft = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+    val inputSurface = if (isDark) Color(0xFF11161D) else Color.White
+    val selectorShape = RoundedCornerShape(24.dp)
+    val chevronRotation by animateFloatAsState(
+        targetValue = if (expanded) 180f else 0f,
+        animationSpec = tween(240),
+        label = "sheetCategoryChevron"
+    )
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .animateContentSize()
+    ) {
+        PressScaleBox(
+            onClick = onToggleExpanded,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(selectorShape)
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                inputSurface,
+                                if (isDark) Color(0xFF151920) else Color.White
+                            )
+                        )
+                    )
+                    .border(
+                        1.dp,
+                        if (expanded) accentStroke else borderSoft,
+                        selectorShape
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(selectorShape)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                if (isDark) Color.White.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.84f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(12.dp)
+                        .clip(CircleShape)
+                        .background(accentColor)
+                )
+                Text(
+                    text = selectedCategory.categoryName,
+                    color = palette.textPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp)
+                )
+                Icon(
+                    painter = painterResource(R.drawable.ic_sheet_chevron_down),
+                    contentDescription = null,
+                    tint = if (expanded) accentColor else palette.textSecondary,
+                    modifier = Modifier
+                        .size(20.dp)
+                        .rotate(chevronRotation)
+                )
+            }
+        }
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(180)),
+            exit = fadeOut(tween(140))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                categories.chunked(2).forEach { rowItems ->
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        rowItems.forEach { item ->
+                            SheetCategoryChip(
+                                text = item.categoryName,
+                                selected = item.categoryCode == selectedCategory.categoryCode,
+                                accentColor = accentColor,
+                                accentSoft = accentSoft,
+                                accentStroke = accentStroke,
+                                modifier = Modifier.weight(1f),
+                                onClick = { onSelectCategory(item) }
+                            )
+                        }
+                        repeat(2 - rowItems.size) {
+                            Spacer(modifier = Modifier.weight(1f))
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun SheetCategoryChip(
+    text: String,
+    selected: Boolean,
+    accentColor: Color,
+    accentSoft: Color,
+    accentStroke: Color,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val borderSoft = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
             .height(44.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(
-                if (selected) {
-                    selectedBackground
-                } else {
-                    Color.Transparent
-                }
-            )
-            .border(
-                width = if (selected) 1.dp else 0.dp,
-                color = if (selected) palette.glassStroke else Color.Transparent,
-                shape = RoundedCornerShape(999.dp)
-            )
+            .clip(RoundedCornerShape(18.dp))
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    if (selected) {
+                        Brush.verticalGradient(listOf(accentSoft, accentSoft.copy(alpha = 0.88f)))
+                    } else {
+                        Brush.verticalGradient(
+                            listOf(
+                                if (isDark) Color(0xFF151A21) else Color.White,
+                                if (isDark) Color(0xFF12171D) else Color.White
+                            )
+                        )
+                    }
+                )
+        )
+        if (selected) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                if (isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.78f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+        }
         Text(
             text = text,
-            color = if (selected) palette.textPrimary else palette.textSecondary,
-            fontSize = 15.sp,
+            color = if (selected) accentColor else palette.textSecondary,
+            fontSize = 14.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.Center)
+            modifier = Modifier
+                .align(Alignment.Center)
+                .padding(horizontal = 12.dp)
         )
     }
 }
@@ -533,41 +946,87 @@ private fun SheetActionCard(
     subtitle: String,
     onClick: () -> Unit
 ) {
-    val isDark = isSystemInDarkTheme()
     val palette = rememberNoMemoPalette()
-    val actionSurface = if (isDark) {
-        Color.White.copy(alpha = 0.05f)
-    } else {
-        Color.Black.copy(alpha = 0.03f)
-    }
-    val actionBorder = if (isDark) {
-        Color.White.copy(alpha = 0.10f)
-    } else {
-        palette.glassStroke
-    }
+    val isDark = isSystemInDarkTheme()
+    val shape = RoundedCornerShape(24.dp)
     PressScaleBox(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 12.dp)
-            .clip(RoundedCornerShape(24.dp))
-            .background(actionSurface)
-            .border(1.dp, actionBorder, RoundedCornerShape(24.dp))
-            .padding(horizontal = 16.dp, vertical = 16.dp)
+            .shadow(
+                elevation = 8.dp,
+                shape = shape,
+                ambientColor = if (isDark) Color.Black.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.08f),
+                spotColor = if (isDark) Color.Black.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.08f)
+            )
+            .clip(shape)
     ) {
-        Column {
-            Text(
-                text = title,
-                color = palette.textPrimary,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = subtitle,
-                color = palette.textSecondary,
-                fontSize = 12.sp,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            if (isDark) Color(0xFF1D222A) else Color.White,
+                            if (isDark) Color(0xFF161A21) else Color(0xFFF2F3F6)
+                        )
+                    )
+                )
+                .border(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f), shape)
+        )
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .padding(1.dp)
+                .clip(RoundedCornerShape(23.dp))
+                .border(
+                    0.75.dp,
+                    if (isDark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.72f),
+                    RoundedCornerShape(23.dp)
+                )
+        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = palette.accent,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = subtitle,
+                    color = palette.textSecondary,
+                    fontSize = 12.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f))
+                    .border(
+                        1.dp,
+                        if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                        CircleShape
+                    )
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_sheet_chevron_down),
+                    contentDescription = null,
+                    tint = palette.accent,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(18.dp)
+                        .rotate(-90f)
+                )
+            }
         }
     }
 }
@@ -579,19 +1038,420 @@ private fun SheetInlineButton(
     onClick: () -> Unit
 ) {
     val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
             .clip(RoundedCornerShape(18.dp))
-            .background(palette.glassFillSoft)
-            .border(1.dp, palette.glassStroke, RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f),
+                            if (isDark) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.04f)
+                        )
+                    )
+                )
+                .border(
+                    1.dp,
+                    if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.08f),
+                    RoundedCornerShape(18.dp)
+                )
+                .padding(horizontal = 14.dp, vertical = 10.dp)
+        ) {
+            Text(
+                text = text,
+                color = palette.textPrimary,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+        }
+    }
+}
+
+@Composable
+private fun SheetMiniIconButton(
+    iconRes: Int,
+    contentDescription: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val isDark = isSystemInDarkTheme()
+    val palette = rememberNoMemoPalette()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+            .size(30.dp)
+            .clip(CircleShape)
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f))
+                .border(
+                    1.dp,
+                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                    CircleShape
+                )
+        )
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = contentDescription,
+            tint = palette.textSecondary,
+            modifier = Modifier
+                .align(Alignment.Center)
+                .size(14.dp)
+        )
+    }
+}
+
+@Composable
+private fun ReminderPickerDialog(
+    initialMillis: Long,
+    onDismiss: () -> Unit,
+    onConfirm: (Long) -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    var selectedAt by remember(initialMillis) { mutableStateOf(if (initialMillis > 0L) initialMillis else defaultReminderPickerTime()) }
+    val quickOptions = listOf(
+        "\u4ECA\u5929" to 0,
+        "\u660E\u5929" to 1,
+        "3\u5929\u540E" to 3,
+        "7\u5929\u540E" to 7
+    )
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(30f)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = if (isDark) 0.58f else 0.30f))
+                .clickable(onClick = onDismiss)
+        )
+        Card(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp)
+                .shadow(
+                    elevation = 22.dp,
+                    shape = RoundedCornerShape(24.dp),
+                    ambientColor = if (isDark) Color.Black.copy(alpha = 0.32f) else Color.Black.copy(alpha = 0.12f),
+                    spotColor = if (isDark) Color.Black.copy(alpha = 0.32f) else Color.Black.copy(alpha = 0.12f)
+                ),
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = if (isDark) Color(0xFF171C23) else Color(0xFFF8F8FA)
+            ),
+            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 18.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "\u9009\u62E9\u63D0\u9192\u65F6\u95F4",
+                        color = palette.textPrimary,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SheetMiniIconButton(
+                        iconRes = R.drawable.ic_sheet_close,
+                        contentDescription = "\u5173\u95ED\u63D0\u9192\u65F6\u95F4",
+                        onClick = onDismiss
+                    )
+                }
+                Text(
+                    text = reminderLabel(selectedAt),
+                    color = palette.textSecondary,
+                    fontSize = 13.sp,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    quickOptions.forEach { (label, days) ->
+                        ReminderPresetChip(
+                            text = label,
+                            modifier = Modifier.weight(1f),
+                            onClick = { selectedAt = setReminderDay(selectedAt, days) }
+                        )
+                    }
+                }
+                ReminderAdjustRow(
+                    title = "\u65E5\u671F",
+                    value = formatReminderDate(selectedAt),
+                    modifier = Modifier.padding(top = 14.dp),
+                    onDecrease = { selectedAt = adjustReminderTime(selectedAt, Calendar.DAY_OF_YEAR, -1) },
+                    onIncrease = { selectedAt = adjustReminderTime(selectedAt, Calendar.DAY_OF_YEAR, 1) }
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    ReminderAdjustCard(
+                        title = "\u5C0F\u65F6",
+                        value = formatReminderHour(selectedAt),
+                        modifier = Modifier.weight(1f),
+                        onDecrease = { selectedAt = adjustReminderTime(selectedAt, Calendar.HOUR_OF_DAY, -1) },
+                        onIncrease = { selectedAt = adjustReminderTime(selectedAt, Calendar.HOUR_OF_DAY, 1) }
+                    )
+                    ReminderAdjustCard(
+                        title = "\u5206\u949F",
+                        value = formatReminderMinute(selectedAt),
+                        modifier = Modifier.weight(1f),
+                        onDecrease = { selectedAt = adjustReminderTime(selectedAt, Calendar.MINUTE, -5) },
+                        onIncrease = { selectedAt = adjustReminderTime(selectedAt, Calendar.MINUTE, 5) }
+                    )
+                }
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    SheetInlineButton(
+                        text = "\u53D6\u6D88",
+                        modifier = Modifier.weight(1f),
+                        onClick = onDismiss
+                    )
+                    ReminderConfirmButton(
+                        text = "\u786E\u5B9A",
+                        modifier = Modifier.weight(1f),
+                        onClick = { onConfirm(normalizeReminderTime(selectedAt)) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReminderPresetChip(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val isDark = isSystemInDarkTheme()
+    val palette = rememberNoMemoPalette()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+            .height(38.dp)
+            .clip(RoundedCornerShape(18.dp))
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.05f),
+                            if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f)
+                        )
+                    )
+                )
+                .border(
+                    1.dp,
+                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                    RoundedCornerShape(18.dp)
+                )
+        )
         Text(
             text = text,
             color = palette.textPrimary,
-            fontSize = 14.sp,
-            fontWeight = FontWeight.Medium
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.align(Alignment.Center)
+        )
+    }
+}
+
+@Composable
+private fun ReminderAdjustRow(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(18.dp))
+            .background(if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f))
+            .border(
+                1.dp,
+                if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                RoundedCornerShape(18.dp)
+            )
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = title,
+            color = palette.textSecondary,
+            fontSize = 13.sp
+        )
+        Text(
+            text = value,
+            color = palette.textPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 12.dp)
+        )
+        ReminderAdjustIconButton(
+            text = "-",
+            onClick = onDecrease
+        )
+        ReminderAdjustIconButton(
+            text = "+",
+            modifier = Modifier.padding(start = 8.dp),
+            onClick = onIncrease
+        )
+    }
+}
+
+@Composable
+private fun ReminderAdjustCard(
+    title: String,
+    value: String,
+    modifier: Modifier = Modifier,
+    onDecrease: () -> Unit,
+    onIncrease: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    Card(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f)
+        ),
+        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = title,
+                color = palette.textSecondary,
+                fontSize = 13.sp
+            )
+            Text(
+                text = value,
+                color = palette.textPrimary,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 6.dp)
+            )
+            Row(
+                modifier = Modifier.padding(top = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ReminderAdjustIconButton(text = "-", onClick = onDecrease)
+                ReminderAdjustIconButton(text = "+", onClick = onIncrease)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReminderAdjustIconButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+            .size(32.dp)
+            .clip(CircleShape)
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f))
+                .border(
+                    1.dp,
+                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                    CircleShape
+                )
+        )
+        Text(
+            text = text,
+            color = palette.textPrimary,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Center)
+        )
+    }
+}
+
+@Composable
+private fun ReminderConfirmButton(
+    text: String,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+            .height(44.dp)
+            .clip(RoundedCornerShape(18.dp))
+    ) {
+        Box(
+            modifier = Modifier
+                .matchParentSize()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(
+                            palette.accent,
+                            palette.accent.copy(alpha = 0.90f)
+                        )
+                    )
+                )
+                .border(
+                    1.dp,
+                    if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.08f),
+                    RoundedCornerShape(18.dp)
+                )
+        )
+        Text(
+            text = text,
+            color = palette.onAccent,
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.align(Alignment.Center)
         )
     }
 }
@@ -739,37 +1599,64 @@ private fun reminderLabel(time: Long): String {
     return dateFormat.format(time)
 }
 
-private fun openDateTimePicker(activity: Activity?, initial: Long, onSelected: (Long) -> Unit) {
-    activity ?: return
+private fun defaultReminderPickerTime(): Long {
     val calendar = Calendar.getInstance()
-    if (initial > 0L) {
-        calendar.timeInMillis = initial
-    } else {
+    calendar.add(Calendar.HOUR_OF_DAY, 1)
+    calendar.set(Calendar.SECOND, 0)
+    calendar.set(Calendar.MILLISECOND, 0)
+    val minute = calendar.get(Calendar.MINUTE)
+    val roundedMinute = ((minute + 4) / 5) * 5
+    if (roundedMinute >= 60) {
         calendar.add(Calendar.HOUR_OF_DAY, 1)
+        calendar.set(Calendar.MINUTE, 0)
+    } else {
+        calendar.set(Calendar.MINUTE, roundedMinute)
     }
-    DatePickerDialog(
-        activity,
-        { _, year, month, day ->
-            calendar.set(Calendar.YEAR, year)
-            calendar.set(Calendar.MONTH, month)
-            calendar.set(Calendar.DAY_OF_MONTH, day)
-            TimePickerDialog(
-                activity,
-                { _, hour, minute ->
-                    calendar.set(Calendar.HOUR_OF_DAY, hour)
-                    calendar.set(Calendar.MINUTE, minute)
-                    calendar.set(Calendar.SECOND, 0)
-                    onSelected(calendar.timeInMillis)
-                },
-                calendar.get(Calendar.HOUR_OF_DAY),
-                calendar.get(Calendar.MINUTE),
-                true
-            ).show()
-        },
-        calendar.get(Calendar.YEAR),
-        calendar.get(Calendar.MONTH),
-        calendar.get(Calendar.DAY_OF_MONTH)
-    ).show()
+    return calendar.timeInMillis
+}
+
+private fun normalizeReminderTime(time: Long): Long {
+    val calendar = Calendar.getInstance()
+    calendar.timeInMillis = time
+    calendar.set(Calendar.SECOND, 0)
+    calendar.set(Calendar.MILLISECOND, 0)
+    return calendar.timeInMillis
+}
+
+private fun adjustReminderTime(base: Long, field: Int, amount: Int): Long {
+    val calendar = Calendar.getInstance()
+    calendar.timeInMillis = if (base > 0L) base else defaultReminderPickerTime()
+    calendar.add(field, amount)
+    return normalizeReminderTime(calendar.timeInMillis)
+}
+
+private fun setReminderDay(base: Long, daysFromToday: Int): Long {
+    val source = Calendar.getInstance().apply {
+        timeInMillis = if (base > 0L) base else defaultReminderPickerTime()
+    }
+    val target = Calendar.getInstance().apply {
+        add(Calendar.DAY_OF_YEAR, daysFromToday)
+        set(Calendar.HOUR_OF_DAY, source.get(Calendar.HOUR_OF_DAY))
+        set(Calendar.MINUTE, source.get(Calendar.MINUTE))
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }
+    return target.timeInMillis
+}
+
+private fun formatReminderDate(time: Long): String {
+    val dateFormat = SimpleDateFormat("yyyy-MM-dd E", Locale.getDefault())
+    return dateFormat.format(time)
+}
+
+private fun formatReminderHour(time: Long): String {
+    val calendar = Calendar.getInstance().apply { timeInMillis = time }
+    return String.format(Locale.getDefault(), "%02d", calendar.get(Calendar.HOUR_OF_DAY))
+}
+
+private fun formatReminderMinute(time: Long): String {
+    val calendar = Calendar.getInstance().apply { timeInMillis = time }
+    return String.format(Locale.getDefault(), "%02d", calendar.get(Calendar.MINUTE))
 }
 
 private fun queryDisplayName(context: Context, uri: Uri): String {

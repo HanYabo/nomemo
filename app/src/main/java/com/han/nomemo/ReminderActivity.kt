@@ -527,6 +527,7 @@ class ReminderActivity : BaseComposeActivity() {
             text = text,
             selected = selected,
             onClick = onClick,
+            showBorder = false,
             textStyle = TextStyle(
                 fontSize = chipTextSize,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal

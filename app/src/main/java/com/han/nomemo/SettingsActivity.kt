@@ -37,6 +37,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -235,7 +236,7 @@ class SettingsActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val pageBackground = if (isDark) Color(0xFF111318) else Color(0xFFF5F5F7)
+        val pageBackground = if (isDark) Color.Black else Color.White
         val cardSurface = if (isDark) Color(0xFF1A1D23) else Color.White
         val softSurface = if (isDark) Color(0xFF22262E) else Color(0xFFF7F7FA)
         val titleColor = if (isDark) Color(0xFFF7F8FA) else Color(0xFF111111)
@@ -248,7 +249,8 @@ class SettingsActivity : BaseComposeActivity() {
         var apiKey by remember { mutableStateOf(settingsStore.apiKey) }
         var model by remember { mutableStateOf(settingsStore.apiModel.ifBlank { BuildConfig.OPENAI_MODEL }) }
         var themeMode by remember { mutableStateOf(settingsStore.themeMode) }
-        var currentRoute by remember { mutableStateOf<SettingsRoute>(SettingsRoute.Home) }
+        var currentRouteKey by rememberSaveable { mutableStateOf(SettingsRoute.Home.key) }
+        val currentRoute = remember(currentRouteKey) { SettingsRoute.fromKey(currentRouteKey) }
         var showClearConfirm by remember { mutableStateOf(false) }
         var testingApi by remember { mutableStateOf(false) }
         var showTestResult by remember { mutableStateOf(false) }
@@ -259,7 +261,7 @@ class SettingsActivity : BaseComposeActivity() {
             if (currentRoute == SettingsRoute.Home) {
                 onClose()
             } else {
-                currentRoute = SettingsRoute.Home
+                currentRouteKey = SettingsRoute.Home.key
             }
         }
 
@@ -288,14 +290,13 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsRoute.AiConfig -> "AI 功能设置"
                             SettingsRoute.AiGuide -> "AI 功能说明"
                             SettingsRoute.Appearance -> "显示与主题"
-                            SettingsRoute.Tools -> "API 连接测试"
                             SettingsRoute.Data -> "数据管理"
                         },
                         onBack = {
                             if (currentRoute == SettingsRoute.Home) {
                                 onClose()
                             } else {
-                                currentRoute = SettingsRoute.Home
+                                currentRouteKey = SettingsRoute.Home.key
                             }
                         },
                         buttonSurface = cardSurface,
@@ -314,7 +315,7 @@ class SettingsActivity : BaseComposeActivity() {
                                 cardSurface = cardSurface,
                                 dividerColor = dividerColor,
                                 borderColor = borderColor,
-                                onNavigate = { currentRoute = it }
+                                onNavigate = { currentRouteKey = it.key }
                             )
                         }
 
@@ -375,6 +376,28 @@ class SettingsActivity : BaseComposeActivity() {
                                     )
                                 }
                             }
+
+                            SettingsPrimaryAction(
+                                title = if (testingApi) "正在测试..." else "测试 API 连接",
+                                subtitle = if (testingApi) {
+                                    "正在校验当前 Base URL、API Key 与 Model。"
+                                } else {
+                                    "直接使用当前 AI 设置验证连接是否正常。"
+                                },
+                                modifier = Modifier.padding(top = 14.dp),
+                                accentColor = palette.accent,
+                                borderColor = borderColor,
+                                onClick = {
+                                    if (testingApi) return@SettingsPrimaryAction
+                                    testingApi = true
+                                    onTestApi(baseUrl, apiKey, model) { success, message ->
+                                        testingApi = false
+                                        testResultSuccess = success
+                                        testResultMessage = message
+                                        showTestResult = true
+                                    }
+                                }
+                            )
                         }
 
                         SettingsRoute.AiGuide -> {
@@ -450,6 +473,7 @@ class SettingsActivity : BaseComposeActivity() {
                                                 onThemeModeChange(SettingsStore.THEME_SYSTEM)
                                             },
                                             selectedColor = palette.accent,
+                                            selectedTextColor = palette.onAccent,
                                             surface = softSurface,
                                             textColor = titleColor
                                         )
@@ -461,6 +485,7 @@ class SettingsActivity : BaseComposeActivity() {
                                                 onThemeModeChange(SettingsStore.THEME_LIGHT)
                                             },
                                             selectedColor = palette.accent,
+                                            selectedTextColor = palette.onAccent,
                                             surface = softSurface,
                                             textColor = titleColor
                                         )
@@ -472,70 +497,13 @@ class SettingsActivity : BaseComposeActivity() {
                                                 onThemeModeChange(SettingsStore.THEME_DARK)
                                             },
                                             selectedColor = palette.accent,
+                                            selectedTextColor = palette.onAccent,
                                             surface = softSurface,
                                             textColor = titleColor
                                         )
                                     }
                                 }
                             }
-                        }
-
-                        SettingsRoute.Tools -> {
-                            Spacer(modifier = Modifier.height(18.dp))
-                            SettingsSectionLabel("辅助功能", sectionLabelColor)
-                            SettingsSurfaceCard(
-                                surface = cardSurface,
-                                borderColor = borderColor,
-                                modifier = Modifier.padding(top = 12.dp)
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
-                                    verticalArrangement = Arrangement.spacedBy(14.dp)
-                                ) {
-                                    SettingsInfoPair(
-                                        label = "当前地址",
-                                        value = baseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL },
-                                        titleColor = titleColor,
-                                        textColor = subtitleColor
-                                    )
-                                    SettingsInfoDivider(dividerColor)
-                                    SettingsInfoPair(
-                                        label = "当前模型",
-                                        value = model.ifBlank { BuildConfig.OPENAI_MODEL },
-                                        titleColor = titleColor,
-                                        textColor = subtitleColor
-                                    )
-                                    SettingsInfoDivider(dividerColor)
-                                    SettingsInfoPair(
-                                        label = "API Key",
-                                        value = maskedApiKey(apiKey),
-                                        titleColor = titleColor,
-                                        textColor = subtitleColor
-                                    )
-                                }
-                            }
-
-                            SettingsPrimaryAction(
-                                title = if (testingApi) "正在测试..." else "测试 API 连接",
-                                subtitle = if (testingApi) {
-                                    "正在校验当前 Base URL、API Key 与 Model。"
-                                } else {
-                                    "验证当前 AI 配置是否可正常访问。"
-                                },
-                                modifier = Modifier.padding(top = 14.dp),
-                                accentColor = palette.accent,
-                                borderColor = borderColor,
-                                onClick = {
-                                    if (testingApi) return@SettingsPrimaryAction
-                                    testingApi = true
-                                    onTestApi(baseUrl, apiKey, model) { success, message ->
-                                        testingApi = false
-                                        testResultSuccess = success
-                                        testResultMessage = message
-                                        showTestResult = true
-                                    }
-                                }
-                            )
                         }
 
                         SettingsRoute.Data -> {
@@ -648,21 +616,6 @@ class SettingsActivity : BaseComposeActivity() {
             modifier = Modifier.padding(top = 12.dp),
             items = listOf(
                 SettingsMenuItem("显示与主题", "显示模式、主题切换", SettingsRoute.Appearance)
-            ),
-            titleColor = titleColor,
-            subtitleColor = subtitleColor,
-            onClick = onNavigate
-        )
-
-        Spacer(modifier = Modifier.height(22.dp))
-        SettingsSectionLabel("辅助功能", sectionLabelColor)
-        SettingsMenuGroup(
-            surface = cardSurface,
-            borderColor = borderColor,
-            dividerColor = dividerColor,
-            modifier = Modifier.padding(top = 12.dp),
-            items = listOf(
-                SettingsMenuItem("API 连接测试", "验证当前配置是否可正常访问", SettingsRoute.Tools)
             ),
             titleColor = titleColor,
             subtitleColor = subtitleColor,
@@ -950,6 +903,7 @@ class SettingsActivity : BaseComposeActivity() {
         selected: Boolean,
         onClick: () -> Unit,
         selectedColor: Color,
+        selectedTextColor: Color,
         surface: Color,
         textColor: Color
     ) {
@@ -968,7 +922,7 @@ class SettingsActivity : BaseComposeActivity() {
             ) {
                 Text(
                     text = text,
-                    color = if (selected) Color.White else textColor,
+                    color = if (selected) selectedTextColor else textColor,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier
@@ -1125,12 +1079,39 @@ class SettingsActivity : BaseComposeActivity() {
     }
 
     private sealed interface SettingsRoute {
-        data object Home : SettingsRoute
-        data object AiConfig : SettingsRoute
-        data object AiGuide : SettingsRoute
-        data object Appearance : SettingsRoute
-        data object Tools : SettingsRoute
-        data object Data : SettingsRoute
+        val key: String
+
+        data object Home : SettingsRoute {
+            override val key: String = "home"
+        }
+
+        data object AiConfig : SettingsRoute {
+            override val key: String = "ai_config"
+        }
+
+        data object AiGuide : SettingsRoute {
+            override val key: String = "ai_guide"
+        }
+
+        data object Appearance : SettingsRoute {
+            override val key: String = "appearance"
+        }
+
+        data object Data : SettingsRoute {
+            override val key: String = "data"
+        }
+
+        companion object {
+            fun fromKey(key: String): SettingsRoute {
+                return when (key) {
+                    AiConfig.key -> AiConfig
+                    AiGuide.key -> AiGuide
+                    Appearance.key -> Appearance
+                    Data.key -> Data
+                    else -> Home
+                }
+            }
+        }
     }
 
     private data class SettingsMenuItem(
