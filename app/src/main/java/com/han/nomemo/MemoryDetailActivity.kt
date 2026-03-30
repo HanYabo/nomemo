@@ -4,6 +4,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.os.Bundle
 import android.widget.ImageView
@@ -13,7 +14,10 @@ import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -54,21 +58,29 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -84,6 +96,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 class MemoryDetailActivity : BaseComposeActivity() {
     companion object {
@@ -313,10 +326,25 @@ class MemoryDetailActivity : BaseComposeActivity() {
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
+        val density = LocalDensity.current
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var showImagePreview by remember { mutableStateOf(false) }
         var editing by remember(record?.recordId) { mutableStateOf(false) }
+        var imageCardBounds by remember(record?.recordId) { mutableStateOf(Rect.Zero) }
+        val previewRecord = record?.takeIf { !it.imageUri.isNullOrBlank() }
+        var previewImageAspectRatio by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf<Float?>(null) }
+        val previewTransition = updateTransition(
+            targetState = showImagePreview && previewRecord != null,
+            label = "memoryDetailPreview"
+        )
+        val previewOverlayVisible = previewTransition.currentState || previewTransition.targetState
+
+        LaunchedEffect(previewRecord?.recordId, previewRecord?.imageUri) {
+            previewImageAspectRatio = withContext(Dispatchers.IO) {
+                resolveImageAspectRatio(previewRecord?.imageUri)
+            }
+        }
 
         BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showImagePreview || editing) {
             when {
@@ -353,12 +381,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         modifier = Modifier
                             .fillMaxSize()
                             .statusBarsPadding()
-                            .navigationBarsPadding()
                             .padding(
                                 start = spec.pageHorizontalPadding,
                                 top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
-                                end = spec.pageHorizontalPadding,
-                                bottom = 20.dp
+                                end = spec.pageHorizontalPadding
                             )
                     ) {
                         val currentRecord = record
@@ -407,13 +433,27 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             draftImageUri = uri.toString()
                         }
                         val displayImageUri = if (editing) draftImageUri else currentRecord.imageUri.orEmpty()
+                        val commitEdits = {
+                            val saved = saveEditedRecord(
+                                currentRecord,
+                                draftTitle,
+                                draftSummary,
+                                draftImageUri
+                            )
+                            if (saved) {
+                                editing = false
+                                Toast.makeText(this@MemoryDetailActivity, "已保存修改", Toast.LENGTH_SHORT).show()
+                            } else {
+                                Toast.makeText(this@MemoryDetailActivity, "保存失败", Toast.LENGTH_SHORT).show()
+                            }
+                        }
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .align(Alignment.TopStart)
                                 .padding(top = 0.dp)
                                 .offset(y = (-4).dp)
-                                .zIndex(2f),
+                                .zIndex(6f),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             GlassIconCircleButton(
@@ -424,9 +464,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             )
                             Spacer(modifier = Modifier.weight(1f))
                             GlassIconCircleButton(
-                                iconRes = R.drawable.ic_nm_more,
-                                contentDescription = getString(R.string.action_more),
-                                onClick = { moreMenuExpanded = true },
+                                iconRes = if (editing) R.drawable.ic_sheet_check else R.drawable.ic_nm_more,
+                                contentDescription = if (editing) "保存修改" else getString(R.string.action_more),
+                                onClick = {
+                                    if (editing) {
+                                        commitEdits()
+                                    } else {
+                                        moreMenuExpanded = !moreMenuExpanded
+                                    }
+                                },
                                 size = spec.topActionButtonSize
                             )
                         }
@@ -434,7 +480,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = spec.topActionButtonSize + 14.dp)
+                                .padding(top = spec.topActionButtonSize + 8.dp)
                                 .verticalScroll(rememberScrollState())
                         ) {
                         if (displayImageUri.isNotBlank()) {
@@ -442,6 +488,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 modifier = Modifier
                                     .fillMaxWidth(0.64f)
                                     .align(Alignment.CenterHorizontally)
+                                    .onGloballyPositioned { coordinates ->
+                                        imageCardBounds = coordinates.boundsInRoot()
+                                    }
+                                    .alpha(if (previewOverlayVisible) 0f else 1f)
                                     .clickable {
                                         if (editing) {
                                             imagePickerLauncher.launch(arrayOf("image/*"))
@@ -481,22 +531,25 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     horizontalArrangement = Arrangement.Center
                                 ) {
                                     NoMemoDetailActionButton(
-                                        text = "鏇存崲鍥剧墖",
+                                        text = "更换图片",
                                         primary = false,
+                                        showBorder = false,
                                         onClick = { imagePickerLauncher.launch(arrayOf("image/*")) }
                                     )
                                     Spacer(modifier = Modifier.width(10.dp))
                                     NoMemoDetailActionButton(
-                                        text = "鍒犻櫎鍥剧墖",
+                                        text = "删除图片",
                                         primary = false,
+                                        showBorder = false,
                                         onClick = { draftImageUri = "" }
                                     )
                                 }
                             }
                         } else if (editing) {
                             NoMemoDetailActionButton(
-                                text = "娣诲姞鍥剧墖",
+                                text = "添加图片",
                                 primary = false,
+                                showBorder = false,
                                 modifier = Modifier.align(Alignment.CenterHorizontally),
                                 onClick = { imagePickerLauncher.launch(arrayOf("image/*")) }
                             )
@@ -633,6 +686,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 NoMemoDetailActionButton(
                                     text = "取消",
                                     primary = false,
+                                    showBorder = false,
                                     onClick = {
                                         editing = false
                                         draftTitle = titleText
@@ -643,20 +697,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 NoMemoDetailActionButton(
                                     text = "保存修改",
                                     primary = true,
-                                    onClick = {
-                                        val saved = saveEditedRecord(
-                                            currentRecord,
-                                            draftTitle,
-                                            draftSummary,
-                                            draftImageUri
-                                        )
-                                        if (saved) {
-                                            editing = false
-                                            Toast.makeText(this@MemoryDetailActivity, "已保存修改", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            Toast.makeText(this@MemoryDetailActivity, "保存失败", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
+                                    onClick = { commitEdits() }
                                 )
                             }
                         } else NoMemoDetailReanalyzeButton(
@@ -665,7 +706,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             modifier = Modifier.padding(
                                 start = detailTextStartPadding,
                                 end = detailTextStartPadding,
-                                top = 28.dp
+                                top = 28.dp,
+                                // 底部padding
+                                bottom = 10.dp
                             ),
                             onClick = { onReanalyze(currentRecord) }
                         )
@@ -673,47 +716,37 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         Spacer(modifier = Modifier.height(18.dp))
                     }
 
-                        if (moreMenuExpanded) {
-                            val dismissInteraction = remember { MutableInteractionSource() }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .zIndex(4f)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .matchParentSize()
-                                        .clickable(
-                                            interactionSource = dismissInteraction,
-                                            indication = null,
-                                            onClick = { moreMenuExpanded = false }
-                                        )
+                        NoMemoMenuPopup(
+                            expanded = moreMenuExpanded,
+                            onDismissRequest = { moreMenuExpanded = false },
+                            modifier = Modifier
+                                .statusBarsPadding()
+                                .padding(
+                                    top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 10.dp,
+                                    end = spec.pageHorizontalPadding
                                 )
-                                DetailMoreMenuPanel(
-                                    archived = currentRecord.isArchived,
-                                    editing = editing,
-                                    onEditToggle = {
-                                        moreMenuExpanded = false
-                                        editing = !editing
-                                        if (!editing) {
-                                            draftTitle = titleText
-                                            draftSummary = summaryText
-                                            draftImageUri = currentRecord.imageUri.orEmpty()
-                                        }
-                                    },
-                                    onArchiveToggle = {
-                                        moreMenuExpanded = false
-                                        onToggleArchive(currentRecord)
-                                    },
-                                    onDelete = {
-                                        moreMenuExpanded = false
-                                        showDeleteConfirm = true
-                                    },
-                                    modifier = Modifier
-                                        .align(Alignment.TopEnd)
-                                        .padding(top = spec.topActionButtonSize + 10.dp)
-                                )
-                            }
+                        ) {
+                            DetailMoreMenuPanel(
+                                archived = currentRecord.isArchived,
+                                editing = editing,
+                                onEditToggle = {
+                                    moreMenuExpanded = false
+                                    editing = !editing
+                                    if (!editing) {
+                                        draftTitle = titleText
+                                        draftSummary = summaryText
+                                        draftImageUri = currentRecord.imageUri.orEmpty()
+                                    }
+                                },
+                                onArchiveToggle = {
+                                    moreMenuExpanded = false
+                                    onToggleArchive(currentRecord)
+                                },
+                                onDelete = {
+                                    moreMenuExpanded = false
+                                    showDeleteConfirm = true
+                                }
+                            )
                         }
 
                         if (showDeleteConfirm) {
@@ -730,33 +763,96 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
                 }
 
-                val previewRecord = record?.takeIf { !it.imageUri.isNullOrBlank() }
-                AnimatedVisibility(
-                    visible = showImagePreview && previewRecord != null,
-                    enter = fadeIn(animationSpec = tween(220)),
-                    exit = fadeOut(animationSpec = tween(180)),
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .zIndex(20f)
-                ) {
+                if (previewRecord != null && previewOverlayVisible) {
                     val previewDismissInteraction = remember { MutableInteractionSource() }
-                    var previewFillScreen by remember(previewRecord?.imageUri) { mutableStateOf(false) }
+                    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+                    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+                    val previewVerticalInsetPx = with(density) {
+                        (if (adaptive.isNarrow) 92.dp else 104.dp).toPx()
+                    }
+                    val sourceRect = if (imageCardBounds.isEmpty) {
+                        Rect(
+                            left = screenWidthPx * 0.18f,
+                            top = screenHeightPx * 0.28f,
+                            right = screenWidthPx * 0.82f,
+                            bottom = screenHeightPx * 0.52f
+                        )
+                    } else {
+                        imageCardBounds
+                    }
+                    val targetRect = remember(
+                        screenWidthPx,
+                        screenHeightPx,
+                        previewImageAspectRatio,
+                        screenAspectRatio,
+                        previewVerticalInsetPx
+                    ) {
+                        buildPreviewTargetBounds(
+                            screenWidthPx = screenWidthPx,
+                            screenHeightPx = screenHeightPx,
+                            imageAspectRatio = previewImageAspectRatio,
+                            screenAspectRatio = screenAspectRatio,
+                            verticalInsetPx = previewVerticalInsetPx
+                        )
+                    }
+                    val previewFillScreen = previewImageAspectRatio != null &&
+                        isAspectRatioCloseToScreen(previewImageAspectRatio!!, screenAspectRatio)
+                    val previewAlpha by previewTransition.animateFloat(
+                        transitionSpec = {
+                            tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                        },
+                        label = "previewAlpha"
+                    ) { expanded -> if (expanded) 0.94f else 0f }
+                    val previewProgress by previewTransition.animateFloat(
+                        transitionSpec = {
+                            tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                        },
+                        label = "previewProgress"
+                    ) { expanded -> if (expanded) 1f else 0f }
+                    val buttonAlpha by previewTransition.animateFloat(
+                        transitionSpec = {
+                            tween(durationMillis = 180, delayMillis = if (targetState) 90 else 0)
+                        },
+                        label = "previewButtonAlpha"
+                    ) { expanded -> if (expanded) 1f else 0f }
+                    val animatedLeft = sourceRect.left + (targetRect.left - sourceRect.left) * previewProgress
+                    val animatedTop = sourceRect.top + (targetRect.top - sourceRect.top) * previewProgress
+                    val animatedWidth = sourceRect.width + (targetRect.width - sourceRect.width) * previewProgress
+                    val animatedHeight = sourceRect.height + (targetRect.height - sourceRect.height) * previewProgress
+                    val animatedCornerRadius = with(density) {
+                        ((1f - previewProgress) * 28.dp.value).dp
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .background(Color.Black)
+                            .zIndex(20f)
                     ) {
-                        val previewVerticalInset = if (adaptive.isNarrow) 92.dp else 104.dp
                         Box(
                             modifier = Modifier
                                 .matchParentSize()
+                                .background(Color.Black.copy(alpha = previewAlpha))
                                 .clickable(
                                     interactionSource = previewDismissInteraction,
                                     indication = null,
                                     onClick = { showImagePreview = false }
                                 )
                         )
-                        AndroidView(
+                        Box(
+                            modifier = Modifier
+                                .offset {
+                                    IntOffset(
+                                        x = animatedLeft.roundToInt(),
+                                        y = animatedTop.roundToInt()
+                                    )
+                                }
+                                .size(
+                                    width = with(density) { animatedWidth.toDp() },
+                                    height = with(density) { animatedHeight.toDp() }
+                                )
+                                .clip(RoundedCornerShape(animatedCornerRadius))
+                        ) {
+                            AndroidView(
                                 factory = { ctx ->
                                     ImageView(ctx).apply {
                                         adjustViewBounds = false
@@ -764,36 +860,21 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         setBackgroundColor(android.graphics.Color.BLACK)
                                     }
                                 },
-                                modifier = Modifier
-                                    .align(Alignment.Center)
-                                    .fillMaxSize()
-                                    .padding(
-                                        top = if (previewFillScreen) 0.dp else previewVerticalInset,
-                                        bottom = if (previewFillScreen) 0.dp else previewVerticalInset
-                                    ),
+                                modifier = Modifier.fillMaxSize(),
                                 update = { imageView ->
                                     try {
-                                        imageView.setImageURI(Uri.parse(previewRecord!!.imageUri))
-                                        val drawable = imageView.drawable
-                                        val imageAspectRatio = if (drawable != null && drawable.intrinsicWidth > 0 && drawable.intrinsicHeight > 0) {
-                                            drawable.intrinsicWidth.toFloat() / drawable.intrinsicHeight.toFloat()
-                                        } else {
-                                            0f
-                                        }
-                                        val shouldFillScreen = imageAspectRatio > 0f &&
-                                            isAspectRatioCloseToScreen(imageAspectRatio, screenAspectRatio)
-                                        previewFillScreen = shouldFillScreen
-                                        imageView.scaleType = if (shouldFillScreen) {
+                                        imageView.setImageURI(Uri.parse(previewRecord.imageUri))
+                                        imageView.scaleType = if (previewFillScreen) {
                                             ImageView.ScaleType.CENTER_CROP
                                         } else {
                                             ImageView.ScaleType.FIT_CENTER
                                         }
                                     } catch (_: Exception) {
                                         imageView.setImageDrawable(null)
-                                        previewFillScreen = false
                                     }
                                 }
                             )
+                        }
                         MemoryDetailPreviewCloseButton(
                             iconRes = R.drawable.ic_sheet_close,
                             contentDescription = getString(R.string.cancel),
@@ -802,6 +883,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
+                                .alpha(buttonAlpha)
                                 .padding(bottom = 18.dp)
                         )
                     }
@@ -864,6 +946,56 @@ class MemoryDetailActivity : BaseComposeActivity() {
         return kotlin.math.abs(imageAspectRatio - screenAspectRatio) <= 0.03f
     }
 
+    private fun buildPreviewTargetBounds(
+        screenWidthPx: Float,
+        screenHeightPx: Float,
+        imageAspectRatio: Float?,
+        screenAspectRatio: Float,
+        verticalInsetPx: Float
+    ): Rect {
+        val shouldFillScreen = imageAspectRatio != null &&
+            isAspectRatioCloseToScreen(imageAspectRatio, screenAspectRatio)
+        if (shouldFillScreen || imageAspectRatio == null || imageAspectRatio <= 0f) {
+            return Rect(0f, 0f, screenWidthPx, screenHeightPx)
+        }
+
+        val availableWidth = screenWidthPx
+        val availableHeight = (screenHeightPx - verticalInsetPx * 2f).coerceAtLeast(1f)
+        val availableAspectRatio = availableWidth / availableHeight
+
+        return if (imageAspectRatio >= availableAspectRatio) {
+            val targetWidth = availableWidth
+            val targetHeight = targetWidth / imageAspectRatio
+            val top = (screenHeightPx - targetHeight) / 2f
+            Rect(0f, top, targetWidth, top + targetHeight)
+        } else {
+            val targetHeight = availableHeight
+            val targetWidth = targetHeight * imageAspectRatio
+            val left = (screenWidthPx - targetWidth) / 2f
+            val top = (screenHeightPx - targetHeight) / 2f
+            Rect(left, top, left + targetWidth, top + targetHeight)
+        }
+    }
+
+    private fun resolveImageAspectRatio(uriString: String?): Float? {
+        if (uriString.isNullOrBlank()) {
+            return null
+        }
+        return runCatching {
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            contentResolver.openInputStream(Uri.parse(uriString))?.use { input ->
+                BitmapFactory.decodeStream(input, null, options)
+            }
+            if (options.outWidth > 0 && options.outHeight > 0) {
+                options.outWidth.toFloat() / options.outHeight.toFloat()
+            } else {
+                null
+            }
+        }.getOrNull()
+    }
+
     @Composable
     private fun DetailMetaDivider(color: Color) {
         Spacer(modifier = Modifier.width(7.dp))
@@ -886,14 +1018,22 @@ class MemoryDetailActivity : BaseComposeActivity() {
     ) {
         PressScaleBox(
             onClick = onClick,
-            modifier = modifier.size(size)
+            modifier = modifier
+                .size(size)
+                .shadow(
+                    elevation = 18.dp,
+                    shape = CircleShape,
+                    ambientColor = Color.Black.copy(alpha = 0.32f),
+                    spotColor = Color.Black.copy(alpha = 0.32f)
+                )
         ) {
+            val buttonSurface = Color(0xFF111111).copy(alpha = 0.90f)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
-                    .background(Color.White.copy(alpha = 0.14f))
-                    .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+                    .background(buttonSurface)
+                    .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
             ) {
                 Icon(
                     painter = painterResource(id = iconRes),
@@ -920,19 +1060,20 @@ class MemoryDetailActivity : BaseComposeActivity() {
         NoMemoActionMenuPanel(
             actions = listOf(
                 NoMemoMenuActionItem(
-                    R.drawable.ic_nm_more,
-                    if (editing) "结束编辑" else "编辑",
-                    onEditToggle
+                    iconRes = R.drawable.ic_nm_edit,
+                    label = if (editing) "结束编辑" else "编辑内容",
+                    onClick = onEditToggle
                 ),
                 NoMemoMenuActionItem(
-                    R.drawable.ic_sheet_calendar,
-                    if (archived) getString(R.string.action_unarchive) else getString(R.string.action_archive),
-                    onArchiveToggle
+                    iconRes = R.drawable.ic_sheet_calendar,
+                    label = if (archived) getString(R.string.action_unarchive) else getString(R.string.action_archive),
+                    onClick = onArchiveToggle
                 ),
                 NoMemoMenuActionItem(
-                    R.drawable.ic_nm_delete,
-                    getString(R.string.action_delete),
-                    onDelete
+                    iconRes = R.drawable.ic_nm_delete,
+                    label = getString(R.string.action_delete),
+                    onClick = onDelete,
+                    destructive = true
                 )
             ),
             modifier = modifier

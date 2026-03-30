@@ -324,10 +324,21 @@ private fun NoMemoLocationNavigateButton(
 fun NoMemoDetailActionButton(
     text: String,
     primary: Boolean,
+    showBorder: Boolean = true,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
     val palette = rememberNoMemoPalette()
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val containerColor = when {
+        primary -> palette.accent
+        showBorder -> palette.glassFill
+        else -> noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))
+    }
+    val contentColor = when {
+        primary -> palette.onAccent
+        else -> palette.textPrimary
+    }
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
@@ -335,9 +346,9 @@ fun NoMemoDetailActionButton(
         Card(
             shape = RoundedCornerShape(18.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (primary) palette.accent else palette.glassFill
+                containerColor = containerColor
             ),
-            border = BorderStroke(1.dp, if (primary) palette.accent else palette.glassStroke)
+            border = if (showBorder) BorderStroke(1.dp, if (primary) palette.accent else palette.glassStroke) else null
         ) {
             Box(
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp),
@@ -345,7 +356,7 @@ fun NoMemoDetailActionButton(
             ) {
                 Text(
                     text = text,
-                    color = if (primary) palette.onAccent else palette.textPrimary,
+                    color = contentColor,
                     fontSize = 14.sp,
                     fontWeight = FontWeight.Medium
                 )

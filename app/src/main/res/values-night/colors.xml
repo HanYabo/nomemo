@@ -3,8 +3,8 @@
     <color name="memo_bg_start">#000000</color>
     <color name="memo_bg_mid">#000000</color>
     <color name="memo_bg_end">#000000</color>
-    <color name="glass_fill">#12FFFFFF</color>
-    <color name="glass_fill_soft">#08FFFFFF</color>
+    <color name="glass_fill">#1A1A1C</color>
+    <color name="glass_fill_soft">#1A1A1C</color>
     <color name="glass_stroke">#24FFFFFF</color>
     <color name="glass_stroke_soft">#16FFFFFF</color>
     <color name="glass_shadow">#4D000000</color>

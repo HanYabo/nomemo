@@ -10,6 +10,13 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -56,6 +63,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -327,7 +335,7 @@ class MainActivity : BaseComposeActivity() {
                     adaptive = adaptive,
                     allowImageLoading = true,
                     showShadow = false,
-                    darkCardBackgroundOverride = Color(0xFF121212),
+                    darkCardBackgroundOverride = Color(0xFF1A1A1C),
                     onClick = {
                         when {
                             selectedRecordIds.contains(record.recordId) -> {
@@ -438,7 +446,7 @@ class MainActivity : BaseComposeActivity() {
                             NoMemoTopActionButtons(
                                 spec = spec,
                                 onSearchClick = { searchEnabled = true },
-                                onMoreClick = { moreMenuExpanded = true }
+                                onMoreClick = { moreMenuExpanded = !moreMenuExpanded }
                             )
 
                             Column(
@@ -577,41 +585,27 @@ class MainActivity : BaseComposeActivity() {
                         )
                     }
 
-                    if (moreMenuExpanded) {
-                        val dismissInteraction = remember { MutableInteractionSource() }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .zIndex(4f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable(
-                                        interactionSource = dismissInteraction,
-                                        indication = null,
-                                        onClick = { moreMenuExpanded = false }
-                                    )
+                    NoMemoMenuPopup(
+                        expanded = moreMenuExpanded,
+                        onDismissRequest = { moreMenuExpanded = false },
+                        modifier = Modifier
+                            .statusBarsPadding()
+                            .padding(
+                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 8.dp,
+                                end = spec.pageHorizontalPadding
                             )
-                            NoMemoMoreMenuPanel(
-                                onSelectAll = {
-                                    selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
-                                    moreMenuExpanded = false
-                                },
-                                onOpenSettings = {
-                                    moreMenuExpanded = false
-                                    onOpenSettings()
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .statusBarsPadding()
-                                    .padding(
-                                        top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 8.dp,
-                                        end = spec.pageHorizontalPadding
-                                    )
-                                    .offset(x = (-6).dp)
-                            )
-                        }
+                            .offset(x = (-6).dp)
+                    ) {
+                        NoMemoMoreMenuPanel(
+                            onSelectAll = {
+                                selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
+                                moreMenuExpanded = false
+                            },
+                            onOpenSettings = {
+                                moreMenuExpanded = false
+                                onOpenSettings()
+                            }
+                        )
                     }
 
                     if (showAddSheet) {

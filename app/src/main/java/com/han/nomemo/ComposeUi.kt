@@ -6,7 +6,10 @@ import android.net.Uri
 import android.os.Build
 import android.util.LruCache
 import android.util.Size
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
@@ -15,6 +18,10 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.BorderStroke
@@ -80,12 +87,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -161,7 +172,7 @@ private val LocalNoMemoPalette = staticCompositionLocalOf<NoMemoPalette?> { null
 private val LocalNoMemoAdaptiveSpec = staticCompositionLocalOf<NoMemoAdaptiveSpec?> { null }
 
 fun noMemoCardSurfaceColor(isDark: Boolean, lightColor: Color = Color.White): Color {
-    return if (isDark) Color(0xFF121212) else lightColor
+    return if (isDark) Color(0xFF1A1A1C) else lightColor
 }
 
 @Composable
@@ -472,7 +483,8 @@ fun NoMemoTopActionButtons(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 0.dp)
-            .offset(y = (-4).dp),
+            .offset(y = (-4).dp)
+            .zIndex(6f),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -734,23 +746,83 @@ fun NoMemoActionMenuPanel(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val menuSurface = noMemoCardSurfaceColor(isDark, Color(0xFFFBFBFC).copy(alpha = 0.94f))
+    val menuSurface = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))
+    val menuShadowColor = if (isDark) {
+        Color.Black.copy(alpha = 0.20f)
+    } else {
+        Color.Black.copy(alpha = 0.08f)
+    }
     Card(
         modifier = modifier
-            .width(176.dp)
-            .shadow(14.dp, RoundedCornerShape(22.dp)),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = menuSurface),
-        border = BorderStroke(1.dp, palette.glassStroke)
+            .width(182.dp)
+            .shadow(
+                elevation = if (isDark) 10.dp else 12.dp,
+                shape = RoundedCornerShape(24.dp),
+                ambientColor = menuShadowColor,
+                spotColor = menuShadowColor
+            ),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = menuSurface)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)) {
+        Column(modifier = Modifier.padding(vertical = 6.dp)) {
             actions.forEachIndexed { index, item ->
                 NoMemoActionMenuRow(
                     iconRes = item.iconRes,
                     label = item.label,
+                    destructive = item.destructive,
                     onClick = item.onClick,
-                    modifier = Modifier.padding(top = if (index == 0) 0.dp else 6.dp)
+                    modifier = Modifier
                 )
+                if (index != actions.lastIndex) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 18.dp)
+                            .height(1.dp)
+                            .background(palette.glassStroke.copy(alpha = 0.45f))
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun NoMemoMenuPopup(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val transitionState = remember { MutableTransitionState(false) }
+    transitionState.targetState = expanded
+
+    if (transitionState.currentState || transitionState.targetState) {
+        Popup(
+            alignment = Alignment.TopEnd,
+            onDismissRequest = onDismissRequest,
+            properties = PopupProperties(
+                focusable = true,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true
+            )
+        ) {
+            AnimatedVisibility(
+                visibleState = transitionState,
+                enter = fadeIn(animationSpec = tween(170)) + scaleIn(
+                    initialScale = 0.92f,
+                    transformOrigin = TransformOrigin(1f, 0f),
+                    animationSpec = tween(220, easing = FastOutSlowInEasing)
+                ),
+                exit = fadeOut(animationSpec = tween(120)) + scaleOut(
+                    targetScale = 0.96f,
+                    transformOrigin = TransformOrigin(1f, 0f),
+                    animationSpec = tween(160, easing = FastOutSlowInEasing)
+                )
+            ) {
+                Box(modifier = modifier) {
+                    content()
+                }
             }
         }
     }
@@ -760,43 +832,33 @@ fun NoMemoActionMenuPanel(
 fun NoMemoActionMenuRow(
     iconRes: Int,
     label: String,
+    destructive: Boolean = false,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
+    val contentColor = if (destructive) Color(0xFFB42318) else palette.textPrimary
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
-            .background(palette.glassFillSoft)
-            .padding(horizontal = 12.dp, vertical = 10.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 2.dp),
+                .padding(horizontal = 18.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Box(
-                modifier = Modifier
-                    .size(34.dp)
-                    .clip(CircleShape)
-                    .background(palette.glassFill)
-                    .border(1.dp, palette.glassStroke, CircleShape),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(iconRes),
-                    contentDescription = null,
-                    tint = palette.textPrimary,
-                    modifier = Modifier.size(18.dp)
-                )
-            }
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(18.dp)
+            )
             Text(
                 text = label,
-                color = palette.textPrimary,
-                fontSize = 14.sp,
+                color = contentColor,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.padding(start = 12.dp)
             )
@@ -807,7 +869,8 @@ fun NoMemoActionMenuRow(
 data class NoMemoMenuActionItem(
     val iconRes: Int,
     val label: String,
-    val onClick: () -> Unit
+    val onClick: () -> Unit,
+    val destructive: Boolean = false
 )
 
 @Composable
@@ -902,9 +965,9 @@ fun NoMemoBottomDock(
     val dockContainerBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF121212).copy(alpha = 0.98f),
-                Color(0xFF121212).copy(alpha = 0.98f),
-                Color(0xFF121212).copy(alpha = 0.98f)
+                Color(0xFF1A1A1C).copy(alpha = 0.98f),
+                Color(0xFF1A1A1C).copy(alpha = 0.98f),
+                Color(0xFF1A1A1C).copy(alpha = 0.98f)
             )
         )
     } else {
@@ -917,7 +980,7 @@ fun NoMemoBottomDock(
         )
     }
     val dockBlurTint = if (isDark) {
-        Color(0xFF121212).copy(alpha = 0.92f)
+        Color(0xFF1A1A1C).copy(alpha = 0.92f)
     } else {
         Color.White.copy(alpha = 0.48f)
     }
