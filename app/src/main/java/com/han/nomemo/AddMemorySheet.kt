@@ -110,12 +110,12 @@ fun AddMemorySheet(
     var dismissCommitted by remember { mutableStateOf(false) }
 
     val allCategories = remember { CategoryCatalog.getAllCategories() }
-    val panelSurface = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.985f))
-    val panelBorder = if (isDark) Color.White.copy(alpha = 0.12f) else Color(0x12000000)
-    val sheetSurface = if (isDark) noMemoCardSurfaceColor(true) else Color(0xFFF6F6F7)
+    val panelSurface = addSheetPanelSurface(isDark)
+    val panelBorder = addSheetBorderColor(isDark, palette)
+    val sheetSurface = addSheetBaseSurface(isDark, palette)
     val accentMono = palette.accent
-    val accentSoft = if (isDark) Color.White.copy(alpha = 0.13f) else Color.Black.copy(alpha = 0.07f)
-    val accentStroke = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f)
+    val accentSoft = palette.accent.copy(alpha = if (isDark) 0.22f else 0.06f)
+    val accentStroke = palette.accent.copy(alpha = if (isDark) 0.30f else 0.12f)
     val sheetBodyHeight = if (adaptive.isNarrow) 650.dp else 720.dp
     val openReminderPicker = remember {
         { initial: Long ->
@@ -457,11 +457,11 @@ fun AddMemorySheet(
                                 }
                             },
                             colors = SwitchDefaults.colors(
-                                checkedThumbColor = if (isDark) Color.Black else Color.White,
+                                checkedThumbColor = palette.onAccent,
                                 checkedTrackColor = accentMono,
                                 uncheckedThumbColor = if (isDark) Color.White.copy(alpha = 0.88f) else Color.White,
-                                uncheckedTrackColor = if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.12f),
-                                uncheckedBorderColor = Color.Transparent
+                                uncheckedTrackColor = addSheetSubtleSurface(isDark),
+                                uncheckedBorderColor = addSheetBorderColor(isDark, palette)
                             )
                         )
                     }
@@ -539,89 +539,12 @@ private fun SheetHeaderButton(
     size: androidx.compose.ui.unit.Dp,
     primary: Boolean = false
 ) {
-    val palette = rememberNoMemoPalette()
-    val isDark = isSystemInDarkTheme()
-    val borderColor = if (primary) {
-        if (isDark) Color.White.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.08f)
-    } else if (isDark) {
-        Color.White.copy(alpha = 0.12f)
-    } else {
-        Color.Black.copy(alpha = 0.08f)
-    }
-    val innerBorder = if (primary) {
-        if (isDark) Color.White.copy(alpha = 0.16f) else Color.White.copy(alpha = 0.16f)
-    } else if (isDark) {
-        Color.White.copy(alpha = 0.08f)
-    } else {
-        Color.White.copy(alpha = 0.72f)
-    }
-    val surfaceBrush = if (primary) {
-        Brush.verticalGradient(
-            listOf(
-                palette.accent,
-                palette.accent.copy(alpha = 0.90f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                if (isDark) Color(0xFF1E232B) else Color.White,
-                if (isDark) Color(0xFF151920) else Color(0xFFF1F2F5)
-            )
-        )
-    }
-    val topHighlight = Brush.verticalGradient(
-        listOf(
-            if (primary) {
-                if (isDark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.14f)
-            } else if (isDark) {
-                Color.White.copy(alpha = 0.08f)
-            } else {
-                Color.White.copy(alpha = 0.86f)
-            },
-            Color.Transparent
-        )
-    )
-    PressScaleBox(
+    GlassIconCircleButton(
+        iconRes = iconRes,
+        contentDescription = contentDescription,
         onClick = onClick,
-        modifier = Modifier
-            .size(size)
-            .shadow(
-                elevation = if (primary) 10.dp else 6.dp,
-                shape = CircleShape,
-                ambientColor = if (isDark) Color.Black.copy(alpha = 0.24f) else Color.Black.copy(alpha = 0.10f),
-                spotColor = if (isDark) Color.Black.copy(alpha = 0.24f) else Color.Black.copy(alpha = 0.10f)
-            )
-    ) {
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clip(CircleShape)
-                .background(surfaceBrush)
-                .border(1.dp, borderColor, CircleShape)
-        )
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .padding(1.dp)
-                .clip(CircleShape)
-                .border(0.75.dp, innerBorder, CircleShape)
-        )
-        Box(
-            modifier = Modifier
-                .matchParentSize()
-                .clip(CircleShape)
-                .background(topHighlight)
-        )
-        Icon(
-            painter = painterResource(iconRes),
-            contentDescription = contentDescription,
-            tint = if (primary) palette.onAccent else palette.textPrimary,
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size(24.dp)
-        )
-    }
+        size = size
+    )
 }
 
 @Composable
@@ -631,15 +554,11 @@ private fun SheetModeSwitch(
     onSelectNormal: () -> Unit,
     onSelectAi: () -> Unit
 ) {
+    val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val shape = RoundedCornerShape(32.dp)
-    val borderColor = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
-    val surfaceBrush = Brush.verticalGradient(
-        listOf(
-            if (isDark) Color(0xFF1D232A) else Color.White,
-            if (isDark) Color(0xFF151A20) else Color(0xFFF1F2F5)
-        )
-    )
+    val borderColor = addSheetBorderColor(isDark, palette)
+    val surfaceBrush = addSheetRaisedBrush(isDark, palette)
     Box(
         modifier = modifier
             .height(58.dp)
@@ -662,11 +581,11 @@ private fun SheetModeSwitch(
                 .matchParentSize()
                 .padding(1.dp)
                 .clip(RoundedCornerShape(31.dp))
-                .border(
-                    0.75.dp,
-                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.72f),
-                    RoundedCornerShape(31.dp)
-                )
+                    .border(
+                        0.75.dp,
+                        addSheetInnerHighlightColor(isDark),
+                        RoundedCornerShape(31.dp)
+                    )
         )
         Row(
             modifier = Modifier
@@ -702,8 +621,8 @@ private fun SheetModeChip(
     val shape = RoundedCornerShape(28.dp)
     val selectedBrush = Brush.verticalGradient(
         listOf(
-            if (isDark) Color.White.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.10f),
-            if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f)
+            palette.accent.copy(alpha = if (isDark) 0.22f else 0.08f),
+            palette.accent.copy(alpha = if (isDark) 0.14f else 0.04f)
         )
     )
     PressScaleBox(
@@ -719,7 +638,7 @@ private fun SheetModeChip(
                     .background(selectedBrush)
                     .border(
                         1.dp,
-                        if (isDark) Color.White.copy(alpha = 0.16f) else Color.Black.copy(alpha = 0.08f),
+                        if (isDark) palette.accent.copy(alpha = 0.30f) else palette.accent.copy(alpha = 0.10f),
                         shape
                     )
             )
@@ -730,7 +649,7 @@ private fun SheetModeChip(
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                if (isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.78f),
+                                addSheetInnerHighlightColor(isDark),
                                 Color.Transparent
                             )
                         )
@@ -761,8 +680,8 @@ private fun SheetCategorySection(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val borderSoft = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
-    val inputSurface = if (isDark) Color(0xFF11161D) else Color.White
+    val borderSoft = addSheetBorderColor(isDark, palette)
+    val inputSurface = addSheetPanelSurface(isDark)
     val selectorShape = RoundedCornerShape(24.dp)
     val chevronRotation by animateFloatAsState(
         targetValue = if (expanded) 180f else 0f,
@@ -787,7 +706,7 @@ private fun SheetCategorySection(
                         Brush.verticalGradient(
                             listOf(
                                 inputSurface,
-                                if (isDark) Color(0xFF151920) else Color.White
+                                addSheetBaseSurface(isDark, palette)
                             )
                         )
                     )
@@ -804,7 +723,7 @@ private fun SheetCategorySection(
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                if (isDark) Color.White.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.84f),
+                                addSheetInnerHighlightColor(isDark),
                                 Color.Transparent
                             )
                         )
@@ -890,7 +809,7 @@ private fun SheetCategoryChip(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val borderSoft = if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f)
+    val borderSoft = addSheetBorderColor(isDark, palette)
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
@@ -906,8 +825,8 @@ private fun SheetCategoryChip(
                     } else {
                         Brush.verticalGradient(
                             listOf(
-                                if (isDark) Color(0xFF151A21) else Color.White,
-                                if (isDark) Color(0xFF12171D) else Color.White
+                                addSheetPanelSurface(isDark),
+                                addSheetPanelSurface(isDark)
                             )
                         )
                     }
@@ -921,7 +840,7 @@ private fun SheetCategoryChip(
                     .background(
                         Brush.verticalGradient(
                             listOf(
-                                if (isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.78f),
+                                addSheetInnerHighlightColor(isDark),
                                 Color.Transparent
                             )
                         )
@@ -966,14 +885,9 @@ private fun SheetActionCard(
             modifier = Modifier
                 .matchParentSize()
                 .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            if (isDark) Color(0xFF1D222A) else Color.White,
-                            if (isDark) Color(0xFF161A21) else Color(0xFFF2F3F6)
-                        )
-                    )
+                    addSheetRaisedBrush(isDark, palette)
                 )
-                .border(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f), shape)
+                .border(1.dp, addSheetBorderColor(isDark, palette), shape)
         )
         Box(
             modifier = Modifier
@@ -982,7 +896,7 @@ private fun SheetActionCard(
                 .clip(RoundedCornerShape(23.dp))
                 .border(
                     0.75.dp,
-                    if (isDark) Color.White.copy(alpha = 0.07f) else Color.White.copy(alpha = 0.72f),
+                    addSheetInnerHighlightColor(isDark),
                     RoundedCornerShape(23.dp)
                 )
         )
@@ -1010,10 +924,10 @@ private fun SheetActionCard(
                 modifier = Modifier
                     .size(40.dp)
                     .clip(CircleShape)
-                    .background(if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f))
+                    .background(addSheetSubtleSurface(isDark))
                     .border(
                         1.dp,
-                        if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                        addSheetBorderColor(isDark, palette),
                         CircleShape
                     )
             ) {
@@ -1047,17 +961,10 @@ private fun SheetInlineButton(
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f),
-                            if (isDark) Color.White.copy(alpha = 0.07f) else Color.Black.copy(alpha = 0.04f)
-                        )
-                    )
-                )
+                .background(addSheetSubtleBrush(isDark))
                 .border(
                     1.dp,
-                    if (isDark) Color.White.copy(alpha = 0.14f) else Color.Black.copy(alpha = 0.08f),
+                    addSheetBorderColor(isDark, palette),
                     RoundedCornerShape(18.dp)
                 )
                 .padding(horizontal = 14.dp, vertical = 10.dp)
@@ -1090,10 +997,10 @@ private fun SheetMiniIconButton(
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .background(if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f))
+                .background(addSheetSubtleSurface(isDark))
                 .border(
                     1.dp,
-                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                    addSheetBorderColor(isDark, palette),
                     CircleShape
                 )
         )
@@ -1148,9 +1055,9 @@ private fun ReminderPickerDialog(
                 ),
             shape = RoundedCornerShape(24.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isDark) noMemoCardSurfaceColor(true) else Color(0xFFF8F8FA)
+                containerColor = addSheetPanelSurface(isDark)
             ),
-            border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
+            border = BorderStroke(1.dp, addSheetBorderColor(isDark, palette))
         ) {
             Column(
                 modifier = Modifier
@@ -1261,17 +1168,10 @@ private fun ReminderPresetChip(
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .background(
-                    Brush.verticalGradient(
-                        listOf(
-                            if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.05f),
-                            if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f)
-                        )
-                    )
-                )
+                .background(addSheetSubtleBrush(isDark))
                 .border(
                     1.dp,
-                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                    addSheetBorderColor(isDark, palette),
                     RoundedCornerShape(18.dp)
                 )
         )
@@ -1299,10 +1199,10 @@ private fun ReminderAdjustRow(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(18.dp))
-            .background(if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.03f))
+            .background(addSheetSubtleSurface(isDark))
             .border(
                 1.dp,
-                if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                addSheetBorderColor(isDark, palette),
                 RoundedCornerShape(18.dp)
             )
             .padding(horizontal = 12.dp, vertical = 12.dp),
@@ -1348,9 +1248,9 @@ private fun ReminderAdjustCard(
         modifier = modifier,
         shape = RoundedCornerShape(18.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (isDark) noMemoCardSurfaceColor(true) else Color.Black.copy(alpha = 0.03f)
+            containerColor = addSheetSubtleSurface(isDark)
         ),
-        border = BorderStroke(1.dp, if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f))
+        border = BorderStroke(1.dp, addSheetBorderColor(isDark, palette))
     ) {
         Column(
             modifier = Modifier
@@ -1398,10 +1298,10 @@ private fun ReminderAdjustIconButton(
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .background(if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.06f))
+                .background(addSheetSubtleSurface(isDark))
                 .border(
                     1.dp,
-                    if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.08f),
+                    addSheetBorderColor(isDark, palette),
                     CircleShape
                 )
         )
@@ -1454,6 +1354,45 @@ private fun ReminderConfirmButton(
             modifier = Modifier.align(Alignment.Center)
         )
     }
+}
+
+private fun addSheetPanelSurface(isDark: Boolean): Color {
+    return noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))
+}
+
+private fun addSheetBaseSurface(isDark: Boolean, palette: NoMemoPalette): Color {
+    return noMemoCardSurfaceColor(isDark, palette.memoBgStart)
+}
+
+private fun addSheetBorderColor(isDark: Boolean, palette: NoMemoPalette): Color {
+    return if (isDark) Color.White.copy(alpha = 0.12f) else palette.glassStroke
+}
+
+private fun addSheetInnerHighlightColor(isDark: Boolean): Color {
+    return if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.78f)
+}
+
+private fun addSheetRaisedBrush(isDark: Boolean, palette: NoMemoPalette): Brush {
+    return Brush.verticalGradient(
+        listOf(
+            addSheetPanelSurface(isDark),
+            addSheetBaseSurface(isDark, palette)
+        )
+    )
+}
+
+private fun addSheetSubtleSurface(isDark: Boolean): Color {
+    return if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.035f)
+}
+
+private fun addSheetSubtleBrush(isDark: Boolean): Brush {
+    val top = if (isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.72f)
+    return Brush.verticalGradient(
+        listOf(
+            top,
+            addSheetSubtleSurface(isDark)
+        )
+    )
 }
 
 private fun saveRecord(

@@ -39,6 +39,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.res.painterResource
@@ -283,6 +284,7 @@ class SettingsActivity : BaseComposeActivity() {
                         .verticalScroll(rememberScrollState())
                 ) {
                     SettingsHeader(
+                        spec = spec,
                         title = when (currentRoute) {
                             SettingsRoute.Home -> "设置"
                             SettingsRoute.AiConfig -> "AI 功能设置"
@@ -297,10 +299,7 @@ class SettingsActivity : BaseComposeActivity() {
                                 currentRouteKey = SettingsRoute.Home.key
                             }
                         },
-                        buttonSurface = cardSurface,
                         titleColor = titleColor,
-                        borderColor = borderColor,
-                        isDark = isDark
                     )
 
                     when (currentRoute) {
@@ -626,12 +625,10 @@ class SettingsActivity : BaseComposeActivity() {
 
     @Composable
     private fun SettingsHeader(
+        spec: NoMemoAdaptiveSpec,
         title: String,
         onBack: () -> Unit,
-        buttonSurface: Color,
-        titleColor: Color,
-        borderColor: Color,
-        isDark: Boolean
+        titleColor: Color
     ) {
         Box(
             modifier = Modifier
@@ -640,11 +637,9 @@ class SettingsActivity : BaseComposeActivity() {
         ) {
             SettingsCircleBackButton(
                 onClick = onBack,
-                surface = buttonSurface,
-                borderColor = borderColor,
                 iconTint = titleColor,
                 modifier = Modifier.align(Alignment.CenterStart),
-                elevated = !isDark
+                size = spec.topActionButtonSize
             )
             Text(
                 text = title,
@@ -659,37 +654,32 @@ class SettingsActivity : BaseComposeActivity() {
     @Composable
     private fun SettingsCircleBackButton(
         onClick: () -> Unit,
-        surface: Color,
-        borderColor: Color,
         iconTint: Color,
         modifier: Modifier = Modifier,
-        elevated: Boolean = true
+        size: androidx.compose.ui.unit.Dp = 56.dp
     ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
         PressScaleBox(
             onClick = onClick,
-            modifier = modifier.size(56.dp),
+            modifier = modifier.size(size),
             pressedScale = 0.96f
         ) {
-            Card(
-                modifier = Modifier.fillMaxSize(),
-                shape = CircleShape,
-                colors = CardDefaults.cardColors(containerColor = surface),
-                border = BorderStroke(1.dp, borderColor),
-                elevation = CardDefaults.cardElevation(
-                    defaultElevation = if (elevated) 6.dp else 0.dp
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(if (isDark) palette.glassFill else Color.White)
             ) {
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Icon(
-                        painter = painterResource(id = R.drawable.ic_sheet_chevron_down),
-                        contentDescription = "返回",
-                        tint = iconTint,
-                        modifier = Modifier
-                            .align(Alignment.Center)
-                            .size(24.dp)
-                            .graphicsLayer { rotationZ = 90f }
-                    )
-                }
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_sheet_chevron_down),
+                    contentDescription = "返回",
+                    tint = iconTint,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(24.dp)
+                        .graphicsLayer { rotationZ = 90f }
+                )
             }
         }
     }
@@ -928,34 +918,23 @@ class SettingsActivity : BaseComposeActivity() {
         modifier: Modifier = Modifier,
         onClick: () -> Unit
     ) {
-        PressScaleBox(
-            onClick = onClick,
-            modifier = modifier.fillMaxWidth(),
-            pressedScale = 0.985f
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = accentColor.copy(alpha = 0.12f)),
-                shape = RoundedCornerShape(28.dp),
-                border = BorderStroke(1.dp, borderColor)
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
-                ) {
-                    Text(
-                        text = title,
-                        color = accentColor,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = subtitle,
-                        color = accentColor.copy(alpha = 0.82f),
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                }
-            }
+        val palette = rememberNoMemoPalette()
+        Column(modifier = modifier.fillMaxWidth()) {
+            NoMemoWideActionButton(
+                text = title,
+                iconRes = R.drawable.ic_sheet_check,
+                onClick = onClick,
+                containerColor = accentColor,
+                contentColor = palette.onAccent,
+                borderColor = accentColor
+            )
+            Text(
+                text = subtitle,
+                color = palette.textSecondary,
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                modifier = Modifier.padding(start = 6.dp, top = 8.dp)
+            )
         }
     }
 
@@ -967,34 +946,23 @@ class SettingsActivity : BaseComposeActivity() {
         modifier: Modifier = Modifier,
         onClick: () -> Unit
     ) {
-        PressScaleBox(
-            onClick = onClick,
-            modifier = modifier.fillMaxWidth(),
-            pressedScale = 0.985f
-        ) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFF4F4)),
-                shape = RoundedCornerShape(28.dp),
-                border = BorderStroke(1.dp, borderColor)
-            ) {
-                Column(
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 18.dp)
-                ) {
-                    Text(
-                        text = title,
-                        color = Color(0xFFB42318),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = subtitle,
-                        color = Color(0xFFB42318).copy(alpha = 0.74f),
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 6.dp)
-                    )
-                }
-            }
+        val dangerColor = Color(0xFFB42318)
+        Column(modifier = modifier.fillMaxWidth()) {
+            NoMemoWideActionButton(
+                text = title,
+                iconRes = R.drawable.ic_nm_delete,
+                onClick = onClick,
+                containerColor = dangerColor,
+                contentColor = Color.White,
+                borderColor = dangerColor
+            )
+            Text(
+                text = subtitle,
+                color = dangerColor.copy(alpha = 0.78f),
+                fontSize = 13.sp,
+                lineHeight = 20.sp,
+                modifier = Modifier.padding(start = 6.dp, top = 8.dp)
+            )
         }
     }
 

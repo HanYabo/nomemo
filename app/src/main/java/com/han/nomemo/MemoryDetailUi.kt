@@ -41,6 +41,8 @@ data class StructuredPickupInfo(
         get() = (addressDetail ?: locationTitle).orEmpty()
 }
 
+private val memoryDetailPanelShape = RoundedCornerShape(24.dp)
+
 @Composable
 fun NoMemoDetailReanalyzeButton(
     text: String,
@@ -59,7 +61,7 @@ fun NoMemoDetailReanalyzeButton(
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
+            shape = memoryDetailPanelShape,
             colors = CardDefaults.cardColors(
                 containerColor = if (enabled) palette.accent else palette.glassFill
             ),
@@ -96,7 +98,7 @@ fun NoMemoDetailSummaryBox(
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
     Card(
         modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
+        shape = memoryDetailPanelShape,
         colors = CardDefaults.cardColors(
             containerColor = noMemoCardSurfaceColor(isDark)
         )

@@ -53,6 +53,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -63,6 +64,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
@@ -72,6 +74,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -323,96 +327,116 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
         }
 
+        if (showImagePreview) {
+            DisposableEffect(Unit) {
+                val insetsController = WindowInsetsControllerCompat(window, window.decorView).apply {
+                    systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+                insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                onDispose {
+                    insetsController.show(WindowInsetsCompat.Type.statusBars())
+                    WindowStyleManager.apply(this@MemoryDetailActivity, provideWindowStyleConfig())
+                }
+            }
+        }
+
         NoMemoBackground {
-            ResponsiveContentFrame(spec = adaptive) { spec ->
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .navigationBarsPadding()
-                        .padding(
-                            start = spec.pageHorizontalPadding,
-                            top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
-                            end = spec.pageHorizontalPadding,
-                            bottom = 20.dp
-                        )
-                ) {
-                    val currentRecord = record
-                    if (currentRecord == null) {
-                        NoMemoEmptyState(
-                            iconRes = R.drawable.ic_nm_memory,
-                            title = "正在加载",
-                            modifier = Modifier.align(Alignment.Center)
-                        )
-                        return@Box
-                    }
-
-                    val titleText = deriveTitle(currentRecord)
-                    val summaryText = deriveInsightText(currentRecord)
-                    val createdAtText = rememberTime(currentRecord.createdAt)
-                    val detailTextStartPadding = if (spec.isNarrow) 12.dp else 18.dp
-                    val pickupInfo = remember(
-                        currentRecord.recordId,
-                        currentRecord.categoryCode,
-                        currentRecord.title,
-                        currentRecord.summary,
-                        currentRecord.analysis,
-                        currentRecord.memory,
-                        currentRecord.sourceText,
-                        currentRecord.note
+            Box(modifier = Modifier.fillMaxSize()) {
+                val configuration = LocalConfiguration.current
+                val screenAspectRatio = remember(configuration.screenWidthDp, configuration.screenHeightDp) {
+                    val width = configuration.screenWidthDp.toFloat().coerceAtLeast(1f)
+                    val height = configuration.screenHeightDp.toFloat().coerceAtLeast(1f)
+                    width / height
+                }
+                ResponsiveContentFrame(spec = adaptive) { spec ->
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .navigationBarsPadding()
+                            .padding(
+                                start = spec.pageHorizontalPadding,
+                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
+                                end = spec.pageHorizontalPadding,
+                                bottom = 20.dp
+                            )
                     ) {
-                        MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
-                    }
-                    var draftTitle by remember(currentRecord.recordId, currentRecord.title) {
-                        mutableStateOf(titleText)
-                    }
-                    var draftSummary by remember(currentRecord.recordId, currentRecord.summary, currentRecord.analysis) {
-                        mutableStateOf(summaryText)
-                    }
-                    var draftImageUri by remember(currentRecord.recordId, currentRecord.imageUri) {
-                        mutableStateOf(currentRecord.imageUri.orEmpty())
-                    }
-                    val imagePickerLauncher = rememberLauncherForActivityResult(
-                        ActivityResultContracts.OpenDocument()
-                    ) { uri ->
-                        if (uri == null) return@rememberLauncherForActivityResult
-                        try {
-                            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                        } catch (_: Exception) {
+                        val currentRecord = record
+                        if (currentRecord == null) {
+                            NoMemoEmptyState(
+                                iconRes = R.drawable.ic_nm_memory,
+                                title = "正在加载",
+                                modifier = Modifier.align(Alignment.Center)
+                            )
+                            return@Box
                         }
-                        draftImageUri = uri.toString()
-                    }
-                    val displayImageUri = if (editing) draftImageUri else currentRecord.imageUri.orEmpty()
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .align(Alignment.TopStart)
-                            .padding(top = 0.dp)
-                            .offset(y = (-4).dp)
-                            .zIndex(2f),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        GlassIconCircleButton(
-                            iconRes = R.drawable.ic_sheet_close,
-                            contentDescription = getString(R.string.back),
-                            onClick = onBack,
-                            size = spec.topActionButtonSize
-                        )
-                        Spacer(modifier = Modifier.weight(1f))
-                        GlassIconCircleButton(
-                            iconRes = R.drawable.ic_nm_more,
-                            contentDescription = getString(R.string.action_more),
-                            onClick = { moreMenuExpanded = true },
-                            size = spec.topActionButtonSize
-                        )
-                    }
 
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = spec.topActionButtonSize + 14.dp)
-                            .verticalScroll(rememberScrollState())
-                    ) {
+                        val titleText = deriveTitle(currentRecord)
+                        val summaryText = deriveInsightText(currentRecord)
+                        val createdAtText = rememberTime(currentRecord.createdAt)
+                        val detailTextStartPadding = if (spec.isNarrow) 12.dp else 18.dp
+                        val pickupInfo = remember(
+                            currentRecord.recordId,
+                            currentRecord.categoryCode,
+                            currentRecord.title,
+                            currentRecord.summary,
+                            currentRecord.analysis,
+                            currentRecord.memory,
+                            currentRecord.sourceText,
+                            currentRecord.note
+                        ) {
+                            MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
+                        }
+                        var draftTitle by remember(currentRecord.recordId, currentRecord.title) {
+                            mutableStateOf(titleText)
+                        }
+                        var draftSummary by remember(currentRecord.recordId, currentRecord.summary, currentRecord.analysis) {
+                            mutableStateOf(summaryText)
+                        }
+                        var draftImageUri by remember(currentRecord.recordId, currentRecord.imageUri) {
+                            mutableStateOf(currentRecord.imageUri.orEmpty())
+                        }
+                        val imagePickerLauncher = rememberLauncherForActivityResult(
+                            ActivityResultContracts.OpenDocument()
+                        ) { uri ->
+                            if (uri == null) return@rememberLauncherForActivityResult
+                            try {
+                                contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            } catch (_: Exception) {
+                            }
+                            draftImageUri = uri.toString()
+                        }
+                        val displayImageUri = if (editing) draftImageUri else currentRecord.imageUri.orEmpty()
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .align(Alignment.TopStart)
+                                .padding(top = 0.dp)
+                                .offset(y = (-4).dp)
+                                .zIndex(2f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            GlassIconCircleButton(
+                                iconRes = R.drawable.ic_sheet_close,
+                                contentDescription = getString(R.string.back),
+                                onClick = onBack,
+                                size = spec.topActionButtonSize
+                            )
+                            Spacer(modifier = Modifier.weight(1f))
+                            GlassIconCircleButton(
+                                iconRes = R.drawable.ic_nm_more,
+                                contentDescription = getString(R.string.action_more),
+                                onClick = { moreMenuExpanded = true },
+                                size = spec.topActionButtonSize
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = spec.topActionButtonSize + 14.dp)
+                                .verticalScroll(rememberScrollState())
+                        ) {
                         if (displayImageUri.isNotBlank()) {
                             Card(
                                 modifier = Modifier
@@ -638,123 +662,147 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         } else NoMemoDetailReanalyzeButton(
                             text = if (reanalyzing) "正在重新分析..." else "重新分析",
                             enabled = !reanalyzing,
-                            modifier = Modifier.padding(top = 28.dp),
+                            modifier = Modifier.padding(
+                                start = detailTextStartPadding,
+                                end = detailTextStartPadding,
+                                top = 28.dp
+                            ),
                             onClick = { onReanalyze(currentRecord) }
                         )
 
                         Spacer(modifier = Modifier.height(18.dp))
                     }
 
-                    if (moreMenuExpanded) {
-                        val dismissInteraction = remember { MutableInteractionSource() }
-                        Box(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .zIndex(4f)
-                        ) {
+                        if (moreMenuExpanded) {
+                            val dismissInteraction = remember { MutableInteractionSource() }
                             Box(
                                 modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable(
-                                        interactionSource = dismissInteraction,
-                                        indication = null,
-                                        onClick = { moreMenuExpanded = false }
-                                    )
-                            )
-                            DetailMoreMenuPanel(
-                                archived = currentRecord.isArchived,
-                                editing = editing,
-                                onEditToggle = {
-                                    moreMenuExpanded = false
-                                    editing = !editing
-                                    if (!editing) {
-                                        draftTitle = titleText
-                                        draftSummary = summaryText
-                                        draftImageUri = currentRecord.imageUri.orEmpty()
-                                    }
+                                    .fillMaxSize()
+                                    .zIndex(4f)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .matchParentSize()
+                                        .clickable(
+                                            interactionSource = dismissInteraction,
+                                            indication = null,
+                                            onClick = { moreMenuExpanded = false }
+                                        )
+                                )
+                                DetailMoreMenuPanel(
+                                    archived = currentRecord.isArchived,
+                                    editing = editing,
+                                    onEditToggle = {
+                                        moreMenuExpanded = false
+                                        editing = !editing
+                                        if (!editing) {
+                                            draftTitle = titleText
+                                            draftSummary = summaryText
+                                            draftImageUri = currentRecord.imageUri.orEmpty()
+                                        }
+                                    },
+                                    onArchiveToggle = {
+                                        moreMenuExpanded = false
+                                        onToggleArchive(currentRecord)
+                                    },
+                                    onDelete = {
+                                        moreMenuExpanded = false
+                                        showDeleteConfirm = true
+                                    },
+                                    modifier = Modifier
+                                        .align(Alignment.TopEnd)
+                                        .padding(top = spec.topActionButtonSize + 10.dp)
+                                )
+                            }
+                        }
+
+                        if (showDeleteConfirm) {
+                            NoMemoDeleteConfirmDialog(
+                                title = "确认删除",
+                                message = "确定删除这条记忆吗？",
+                                onConfirm = {
+                                    showDeleteConfirm = false
+                                    onDelete(currentRecord)
                                 },
-                                onArchiveToggle = {
-                                    moreMenuExpanded = false
-                                    onToggleArchive(currentRecord)
-                                },
-                                onDelete = {
-                                    moreMenuExpanded = false
-                                    showDeleteConfirm = true
-                                },
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .padding(top = spec.topActionButtonSize + 10.dp)
+                                onDismiss = { showDeleteConfirm = false }
                             )
                         }
                     }
+                }
 
-                    AnimatedVisibility(
-                        visible = showImagePreview && !currentRecord.imageUri.isNullOrBlank(),
-                        enter = fadeIn(animationSpec = tween(220)) + scaleIn(
-                            initialScale = 0.94f,
-                            animationSpec = tween(260)
-                        ),
-                        exit = fadeOut(animationSpec = tween(180)) + scaleOut(
-                            targetScale = 0.96f,
-                            animationSpec = tween(200)
-                        )
+                val previewRecord = record?.takeIf { !it.imageUri.isNullOrBlank() }
+                AnimatedVisibility(
+                    visible = showImagePreview && previewRecord != null,
+                    enter = fadeIn(animationSpec = tween(220)),
+                    exit = fadeOut(animationSpec = tween(180)),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .zIndex(20f)
+                ) {
+                    val previewDismissInteraction = remember { MutableInteractionSource() }
+                    var previewFillScreen by remember(previewRecord?.imageUri) { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
                     ) {
-                        val previewDismissInteraction = remember { MutableInteractionSource() }
+                        val previewVerticalInset = if (adaptive.isNarrow) 92.dp else 104.dp
                         Box(
                             modifier = Modifier
-                                .fillMaxSize()
-                                .zIndex(6f)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .matchParentSize()
-                                    .clickable(
-                                        interactionSource = previewDismissInteraction,
-                                        indication = null,
-                                        onClick = { showImagePreview = false }
-                                    )
-                            )
-                            AndroidView(
+                                .matchParentSize()
+                                .clickable(
+                                    interactionSource = previewDismissInteraction,
+                                    indication = null,
+                                    onClick = { showImagePreview = false }
+                                )
+                        )
+                        AndroidView(
                                 factory = { ctx ->
                                     ImageView(ctx).apply {
-                                        adjustViewBounds = true
+                                        adjustViewBounds = false
                                         scaleType = ImageView.ScaleType.FIT_CENTER
-                                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                        setBackgroundColor(android.graphics.Color.BLACK)
                                     }
                                 },
                                 modifier = Modifier
                                     .align(Alignment.Center)
                                     .fillMaxSize()
-                                    .padding(horizontal = 12.dp, vertical = 24.dp),
+                                    .padding(
+                                        top = if (previewFillScreen) 0.dp else previewVerticalInset,
+                                        bottom = if (previewFillScreen) 0.dp else previewVerticalInset
+                                    ),
                                 update = { imageView ->
                                     try {
-                                        imageView.setImageURI(Uri.parse(currentRecord.imageUri))
+                                        imageView.setImageURI(Uri.parse(previewRecord!!.imageUri))
+                                        val drawable = imageView.drawable
+                                        val imageAspectRatio = if (drawable != null && drawable.intrinsicWidth > 0 && drawable.intrinsicHeight > 0) {
+                                            drawable.intrinsicWidth.toFloat() / drawable.intrinsicHeight.toFloat()
+                                        } else {
+                                            0f
+                                        }
+                                        val shouldFillScreen = imageAspectRatio > 0f &&
+                                            isAspectRatioCloseToScreen(imageAspectRatio, screenAspectRatio)
+                                        previewFillScreen = shouldFillScreen
+                                        imageView.scaleType = if (shouldFillScreen) {
+                                            ImageView.ScaleType.CENTER_CROP
+                                        } else {
+                                            ImageView.ScaleType.FIT_CENTER
+                                        }
                                     } catch (_: Exception) {
                                         imageView.setImageDrawable(null)
+                                        previewFillScreen = false
                                     }
                                 }
                             )
-                            GlassIconCircleButton(
-                                iconRes = R.drawable.ic_sheet_close,
-                                contentDescription = getString(R.string.cancel),
-                                onClick = { showImagePreview = false },
-                                size = spec.topActionButtonSize,
-                                modifier = Modifier
-                                    .align(Alignment.TopEnd)
-                                    .offset(y = (-4).dp)
-                            )
-                        }
-                    }
-
-                    if (showDeleteConfirm) {
-                        NoMemoDeleteConfirmDialog(
-                            title = "确认删除",
-                            message = "确定删除这条记忆吗？",
-                            onConfirm = {
-                                showDeleteConfirm = false
-                                onDelete(currentRecord)
-                            },
-                            onDismiss = { showDeleteConfirm = false }
+                        MemoryDetailPreviewCloseButton(
+                            iconRes = R.drawable.ic_sheet_close,
+                            contentDescription = getString(R.string.cancel),
+                            onClick = { showImagePreview = false },
+                            size = if (adaptive.isNarrow) 68.dp else 76.dp,
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(bottom = 18.dp)
                         )
                     }
                 }
@@ -809,6 +857,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
         Toast.makeText(this, "未找到可用地图应用", Toast.LENGTH_SHORT).show()
     }
 
+    private fun isAspectRatioCloseToScreen(imageAspectRatio: Float, screenAspectRatio: Float): Boolean {
+        if (imageAspectRatio <= 0f || screenAspectRatio <= 0f) {
+            return false
+        }
+        return kotlin.math.abs(imageAspectRatio - screenAspectRatio) <= 0.03f
+    }
+
     @Composable
     private fun DetailMetaDivider(color: Color) {
         Spacer(modifier = Modifier.width(7.dp))
@@ -819,6 +874,37 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 .background(color.copy(alpha = 0.72f))
         )
         Spacer(modifier = Modifier.width(7.dp))
+    }
+
+    @Composable
+    private fun MemoryDetailPreviewCloseButton(
+        iconRes: Int,
+        contentDescription: String,
+        onClick: () -> Unit,
+        size: androidx.compose.ui.unit.Dp,
+        modifier: Modifier = Modifier
+    ) {
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier.size(size)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(CircleShape)
+                    .background(Color.White.copy(alpha = 0.14f))
+                    .border(1.dp, Color.White.copy(alpha = 0.10f), CircleShape)
+            ) {
+                Icon(
+                    painter = painterResource(id = iconRes),
+                    contentDescription = contentDescription,
+                    tint = Color.White,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .size(24.dp)
+                )
+            }
+        }
     }
 
 
