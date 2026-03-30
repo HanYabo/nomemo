@@ -235,7 +235,7 @@ class SettingsActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val pageBackground = if (isDark) Color.Black else Color.White
+        val pageBackground = palette.memoBgStart
         val cardSurface = noMemoCardSurfaceColor(isDark)
         val softSurface = if (isDark) noMemoCardSurfaceColor(true) else Color(0xFFF7F7FA)
         val titleColor = if (isDark) Color(0xFFF7F8FA) else Color(0xFF111111)
@@ -635,9 +635,10 @@ class SettingsActivity : BaseComposeActivity() {
                 .fillMaxWidth()
                 .padding(top = 10.dp)
         ) {
-            SettingsCircleBackButton(
+            GlassIconCircleButton(
+                iconRes = R.drawable.ic_sheet_close,
+                contentDescription = "返回",
                 onClick = onBack,
-                iconTint = titleColor,
                 modifier = Modifier.align(Alignment.CenterStart),
                 size = spec.topActionButtonSize
             )

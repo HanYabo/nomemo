@@ -1,12 +1,17 @@
 ﻿package com.han.nomemo
 
 import android.content.BroadcastReceiver
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
+import android.provider.MediaStore
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -23,9 +28,12 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.text.BasicTextField
@@ -68,12 +76,17 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -86,9 +99,13 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.lifecycleScope
+import java.io.File
+import java.io.FileOutputStream
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -327,13 +344,19 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val density = LocalDensity.current
+        val configuration = LocalConfiguration.current
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var showImagePreview by remember { mutableStateOf(false) }
+        var showPreviewActionMenu by remember { mutableStateOf(false) }
         var editing by remember(record?.recordId) { mutableStateOf(false) }
         var imageCardBounds by remember(record?.recordId) { mutableStateOf(Rect.Zero) }
         val previewRecord = record?.takeIf { !it.imageUri.isNullOrBlank() }
         var previewImageAspectRatio by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf<Float?>(null) }
+        var previewBitmap by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf<Bitmap?>(null) }
+        var previewScale by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(1f) }
+        var previewOffsetX by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
+        var previewOffsetY by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
         val previewTransition = updateTransition(
             targetState = showImagePreview && previewRecord != null,
             label = "memoryDetailPreview"
@@ -344,10 +367,31 @@ class MemoryDetailActivity : BaseComposeActivity() {
             previewImageAspectRatio = withContext(Dispatchers.IO) {
                 resolveImageAspectRatio(previewRecord?.imageUri)
             }
+            previewBitmap = withContext(Dispatchers.IO) {
+                decodePreviewBitmap(
+                    uriString = previewRecord?.imageUri,
+                    requestedMaxSize = maxOf(configuration.screenWidthDp, configuration.screenHeightDp) * 3
+                )
+            }
         }
 
-        BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showImagePreview || editing) {
+        LaunchedEffect(showImagePreview) {
+            if (!showImagePreview) {
+                showPreviewActionMenu = false
+            }
+        }
+
+        LaunchedEffect(previewOverlayVisible, previewRecord?.recordId) {
+            if (!previewOverlayVisible) {
+                previewScale = 1f
+                previewOffsetX = 0f
+                previewOffsetY = 0f
+            }
+        }
+
+        BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showImagePreview || editing || showPreviewActionMenu) {
             when {
+                showPreviewActionMenu -> showPreviewActionMenu = false
                 showImagePreview -> showImagePreview = false
                 showDeleteConfirm -> showDeleteConfirm = false
                 moreMenuExpanded -> moreMenuExpanded = false
@@ -370,7 +414,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
         NoMemoBackground {
             Box(modifier = Modifier.fillMaxSize()) {
-                val configuration = LocalConfiguration.current
                 val screenAspectRatio = remember(configuration.screenWidthDp, configuration.screenHeightDp) {
                     val width = configuration.screenWidthDp.toFloat().coerceAtLeast(1f)
                     val height = configuration.screenHeightDp.toFloat().coerceAtLeast(1f)
@@ -802,7 +845,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             tween(durationMillis = 280, easing = FastOutSlowInEasing)
                         },
                         label = "previewAlpha"
-                    ) { expanded -> if (expanded) 0.94f else 0f }
+                    ) { expanded -> if (expanded) 1f else 0f }
                     val previewProgress by previewTransition.animateFloat(
                         transitionSpec = {
                             tween(durationMillis = 280, easing = FastOutSlowInEasing)
@@ -822,6 +865,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val animatedCornerRadius = with(density) {
                         ((1f - previewProgress) * 28.dp.value).dp
                     }
+                    val previewInteractive = previewProgress >= 0.98f
+                    val clampedPreviewScale = previewScale.coerceIn(1f, 4f)
+                    val previewButtonSize = adaptive.topActionButtonSize
+                    val previewCloseButtonSize = if (adaptive.isNarrow) 68.dp else 76.dp
 
                     Box(
                         modifier = Modifier
@@ -851,27 +898,125 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     height = with(density) { animatedHeight.toDp() }
                                 )
                                 .clip(RoundedCornerShape(animatedCornerRadius))
-                        ) {
-                            AndroidView(
-                                factory = { ctx ->
-                                    ImageView(ctx).apply {
-                                        adjustViewBounds = false
-                                        scaleType = ImageView.ScaleType.FIT_CENTER
-                                        setBackgroundColor(android.graphics.Color.BLACK)
-                                    }
-                                },
-                                modifier = Modifier.fillMaxSize(),
-                                update = { imageView ->
-                                    try {
-                                        imageView.setImageURI(Uri.parse(previewRecord.imageUri))
-                                        imageView.scaleType = if (previewFillScreen) {
-                                            ImageView.ScaleType.CENTER_CROP
-                                        } else {
-                                            ImageView.ScaleType.FIT_CENTER
+                                .pointerInput(previewInteractive, clampedPreviewScale) {
+                                    if (!previewInteractive) return@pointerInput
+                                    detectTapGestures(
+                                        onDoubleTap = {
+                                            if (clampedPreviewScale > 1f) {
+                                                previewScale = 1f
+                                                previewOffsetX = 0f
+                                                previewOffsetY = 0f
+                                            } else {
+                                                previewScale = 2.2f
+                                            }
                                         }
-                                    } catch (_: Exception) {
-                                        imageView.setImageDrawable(null)
+                                    )
+                                }
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black)
+                                    .pointerInput(previewInteractive, animatedWidth, animatedHeight) {
+                                        if (!previewInteractive) return@pointerInput
+                                        detectTransformGestures { _, pan, zoom, _ ->
+                                            val nextScale = (previewScale * zoom).coerceIn(1f, 4f)
+                                            previewScale = nextScale
+                                            previewOffsetX = clampPreviewTranslation(
+                                                containerSizePx = animatedWidth,
+                                                scale = nextScale,
+                                                translation = previewOffsetX + pan.x
+                                            )
+                                            previewOffsetY = clampPreviewTranslation(
+                                                containerSizePx = animatedHeight,
+                                                scale = nextScale,
+                                                translation = previewOffsetY + pan.y
+                                            )
+                                        }
                                     }
+                            ) {
+                                val bitmap = previewBitmap
+                                if (bitmap != null) {
+                                    Image(
+                                        bitmap = bitmap.asImageBitmap(),
+                                        contentDescription = "预览图片",
+                                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer {
+                                                scaleX = clampedPreviewScale
+                                                scaleY = clampedPreviewScale
+                                                translationX = clampPreviewTranslation(
+                                                    containerSizePx = animatedWidth,
+                                                    scale = clampedPreviewScale,
+                                                    translation = previewOffsetX
+                                                )
+                                                translationY = clampPreviewTranslation(
+                                                    containerSizePx = animatedHeight,
+                                                    scale = clampedPreviewScale,
+                                                    translation = previewOffsetY
+                                                )
+                                            }
+                                    )
+                                } else {
+                                    AndroidView(
+                                        factory = { ctx ->
+                                            ImageView(ctx).apply {
+                                                adjustViewBounds = false
+                                                scaleType = ImageView.ScaleType.FIT_CENTER
+                                                setBackgroundColor(android.graphics.Color.BLACK)
+                                            }
+                                        },
+                                        modifier = Modifier.fillMaxSize(),
+                                        update = { imageView ->
+                                            try {
+                                                imageView.setImageURI(Uri.parse(previewRecord.imageUri))
+                                                imageView.scaleType = if (previewFillScreen) {
+                                                    ImageView.ScaleType.CENTER_CROP
+                                                } else {
+                                                    ImageView.ScaleType.FIT_CENTER
+                                                }
+                                            } catch (_: Exception) {
+                                                imageView.setImageDrawable(null)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        MemoryDetailPreviewIconButton(
+                            iconRes = R.drawable.ic_nm_more,
+                            contentDescription = "更多操作",
+                            onClick = { showPreviewActionMenu = !showPreviewActionMenu },
+                            size = previewButtonSize,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .statusBarsPadding()
+                                .alpha(buttonAlpha)
+                                .padding(
+                                    top = (adaptive.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
+                                    end = adaptive.pageHorizontalPadding
+                                )
+                                .offset(y = (-4).dp)
+                        )
+                        NoMemoMenuPopup(
+                            expanded = showPreviewActionMenu,
+                            onDismissRequest = { showPreviewActionMenu = false },
+                            modifier = Modifier
+                                .statusBarsPadding()
+                                .padding(
+                                    top = 10.dp + previewButtonSize + 10.dp,
+                                    end = adaptive.pageHorizontalPadding
+                                )
+                        ) {
+                            PreviewImageActionMenuPanel(
+                                onSaveImage = {
+                                    showPreviewActionMenu = false
+                                    savePreviewImage(previewRecord.imageUri.orEmpty())
+                                },
+                                onShareImage = {
+                                    showPreviewActionMenu = false
+                                    sharePreviewImage(previewRecord.imageUri.orEmpty())
                                 }
                             )
                         }
@@ -879,7 +1024,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             iconRes = R.drawable.ic_sheet_close,
                             contentDescription = getString(R.string.cancel),
                             onClick = { showImagePreview = false },
-                            size = if (adaptive.isNarrow) 68.dp else 76.dp,
+                            size = previewCloseButtonSize,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
@@ -985,7 +1130,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             val options = BitmapFactory.Options().apply {
                 inJustDecodeBounds = true
             }
-            contentResolver.openInputStream(Uri.parse(uriString))?.use { input ->
+            openImageInputStream(uriString)?.use { input ->
                 BitmapFactory.decodeStream(input, null, options)
             }
             if (options.outWidth > 0 && options.outHeight > 0) {
@@ -994,6 +1139,176 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 null
             }
         }.getOrNull()
+    }
+
+    private fun decodePreviewBitmap(uriString: String?, requestedMaxSize: Int): Bitmap? {
+        if (uriString.isNullOrBlank()) {
+            return null
+        }
+        return runCatching {
+            val bounds = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            openImageInputStream(uriString)?.use { input ->
+                BitmapFactory.decodeStream(input, null, bounds)
+            }
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+                return null
+            }
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = calculatePreviewInSampleSize(
+                    width = bounds.outWidth,
+                    height = bounds.outHeight,
+                    requestedMaxSize = requestedMaxSize
+                )
+            }
+            openImageInputStream(uriString)?.use { input ->
+                BitmapFactory.decodeStream(input, null, decodeOptions)
+            }
+        }.getOrNull()
+    }
+
+    private fun calculatePreviewInSampleSize(width: Int, height: Int, requestedMaxSize: Int): Int {
+        var inSampleSize = 1
+        var currentWidth = width
+        var currentHeight = height
+        while (currentWidth > requestedMaxSize || currentHeight > requestedMaxSize) {
+            currentWidth /= 2
+            currentHeight /= 2
+            inSampleSize *= 2
+        }
+        return inSampleSize.coerceAtLeast(1)
+    }
+
+    private fun clampPreviewTranslation(containerSizePx: Float, scale: Float, translation: Float): Float {
+        val maxTranslation = ((containerSizePx * scale) - containerSizePx) / 2f
+        if (maxTranslation <= 0f) {
+            return 0f
+        }
+        return translation.coerceIn(-maxTranslation, maxTranslation)
+    }
+
+    private fun openImageInputStream(uriString: String): InputStream? {
+        val parsed = Uri.parse(uriString)
+        return when {
+            parsed.scheme.isNullOrBlank() -> {
+                val file = File(uriString)
+                if (file.exists()) file.inputStream() else null
+            }
+            parsed.scheme.equals("file", ignoreCase = true) -> {
+                parsed.path?.let { path ->
+                    val file = File(path)
+                    if (file.exists()) file.inputStream() else null
+                }
+            }
+            else -> contentResolver.openInputStream(parsed)
+        }
+    }
+
+    private fun savePreviewImage(uriString: String) {
+        if (uriString.isBlank()) {
+            Toast.makeText(this, "没有可保存的图片", Toast.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch {
+            val saved = withContext(Dispatchers.IO) {
+                runCatching { saveImageToGalleryInternal(uriString) }.getOrNull()
+            }
+            if (saved != null) {
+                Toast.makeText(this@MemoryDetailActivity, "图片已保存", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MemoryDetailActivity, "保存图片失败", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun sharePreviewImage(uriString: String) {
+        if (uriString.isBlank()) {
+            Toast.makeText(this, "没有可分享的图片", Toast.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch {
+            val shareUri = withContext(Dispatchers.IO) {
+                runCatching { preparePreviewShareUri(uriString) }.getOrNull()
+            }
+            if (shareUri == null) {
+                Toast.makeText(this@MemoryDetailActivity, "分享图片失败", Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                type = contentResolver.getType(shareUri) ?: "image/*"
+                putExtra(Intent.EXTRA_STREAM, shareUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(shareIntent, "分享图片"))
+        }
+    }
+
+    private fun saveImageToGalleryInternal(uriString: String): Uri? {
+        val extension = resolveImageExtension(uriString)
+        val mimeType = "image/$extension"
+        val fileName = "NoMemo_${System.currentTimeMillis()}.$extension"
+        val inputStream = openImageInputStream(uriString) ?: return null
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+            val contentValues = ContentValues().apply {
+                put(MediaStore.Images.Media.DISPLAY_NAME, fileName)
+                put(MediaStore.Images.Media.MIME_TYPE, mimeType)
+                put(MediaStore.Images.Media.RELATIVE_PATH, "${Environment.DIRECTORY_PICTURES}/NoMemo")
+                put(MediaStore.Images.Media.IS_PENDING, 1)
+            }
+            val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+                ?: return null
+            inputStream.use { input ->
+                contentResolver.openOutputStream(uri)?.use { output ->
+                    input.copyTo(output)
+                } ?: return null
+            }
+            contentValues.clear()
+            contentValues.put(MediaStore.Images.Media.IS_PENDING, 0)
+            contentResolver.update(uri, contentValues, null, null)
+            uri
+        } else {
+            val picturesDir = File(
+                getExternalFilesDir(Environment.DIRECTORY_PICTURES),
+                "NoMemo"
+            ).apply { mkdirs() }
+            val file = File(picturesDir, fileName)
+            inputStream.use { input ->
+                FileOutputStream(file).use { output ->
+                    input.copyTo(output)
+                }
+            }
+            MediaScannerConnection.scanFile(this, arrayOf(file.absolutePath), arrayOf(mimeType), null)
+            Uri.fromFile(file)
+        }
+    }
+
+    private fun preparePreviewShareUri(uriString: String): Uri? {
+        val extension = resolveImageExtension(uriString)
+        val mimeType = "image/$extension"
+        val cacheDir = File(cacheDir, "shared_images").apply { mkdirs() }
+        val file = File(cacheDir, "nomemo_share_${System.currentTimeMillis()}.$extension")
+        openImageInputStream(uriString)?.use { input ->
+            FileOutputStream(file).use { output ->
+                input.copyTo(output)
+            }
+        } ?: return null
+        MediaScannerConnection.scanFile(this, arrayOf(file.absolutePath), arrayOf(mimeType), null)
+        return FileProvider.getUriForFile(
+            this,
+            "${packageName}.fileprovider",
+            file
+        )
+    }
+
+    private fun resolveImageExtension(uriString: String): String {
+        val parsed = Uri.parse(uriString)
+        val mimeType = runCatching { contentResolver.getType(parsed) }.getOrNull().orEmpty()
+        return when {
+            mimeType.endsWith("png") -> "png"
+            mimeType.endsWith("webp") -> "webp"
+            else -> "jpg"
+        }
     }
 
     @Composable
@@ -1016,6 +1331,40 @@ class MemoryDetailActivity : BaseComposeActivity() {
         size: androidx.compose.ui.unit.Dp,
         modifier: Modifier = Modifier
     ) {
+        MemoryDetailPreviewIconButton(
+            iconRes = iconRes,
+            contentDescription = contentDescription,
+            onClick = onClick,
+            size = size,
+            modifier = modifier
+        )
+    }
+
+    @Composable
+    private fun MemoryDetailPreviewIconButton(
+        iconRes: Int,
+        contentDescription: String,
+        onClick: () -> Unit,
+        size: androidx.compose.ui.unit.Dp,
+        modifier: Modifier = Modifier
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val buttonSurface = if (isDark) {
+            Color(0xFF111111).copy(alpha = 0.92f)
+        } else {
+            Color.White.copy(alpha = 0.94f)
+        }
+        val iconTint = if (isDark) Color.White else Color(0xFF121212)
+        val borderColor = if (isDark) {
+            Color.White.copy(alpha = 0.16f)
+        } else {
+            Color.Black.copy(alpha = 0.08f)
+        }
+        val shadowColor = if (isDark) {
+            Color.Black.copy(alpha = 0.32f)
+        } else {
+            Color.Black.copy(alpha = 0.18f)
+        }
         PressScaleBox(
             onClick = onClick,
             modifier = modifier
@@ -1023,28 +1372,50 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 .shadow(
                     elevation = 18.dp,
                     shape = CircleShape,
-                    ambientColor = Color.Black.copy(alpha = 0.32f),
-                    spotColor = Color.Black.copy(alpha = 0.32f)
+                    ambientColor = shadowColor,
+                    spotColor = shadowColor
                 )
         ) {
-            val buttonSurface = Color(0xFF111111).copy(alpha = 0.90f)
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(CircleShape)
                     .background(buttonSurface)
-                    .border(1.dp, Color.White.copy(alpha = 0.16f), CircleShape)
+                    .border(1.dp, borderColor, CircleShape)
             ) {
                 Icon(
                     painter = painterResource(id = iconRes),
                     contentDescription = contentDescription,
-                    tint = Color.White,
+                    tint = iconTint,
                     modifier = Modifier
                         .align(Alignment.Center)
                         .size(24.dp)
                 )
             }
         }
+    }
+
+    @Composable
+    private fun PreviewImageActionMenuPanel(
+        onSaveImage: () -> Unit,
+        onShareImage: () -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        NoMemoActionMenuPanel(
+            actions = listOf(
+                NoMemoMenuActionItem(
+                    iconRes = R.drawable.ic_nm_download,
+                    label = "保存图片",
+                    onClick = onSaveImage
+                ),
+                NoMemoMenuActionItem(
+                    iconRes = R.drawable.ic_nm_share,
+                    label = "分享图片",
+                    onClick = onShareImage
+                )
+            ),
+            modifier = modifier
+        )
     }
 
 

@@ -95,8 +95,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -798,30 +796,41 @@ fun NoMemoMenuPopup(
     transitionState.targetState = expanded
 
     if (transitionState.currentState || transitionState.targetState) {
-        Popup(
-            alignment = Alignment.TopEnd,
-            onDismissRequest = onDismissRequest,
-            properties = PopupProperties(
-                focusable = true,
-                dismissOnBackPress = true,
-                dismissOnClickOutside = true
-            )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(5f)
         ) {
-            AnimatedVisibility(
-                visibleState = transitionState,
-                enter = fadeIn(animationSpec = tween(170)) + scaleIn(
-                    initialScale = 0.92f,
-                    transformOrigin = TransformOrigin(1f, 0f),
-                    animationSpec = tween(220, easing = FastOutSlowInEasing)
-                ),
-                exit = fadeOut(animationSpec = tween(120)) + scaleOut(
-                    targetScale = 0.96f,
-                    transformOrigin = TransformOrigin(1f, 0f),
-                    animationSpec = tween(160, easing = FastOutSlowInEasing)
-                )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismissRequest
+                    )
+            )
+
+            Box(
+                modifier = Modifier.fillMaxSize()
             ) {
-                Box(modifier = modifier) {
-                    content()
+                AnimatedVisibility(
+                    modifier = Modifier.align(Alignment.TopEnd),
+                    visibleState = transitionState,
+                    enter = fadeIn(animationSpec = tween(170)) + scaleIn(
+                        initialScale = 0.92f,
+                        transformOrigin = TransformOrigin(1f, 0f),
+                        animationSpec = tween(220, easing = FastOutSlowInEasing)
+                    ),
+                    exit = fadeOut(animationSpec = tween(120)) + scaleOut(
+                        targetScale = 0.96f,
+                        transformOrigin = TransformOrigin(1f, 0f),
+                        animationSpec = tween(160, easing = FastOutSlowInEasing)
+                    )
+                ) {
+                    Box(modifier = modifier) {
+                        content()
+                    }
                 }
             }
         }
@@ -1430,29 +1439,31 @@ private fun RowScope.DockNavItem(
 }
 
 private fun loadSampledBitmap(context: android.content.Context, uri: Uri, widthPx: Int, heightPx: Int): Bitmap? {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    context.contentResolver.openInputStream(uri)?.use { stream ->
-        BitmapFactory.decodeStream(stream, null, bounds)
-    } ?: return null
+    return runCatching {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, bounds)
+        } ?: return null
 
-    val targetWidth = widthPx.coerceAtLeast(1)
-    val targetHeight = heightPx.coerceAtLeast(1)
-    var sampleSize = 1
-    var sourceWidth = bounds.outWidth
-    var sourceHeight = bounds.outHeight
-    while (sourceWidth / 2 >= targetWidth && sourceHeight / 2 >= targetHeight) {
-        sourceWidth /= 2
-        sourceHeight /= 2
-        sampleSize *= 2
-    }
+        val targetWidth = widthPx.coerceAtLeast(1)
+        val targetHeight = heightPx.coerceAtLeast(1)
+        var sampleSize = 1
+        var sourceWidth = bounds.outWidth
+        var sourceHeight = bounds.outHeight
+        while (sourceWidth / 2 >= targetWidth && sourceHeight / 2 >= targetHeight) {
+            sourceWidth /= 2
+            sourceHeight /= 2
+            sampleSize *= 2
+        }
 
-    val options = BitmapFactory.Options().apply {
-        inSampleSize = sampleSize
-        inPreferredConfig = Bitmap.Config.ARGB_8888
-    }
-    return context.contentResolver.openInputStream(uri)?.use { stream ->
-        BitmapFactory.decodeStream(stream, null, options)
-    }
+        val options = BitmapFactory.Options().apply {
+            inSampleSize = sampleSize
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+        }
+        context.contentResolver.openInputStream(uri)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, options)
+        }
+    }.getOrNull()
 }
 
 private fun loadMemoryThumbnail(
@@ -1465,15 +1476,15 @@ private fun loadMemoryThumbnail(
     val key = "$uriString@$widthPx x $heightPx"
     MemoryThumbnailCache.get(key)?.let { return it }
     val uri = Uri.parse(uriString)
-    val bitmap = try {
+    val bitmap = runCatching {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             context.contentResolver.loadThumbnail(uri, Size(widthPx.coerceAtLeast(1), heightPx.coerceAtLeast(1)), null)
         } else {
             loadSampledBitmap(context, uri, widthPx, heightPx)
         }
-    } catch (_: Exception) {
+    }.recoverCatching {
         loadSampledBitmap(context, uri, widthPx, heightPx)
-    }
+    }.getOrNull()
     if (bitmap != null) {
         MemoryThumbnailCache.put(key, bitmap)
     }
