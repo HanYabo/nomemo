@@ -762,13 +762,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 start = detailTextStartPadding,
                                 end = detailTextStartPadding,
                                 top = 28.dp,
-                                // 底部padding
-                                bottom = 10.dp
                             ),
                             onClick = { onReanalyze(currentRecord) }
                         )
-
-                        Spacer(modifier = Modifier.height(18.dp))
+                        Spacer(modifier = Modifier.height(28.dp))
                     }
 
                         NoMemoMenuPopup(

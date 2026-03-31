@@ -246,6 +246,7 @@ class ReminderActivity : BaseComposeActivity() {
         var searchEnabled by remember { mutableStateOf(false) }
         var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
+        var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
         val dockHasUnderContent = rememberDockHasUnderContent(
             listState = listState,
@@ -276,6 +277,12 @@ class ReminderActivity : BaseComposeActivity() {
             if (selectedRecordId != null && selectedRecord == null) {
                 selectedRecordId = null
                 showDeleteConfirm = false
+            }
+        }
+        LaunchedEffect(showAddSheet, pendingScrollToTopAfterAdd) {
+            if (!showAddSheet && pendingScrollToTopAfterAdd) {
+                listState.animateScrollToItem(0)
+                pendingScrollToTopAfterAdd = false
             }
         }
         BackHandler(enabled = selectedRecordId != null) {
@@ -493,7 +500,10 @@ class ReminderActivity : BaseComposeActivity() {
                     }
 
                     if (showAddSheet) {
-                        AddMemorySheet(onDismiss = onDismissAddSheet)
+                        AddMemorySheet(
+                            onDismiss = onDismissAddSheet,
+                            onSaved = { pendingScrollToTopAfterAdd = true }
+                        )
                     }
                 }
             }

@@ -279,6 +279,7 @@ class MainActivity : BaseComposeActivity() {
         var searchEnabled by remember { mutableStateOf(false) }
         var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
+        var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
 
         val selectedRecords = remember(records, selectedRecordIds) {
             records.filter { selectedRecordIds.contains(it.recordId) }
@@ -370,6 +371,12 @@ class MainActivity : BaseComposeActivity() {
             }
             if (selectedRecordIds.isNotEmpty() && sanitizedIds.isEmpty()) {
                 showDeleteConfirm = false
+            }
+        }
+        LaunchedEffect(showAddSheet, pendingScrollToTopAfterAdd) {
+            if (!showAddSheet && pendingScrollToTopAfterAdd) {
+                listState.animateScrollToItem(0)
+                pendingScrollToTopAfterAdd = false
             }
         }
         BackHandler(enabled = selectedRecordIds.isNotEmpty()) {
@@ -609,7 +616,10 @@ class MainActivity : BaseComposeActivity() {
                     }
 
                     if (showAddSheet) {
-                        AddMemorySheet(onDismiss = onDismissAddSheet)
+                        AddMemorySheet(
+                            onDismiss = onDismissAddSheet,
+                            onSaved = { pendingScrollToTopAfterAdd = true }
+                        )
                     }
                 }
             }
