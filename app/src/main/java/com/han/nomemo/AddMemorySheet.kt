@@ -81,6 +81,7 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
 import kotlinx.coroutines.delay
+import java.io.File
 
 @Composable
 fun AddMemorySheet(
@@ -173,11 +174,17 @@ fun AddMemorySheet(
 
     val pickImageLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        selectedImageUri = uri
         try {
             context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
         } catch (_: Exception) {
         }
+        // 复制图片到应用缓存并保存拷贝 URI（file://...）
+        val copiedUriString = try {
+            ImageUtils.copyUriToCache(context, uri)
+        } catch (_: Exception) {
+            null
+        }
+        selectedImageUri = if (copiedUriString != null) Uri.parse(copiedUriString) else uri
         imageStatusText = queryDisplayName(context, uri)
     }
 

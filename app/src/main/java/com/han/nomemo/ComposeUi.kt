@@ -1475,16 +1475,51 @@ private fun loadMemoryThumbnail(
     if (uriString.isBlank()) return null
     val key = "$uriString@$widthPx x $heightPx"
     MemoryThumbnailCache.get(key)?.let { return it }
-    val uri = Uri.parse(uriString)
-    val bitmap = runCatching {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            context.contentResolver.loadThumbnail(uri, Size(widthPx.coerceAtLeast(1), heightPx.coerceAtLeast(1)), null)
-        } else {
-            loadSampledBitmap(context, uri, widthPx, heightPx)
+
+    // Try multiple strategies to load the thumbnail:
+    // 1) Treat as content/file URI and use ContentResolver (loadThumbnail / openInputStream)
+    // 2) Treat as absolute file path and decode directly
+    // 3) If it's a file:// URI, decode by path
+    var bitmap: Bitmap? = null
+    // Strategy A: parse as URI and try ContentResolver
+    val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
+    if (parsedUri != null) {
+        bitmap = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                context.contentResolver.loadThumbnail(parsedUri, Size(widthPx.coerceAtLeast(1), heightPx.coerceAtLeast(1)), null)
+            } else {
+                loadSampledBitmap(context, parsedUri, widthPx, heightPx)
+            }
+        }.getOrNull()
+        if (bitmap == null) {
+            // try openInputStream fallback
+            bitmap = runCatching {
+                context.contentResolver.openInputStream(parsedUri)?.use { stream ->
+                    BitmapFactory.decodeStream(stream)
+                }
+            }.getOrNull()
         }
-    }.recoverCatching {
-        loadSampledBitmap(context, uri, widthPx, heightPx)
-    }.getOrNull()
+    }
+
+    // Strategy B: treat uriString as a raw file path
+    if (bitmap == null) {
+        try {
+            val file = java.io.File(uriString)
+            if (file.exists()) {
+                bitmap = BitmapFactory.decodeFile(file.absolutePath)
+            }
+        } catch (_: Exception) {
+        }
+    }
+
+    // Strategy C: if parsedUri is file://, try decode by its path
+    if (bitmap == null && parsedUri != null && parsedUri.scheme == "file") {
+        val path = parsedUri.path
+        if (!path.isNullOrBlank()) {
+            bitmap = runCatching { BitmapFactory.decodeFile(path) }.getOrNull()
+        }
+    }
+
     if (bitmap != null) {
         MemoryThumbnailCache.put(key, bitmap)
     }

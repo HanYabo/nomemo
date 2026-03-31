@@ -479,7 +479,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
                             } catch (_: Exception) {
                             }
-                            draftImageUri = uri.toString()
+                            // 复制选中的图片到应用缓存，保存原图副本
+                            this@MemoryDetailActivity.lifecycleScope.launch {
+                                val copied = withContext(Dispatchers.IO) {
+                                    ImageUtils.copyUriToCache(this@MemoryDetailActivity, uri)
+                                }
+                                draftImageUri = copied ?: uri.toString()
+                            }
                         }
                         val displayImageUri = if (editing) draftImageUri else currentRecord.imageUri.orEmpty()
                         val commitEdits = {

@@ -253,6 +253,12 @@ public class MemoryRecord {
         String sourceText = json.optString("sourceText", "");
         String title = json.optString("title", deriveTitle(memory, sourceText, categoryName));
         String summary = json.optString("summary", deriveSummary(memory, sourceText));
+        String rawImageUri = json.optString("imageUri", "");
+        String imageUri = rawImageUri == null ? "" : rawImageUri;
+        if (!imageUri.isEmpty() && !imageUri.contains("://")) {
+            imageUri = "file://" + imageUri;
+        }
+
         return new MemoryRecord(
                 json.optString("recordId", UUID.randomUUID().toString()),
                 createdAt,
@@ -261,7 +267,7 @@ public class MemoryRecord {
                 summary,
                 sourceText,
                 json.optString("note", ""),
-                json.optString("imageUri", ""),
+            imageUri,
                 json.optString("analysis", ""),
                 memory,
                 json.optString("engine", "manual"),

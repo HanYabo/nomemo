@@ -41,6 +41,56 @@ public class MemoryStore {
             preferences.edit().putString(KEY_RECORDS, "[]").apply();
             raw = "[]";
         }
+        // Ensure images are stored in app cache: copy external/content URIs to file:// cache and update records
+        boolean updatedAny = false;
+        List<MemoryRecord> normalized = new ArrayList<>();
+        for (MemoryRecord r : records) {
+            String img = r.getImageUri();
+            String normalizedUri = img == null ? "" : img;
+            if (!normalizedUri.isEmpty() && !normalizedUri.startsWith("file://")) {
+                try {
+                    // Copy to cache; ImageUtils is a Kotlin object, call INSTANCE
+                    android.net.Uri parsed = android.net.Uri.parse(normalizedUri);
+                    String copied = ImageUtils.INSTANCE.copyUriToCache(appContext, parsed);
+                    if (copied != null && !copied.isEmpty()) {
+                        normalizedUri = copied;
+                    }
+                } catch (Exception ignored) {
+                }
+            }
+            if (!normalizedUri.equals(img)) {
+                // create updated record with new imageUri
+                MemoryRecord updated = new MemoryRecord(
+                        r.getRecordId(),
+                        r.getCreatedAt(),
+                        r.getMode(),
+                        r.getTitle(),
+                        r.getSummary(),
+                        r.getSourceText(),
+                        r.getNote(),
+                        normalizedUri,
+                        r.getAnalysis(),
+                        r.getMemory(),
+                        r.getEngine(),
+                        r.getCategoryGroupCode(),
+                        r.getCategoryCode(),
+                        r.getCategoryName(),
+                        r.getReminderAt(),
+                        r.isReminderDone(),
+                        r.isArchived()
+                );
+                normalized.add(updated);
+                updatedAny = true;
+            } else {
+                normalized.add(r);
+            }
+        }
+        if (updatedAny) {
+            records = normalized;
+            // persist normalized records
+            persist(records);
+            cachedRawRecords = new org.json.JSONArray().toString();
+        }
         sortNewestFirst(records);
         cachedRawRecords = raw;
         cachedRecords = new ArrayList<>(records);
