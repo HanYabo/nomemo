@@ -144,10 +144,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
         memoryStore = MemoryStore(this)
         aiMemoryService = AiMemoryService(this)
         loadRecordOrFinish()
+        val statusBarResourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
+        val statusBarHeightPx = if (statusBarResourceId > 0) resources.getDimensionPixelSize(statusBarResourceId) else 0
         setContent {
             DetailContent(
                 record = record,
                 reanalyzing = reanalyzing,
+                statusBarHeightPx = statusBarHeightPx,
                 onBack = { finish() },
                 onToggleArchive = { currentRecord -> toggleArchive(currentRecord) },
                 onDelete = { currentRecord -> deleteRecord(currentRecord) },
@@ -336,6 +339,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     private fun DetailContent(
         record: MemoryRecord?,
         reanalyzing: Boolean,
+        statusBarHeightPx: Int,
         onBack: () -> Unit,
         onToggleArchive: (MemoryRecord) -> Unit,
         onDelete: (MemoryRecord) -> Unit,
@@ -345,6 +349,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         val density = LocalDensity.current
         val configuration = LocalConfiguration.current
+        val statusBarHeightDp = with(density) { statusBarHeightPx.toDp() }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var showImagePreview by remember { mutableStateOf(false) }
@@ -404,9 +409,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 val insetsController = WindowInsetsControllerCompat(window, window.decorView).apply {
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 }
-                // 不在预览时隐藏状态栏，避免触发布局重排导致详情页元素位置移动。
-                // 视觉上我们用覆盖层（overlay）显示预览，因此无需修改系统栏可见性。
+                // 隐藏状态栏（视觉全屏），但布局使用固定 top padding（statusBarHeightPx）保持元素位置不变。
+                insetsController.hide(WindowInsetsCompat.Type.statusBars())
                 onDispose {
+                    insetsController.show(WindowInsetsCompat.Type.statusBars())
                     WindowStyleManager.apply(this@MemoryDetailActivity, provideWindowStyleConfig())
                 }
             }
@@ -420,16 +426,16 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     width / height
                 }
                 ResponsiveContentFrame(spec = adaptive) { spec ->
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding()
-                            .padding(
-                                start = spec.pageHorizontalPadding,
-                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
-                                end = spec.pageHorizontalPadding
-                            )
-                    ) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(top = statusBarHeightDp)
+                                    .padding(
+                                        start = spec.pageHorizontalPadding,
+                                        top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
+                                        end = spec.pageHorizontalPadding
+                                    )
+                            ) {
                         val currentRecord = record
                         if (currentRecord == null) {
                             NoMemoEmptyState(
@@ -991,7 +997,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             size = previewButtonSize,
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .statusBarsPadding()
+                                .padding(top = statusBarHeightDp)
                                 .alpha(buttonAlpha)
                                 .padding(
                                     top = (adaptive.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
@@ -1003,7 +1009,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             expanded = showPreviewActionMenu,
                             onDismissRequest = { showPreviewActionMenu = false },
                             modifier = Modifier
-                                .statusBarsPadding()
+                                .padding(top = statusBarHeightDp)
                                 .padding(
                                     top = 10.dp + previewButtonSize + 10.dp,
                                     end = adaptive.pageHorizontalPadding
