@@ -404,9 +404,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 val insetsController = WindowInsetsControllerCompat(window, window.decorView).apply {
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
                 }
-                insetsController.hide(WindowInsetsCompat.Type.statusBars())
+                // 不在预览时隐藏状态栏，避免触发布局重排导致详情页元素位置移动。
+                // 视觉上我们用覆盖层（overlay）显示预览，因此无需修改系统栏可见性。
                 onDispose {
-                    insetsController.show(WindowInsetsCompat.Type.statusBars())
                     WindowStyleManager.apply(this@MemoryDetailActivity, provideWindowStyleConfig())
                 }
             }
