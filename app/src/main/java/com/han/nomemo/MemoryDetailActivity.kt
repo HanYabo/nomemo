@@ -326,7 +326,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun buildEnhancedAiContext(record: MemoryRecord): String {
         val parts = buildList {
-            add("褰撳墠鍒嗙被: ${record.categoryName ?: "灏忚"}")
+            add("当前分类: ${record.categoryName ?: "小记"}")
             record.title?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有标题: $it") }
             record.summary?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有摘要: $it") }
             record.analysis?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有分析: $it") }
@@ -512,7 +512,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             GlassIconCircleButton(
-                                iconRes = R.drawable.ic_sheet_close,
+                                iconRes = R.drawable.ic_sheet_back,
                                 contentDescription = getString(R.string.back),
                                 onClick = onBack,
                                 size = spec.topActionButtonSize
@@ -661,7 +661,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             )
                             DetailMetaDivider(color = metaColor)
                             Text(
-                                text = currentRecord.categoryName ?: "灏忚",
+                                text = currentRecord.categoryName ?: "小记",
                                 color = metaColor,
                                 fontSize = 13.sp
                             )
@@ -777,11 +777,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             expanded = moreMenuExpanded,
                             onDismissRequest = { moreMenuExpanded = false },
                             modifier = Modifier
-                                .statusBarsPadding()
                                 .padding(
-                                    top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 10.dp,
-                                    end = spec.pageHorizontalPadding
+                                    top = spec.topActionButtonSize + 2.dp,
+                                    end = 0.dp
                                 )
+                                .offset(x = (-4).dp)
                         ) {
                             DetailMoreMenuPanel(
                                 archived = currentRecord.isArchived,

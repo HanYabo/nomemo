@@ -743,7 +743,6 @@ fun NoMemoActionMenuPanel(
     actions: List<NoMemoMenuActionItem>,
     modifier: Modifier = Modifier
 ) {
-    val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val menuSurface = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))
     val menuShadowColor = if (isDark) {
@@ -753,7 +752,7 @@ fun NoMemoActionMenuPanel(
     }
     Card(
         modifier = modifier
-            .width(182.dp)
+            .width(194.dp)
             .shadow(
                 elevation = if (isDark) 10.dp else 12.dp,
                 shape = RoundedCornerShape(24.dp),
@@ -763,8 +762,11 @@ fun NoMemoActionMenuPanel(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = menuSurface)
     ) {
-        Column(modifier = Modifier.padding(vertical = 6.dp)) {
-            actions.forEachIndexed { index, item ->
+        Column(
+            modifier = Modifier.padding(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            actions.forEach { item ->
                 NoMemoActionMenuRow(
                     iconRes = item.iconRes,
                     label = item.label,
@@ -772,15 +774,6 @@ fun NoMemoActionMenuPanel(
                     onClick = item.onClick,
                     modifier = Modifier
                 )
-                if (index != actions.lastIndex) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 18.dp)
-                            .height(1.dp)
-                            .background(palette.glassStroke.copy(alpha = 0.45f))
-                    )
-                }
             }
         }
     }
@@ -856,7 +849,7 @@ fun NoMemoActionMenuRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 15.dp),
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
@@ -868,9 +861,9 @@ fun NoMemoActionMenuRow(
             Text(
                 text = label,
                 color = contentColor,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(start = 12.dp)
+                modifier = Modifier.padding(start = 10.dp)
             )
         }
     }

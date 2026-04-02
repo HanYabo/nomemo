@@ -120,7 +120,6 @@ fun AddMemorySheet(
     val hasDraftChanges =
         inputText.isNotBlank() ||
             selectedImageUri != null ||
-            !aiMode ||
             selectedCategory.categoryCode != defaultCategory.categoryCode ||
             (reminderEnabled && reminderAt > 0L)
     val openReminderPicker = remember {

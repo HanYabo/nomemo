@@ -1,4 +1,4 @@
-package com.han.nomemo
+﻿package com.han.nomemo
 
 import android.content.BroadcastReceiver
 import android.content.Intent
@@ -633,3 +633,5 @@ class ReminderActivity : BaseComposeActivity() {
         }
     }
 }
+
+

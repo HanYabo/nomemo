@@ -636,7 +636,7 @@ class SettingsActivity : BaseComposeActivity() {
                 .padding(top = 10.dp)
         ) {
             GlassIconCircleButton(
-                iconRes = R.drawable.ic_sheet_close,
+                iconRes = R.drawable.ic_sheet_back,
                 contentDescription = "返回",
                 onClick = onBack,
                 modifier = Modifier.align(Alignment.CenterStart),

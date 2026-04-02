@@ -39,6 +39,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -235,22 +236,65 @@ class GroupActivity : BaseComposeActivity() {
         var showCreateAlbumDialog by remember { mutableStateOf(false) }
         var showAddExistingSheet by remember { mutableStateOf(false) }
         var selectedExistingRecordIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+        var addExistingSearchQuery by remember { mutableStateOf("") }
+        var groupListSearchEnabled by remember { mutableStateOf(false) }
+        var groupListSearchQuery by remember { mutableStateOf("") }
+        var groupListMoreExpanded by remember { mutableStateOf(false) }
         var albumNameInput by remember { mutableStateOf("") }
         var albumDescriptionInput by remember { mutableStateOf("") }
 
         val albumColumns = if (albumAdaptive.widthClass == NoMemoWidthClass.EXPANDED) 3 else 2
-        val albumRows = remember(albumList, albumColumns) { albumList.chunked(albumColumns) }
+        val filteredAlbumList = remember(albumList, groupListSearchQuery) {
+            val query = groupListSearchQuery.trim().lowercase()
+            if (query.isBlank()) {
+                albumList
+            } else {
+                albumList.filter { album ->
+                    album.name.lowercase().contains(query) ||
+                        album.description.lowercase().contains(query)
+                }
+            }
+        }
+        val albumRows = remember(filteredAlbumList, albumColumns) { filteredAlbumList.chunked(albumColumns) }
         val openedAlbum = remember(albumList, openedAlbumId) {
             albumList.firstOrNull { it.albumId == openedAlbumId }
+        }
+        val currentAlbumRecordIds = remember(albumList, openedAlbumId) {
+            albumList
+                .firstOrNull { it.albumId == openedAlbumId }
+                ?.recordIds
+                ?.toSet()
+                .orEmpty()
         }
         val openedRecords = remember(allRecords, openedAlbum?.recordIds) {
             val current = openedAlbum ?: return@remember emptyList()
             val byId = allRecords.associateBy { it.recordId }
             current.recordIds.mapNotNull { byId[it] }
         }
-        val availableExistingRecords = remember(allRecords, openedAlbum?.recordIds) {
-            val currentIds = openedAlbum?.recordIds?.toSet().orEmpty()
-            allRecords.filterNot { currentIds.contains(it.recordId) }
+        val availableExistingRecords = remember(allRecords, currentAlbumRecordIds) {
+            // A memory can belong to multiple albums.
+            // Only exclude items that are already in the currently opened album.
+            allRecords.filterNot { currentAlbumRecordIds.contains(it.recordId) }
+        }
+        val filteredExistingRecords = remember(availableExistingRecords, addExistingSearchQuery) {
+            val query = addExistingSearchQuery.trim().lowercase()
+            if (query.isBlank()) {
+                availableExistingRecords
+            } else {
+                availableExistingRecords.filter { record ->
+                    listOf(
+                        record.title,
+                        record.summary,
+                        record.memory,
+                        record.sourceText,
+                        record.analysis,
+                        record.categoryName
+                    )
+                        .joinToString("\n") { it.orEmpty() }
+                        .lowercase()
+                        .contains(query)
+                }
+            }
         }
         BackHandler(
             enabled = openedAlbum != null &&
@@ -264,6 +308,21 @@ class GroupActivity : BaseComposeActivity() {
         BackHandler(enabled = showAddExistingSheet) {
             showAddExistingSheet = false
             selectedExistingRecordIds = emptySet()
+            addExistingSearchQuery = ""
+        }
+        BackHandler(
+            enabled = openedAlbum == null &&
+                (groupListSearchEnabled || groupListMoreExpanded) &&
+                !showAddSheet &&
+                !showCreateAlbumDialog &&
+                !showAddExistingSheet
+        ) {
+            if (groupListMoreExpanded) {
+                groupListMoreExpanded = false
+            } else {
+                groupListSearchEnabled = false
+                groupListSearchQuery = ""
+            }
         }
 
         NoMemoBackground {
@@ -287,26 +346,41 @@ class GroupActivity : BaseComposeActivity() {
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_nm_add,
-                                    contentDescription = "新建分组",
-                                    onClick = { showCreateAlbumDialog = true },
+                                    iconRes = R.drawable.ic_nm_search,
+                                    contentDescription = stringResource(R.string.action_search),
+                                    onClick = {
+                                        groupListSearchEnabled = true
+                                        groupListMoreExpanded = false
+                                    },
                                     modifier = Modifier.padding(end = 10.dp),
                                     size = spec.topActionButtonSize
                                 )
                                 GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_nm_settings,
-                                    contentDescription = stringResource(R.string.action_settings),
-                                    onClick = onOpenSettings,
+                                    iconRes = R.drawable.ic_nm_more,
+                                    contentDescription = "更多",
+                                    onClick = { groupListMoreExpanded = !groupListMoreExpanded },
                                     size = spec.topActionButtonSize
                                 )
                             }
-                            Text(
-                                text = stringResource(R.string.group_page_title),
-                                color = albumPalette.textPrimary,
-                                fontSize = spec.titleSize,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(top = 2.dp)
-                            )
+                            if (groupListSearchEnabled) {
+                                NoMemoSearchBarCard(
+                                    value = groupListSearchQuery,
+                                    onValueChange = { groupListSearchQuery = it },
+                                    onClose = {
+                                        groupListSearchEnabled = false
+                                        groupListSearchQuery = ""
+                                    },
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = stringResource(R.string.group_page_title),
+                                    color = albumPalette.textPrimary,
+                                    fontSize = spec.titleSize,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
 
                             if (albumList.isEmpty()) {
                                 Box(
@@ -318,7 +392,20 @@ class GroupActivity : BaseComposeActivity() {
                                     NoMemoEmptyState(
                                         iconRes = R.drawable.ic_nm_group,
                                         title = "还没有分组",
-                                        subtitle = "点击右上角 + 创建分组"
+                                        subtitle = "点击右上角更多菜单新增分组"
+                                    )
+                                }
+                            } else if (filteredAlbumList.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    NoMemoEmptyState(
+                                        iconRes = R.drawable.ic_nm_search,
+                                        title = "没有匹配到分组",
+                                        subtitle = "试试其他关键词"
                                     )
                                 }
                             } else {
@@ -342,7 +429,10 @@ class GroupActivity : BaseComposeActivity() {
                                                     compact = spec.widthClass == NoMemoWidthClass.COMPACT,
                                                     memoryCount = album.recordIds.size,
                                                     modifier = Modifier.weight(1f),
-                                                    onClick = { openedAlbumId = album.albumId }
+                                                    onClick = {
+                                                        groupListMoreExpanded = false
+                                                        openedAlbumId = album.albumId
+                                                    }
                                                 )
                                             }
                                             repeat(albumColumns - rowAlbums.size) {
@@ -357,7 +447,7 @@ class GroupActivity : BaseComposeActivity() {
                                 Text(
                                     text = openedAlbum.name,
                                     color = albumPalette.textPrimary,
-                                    fontSize = if (spec.isNarrow) 30.sp else spec.titleSize,
+                                    fontSize = if (spec.isNarrow) 22.sp else 24.sp,
                                     fontWeight = FontWeight.Bold,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -374,7 +464,7 @@ class GroupActivity : BaseComposeActivity() {
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     GlassIconCircleButton(
-                                        iconRes = R.drawable.ic_sheet_close,
+                                        iconRes = R.drawable.ic_sheet_back,
                                         contentDescription = stringResource(R.string.back),
                                         onClick = { openedAlbumId = null },
                                         size = spec.topActionButtonSize
@@ -384,6 +474,7 @@ class GroupActivity : BaseComposeActivity() {
                                         contentDescription = "添加记忆",
                                         onClick = {
                                             selectedExistingRecordIds = emptySet()
+                                            addExistingSearchQuery = ""
                                             showAddExistingSheet = true
                                         },
                                         size = spec.topActionButtonSize
@@ -404,7 +495,11 @@ class GroupActivity : BaseComposeActivity() {
                                     items(items = openedRecords, key = { it.recordId }) { record ->
                                         RecordCard(
                                             record = record,
+                                            palette = albumPalette,
+                                            adaptive = albumAdaptive,
                                             allowImageLoading = true,
+                                            showShadow = false,
+                                            darkCardBackgroundOverride = Color(0xFF1A1A1C),
                                             onClick = { onOpenDetail(record) }
                                         )
                                     }
@@ -445,6 +540,39 @@ class GroupActivity : BaseComposeActivity() {
                                 bottom = if (spec.isNarrow) 10.dp else 14.dp
                             )
                     )
+
+                    NoMemoMenuPopup(
+                        expanded = openedAlbum == null && groupListMoreExpanded,
+                        onDismissRequest = { groupListMoreExpanded = false },
+                        modifier = Modifier
+                            .statusBarsPadding()
+                            .padding(
+                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 8.dp,
+                                end = spec.pageHorizontalPadding
+                            )
+                            .offset(x = (-6).dp)
+                    ) {
+                        NoMemoActionMenuPanel(
+                            actions = listOf(
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_add,
+                                    label = "新增分组",
+                                    onClick = {
+                                        groupListMoreExpanded = false
+                                        showCreateAlbumDialog = true
+                                    }
+                                ),
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_settings,
+                                    label = stringResource(R.string.action_settings),
+                                    onClick = {
+                                        groupListMoreExpanded = false
+                                        onOpenSettings()
+                                    }
+                                )
+                            )
+                        )
+                    }
 
                     if (showCreateAlbumDialog) {
                         AlertDialog(
@@ -502,9 +630,10 @@ class GroupActivity : BaseComposeActivity() {
                     if (showAddExistingSheet && openedAlbum != null) {
                         GroupAddExistingMemorySheet(
                             visible = showAddExistingSheet,
-                            albumName = openedAlbum.name,
-                            records = availableExistingRecords,
+                            records = filteredExistingRecords,
                             selectedRecordIds = selectedExistingRecordIds,
+                            searchQuery = addExistingSearchQuery,
+                            onSearchQueryChange = { addExistingSearchQuery = it },
                             onToggleRecord = { recordId ->
                                 selectedExistingRecordIds = if (selectedExistingRecordIds.contains(recordId)) {
                                     selectedExistingRecordIds - recordId
@@ -515,6 +644,7 @@ class GroupActivity : BaseComposeActivity() {
                             onDismiss = {
                                 showAddExistingSheet = false
                                 selectedExistingRecordIds = emptySet()
+                                addExistingSearchQuery = ""
                             },
                             onConfirm = {
                                 if (selectedExistingRecordIds.isEmpty()) {
@@ -527,6 +657,7 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                                 showAddExistingSheet = false
                                 selectedExistingRecordIds = emptySet()
+                                addExistingSearchQuery = ""
                             }
                         )
                     }
@@ -540,322 +671,6 @@ class GroupActivity : BaseComposeActivity() {
             }
         }
         return
-
-        val adaptive = rememberNoMemoAdaptiveSpec()
-        val palette = rememberNoMemoPalette()
-        var selectedRecordId by remember { mutableStateOf<String?>(null) }
-        var showDeleteConfirm by remember { mutableStateOf(false) }
-        var searchEnabled by remember { mutableStateOf(false) }
-        var searchQuery by remember { mutableStateOf("") }
-        var moreMenuExpanded by remember { mutableStateOf(false) }
-        var swipeDeleteTarget by remember { mutableStateOf<MemoryRecord?>(null) }
-        var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
-        val listState = rememberLazyListState()
-        val dockHasUnderContent = rememberDockHasUnderContent(
-            listState = listState,
-            spec = adaptive
-        )
-        val filtered = remember(allRecords, selectedCategoryCode, searchQuery) {
-            allRecords.filter { record ->
-                val matchesCategory = selectedCategoryCode == null || selectedCategoryCode == record.categoryCode
-                if (!matchesCategory) {
-                    return@filter false
-                }
-                val query = searchQuery.trim()
-                if (query.isBlank()) {
-                    return@filter true
-                }
-                val haystack = listOf(
-                    record.title,
-                    record.summary,
-                    record.memory,
-                    record.sourceText,
-                    record.analysis,
-                    record.categoryName
-                ).joinToString("\n") { it.orEmpty() }.lowercase()
-                haystack.contains(query.lowercase())
-            }
-        }
-        val selectedRecord = remember(filtered, selectedRecordId) {
-            filtered.firstOrNull { it.recordId == selectedRecordId }
-        }
-        val showCenteredEmptyState = hasLoadedRecords && filtered.isEmpty()
-        LaunchedEffect(filtered, selectedRecordId) {
-            if (selectedRecordId != null && selectedRecord == null) {
-                selectedRecordId = null
-                showDeleteConfirm = false
-            }
-        }
-        LaunchedEffect(showAddSheet, pendingScrollToTopAfterAdd) {
-            if (!showAddSheet && pendingScrollToTopAfterAdd) {
-                listState.animateScrollToItem(0)
-                pendingScrollToTopAfterAdd = false
-            }
-        }
-        BackHandler(enabled = selectedRecordId != null) {
-            selectedRecordId = null
-            showDeleteConfirm = false
-            resetDoubleBackExitState()
-        }
-        BackHandler(enabled = searchEnabled) {
-            searchEnabled = false
-            searchQuery = ""
-            resetDoubleBackExitState()
-        }
-
-        fun countByCode(code: String): Int = allRecords.count { it.categoryCode == code }
-        val quickCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_QUICK }
-        val lifeCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_LIFE }
-        val workCount = allRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_WORK }
-        NoMemoBackground {
-            ResponsiveContentFrame(spec = adaptive) { spec ->
-                Box(modifier = Modifier.fillMaxSize()) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .statusBarsPadding()
-                            .padding(
-                                start = spec.pageHorizontalPadding,
-                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
-                                end = spec.pageHorizontalPadding,
-                                bottom = 0.dp
-                            )
-                    ) {
-                        if (selectedRecord != null) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = getString(R.string.selected_count_format, 1),
-                                        color = palette.textPrimary,
-                                        fontSize = spec.titleSize,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_sheet_close,
-                                    contentDescription = stringResource(R.string.cancel),
-                                    onClick = {
-                                        selectedRecordId = null
-                                        showDeleteConfirm = false
-                                    },
-                                    modifier = Modifier.padding(end = 10.dp),
-                                    size = spec.topActionButtonSize
-                                )
-                                GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_nm_delete,
-                                    contentDescription = stringResource(R.string.action_delete),
-                                    onClick = { showDeleteConfirm = true },
-                                    size = spec.topActionButtonSize
-                                )
-                            }
-                        } else if (searchEnabled) {
-                            NoMemoSearchBarCard(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                onClose = {
-                                    searchEnabled = false
-                                    searchQuery = ""
-                                }
-                            )
-                        } else {
-                            NoMemoTopActionButtons(
-                                spec = spec,
-                                onSearchClick = { searchEnabled = true },
-                                onMoreClick = { moreMenuExpanded = !moreMenuExpanded }
-                            )
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 2.dp)
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.group_page_title),
-                                    color = palette.textPrimary,
-                                    fontSize = spec.titleSize,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-                        }
-
-                        Row(
-                            modifier = Modifier
-                                .padding(top = 14.dp)
-                                .horizontalScroll(rememberScrollState())
-                        ) {
-                            GroupChip(stringResource(R.string.filter_all), selectedCategoryCode == null, spec.chipTextSize) {
-                                onSelectCategory(null)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(buildChipText(stringResource(R.string.cat_quick), countByCode(CategoryCatalog.CODE_QUICK_NOTE)), selectedCategoryCode == CategoryCatalog.CODE_QUICK_NOTE, spec.chipTextSize) {
-                                onSelectCategory(CategoryCatalog.CODE_QUICK_NOTE)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(buildChipText(stringResource(R.string.cat_pickup), countByCode(CategoryCatalog.CODE_LIFE_PICKUP)), selectedCategoryCode == CategoryCatalog.CODE_LIFE_PICKUP, spec.chipTextSize) {
-                                onSelectCategory(CategoryCatalog.CODE_LIFE_PICKUP)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(buildChipText(stringResource(R.string.cat_delivery), countByCode(CategoryCatalog.CODE_LIFE_DELIVERY)), selectedCategoryCode == CategoryCatalog.CODE_LIFE_DELIVERY, spec.chipTextSize) {
-                                onSelectCategory(CategoryCatalog.CODE_LIFE_DELIVERY)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(buildChipText(stringResource(R.string.cat_card), countByCode(CategoryCatalog.CODE_LIFE_CARD)), selectedCategoryCode == CategoryCatalog.CODE_LIFE_CARD, spec.chipTextSize) {
-                                onSelectCategory(CategoryCatalog.CODE_LIFE_CARD)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(buildChipText(stringResource(R.string.cat_ticket), countByCode(CategoryCatalog.CODE_LIFE_TICKET)), selectedCategoryCode == CategoryCatalog.CODE_LIFE_TICKET, spec.chipTextSize) {
-                                onSelectCategory(CategoryCatalog.CODE_LIFE_TICKET)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(buildChipText(stringResource(R.string.cat_todo), countByCode(CategoryCatalog.CODE_WORK_TODO)), selectedCategoryCode == CategoryCatalog.CODE_WORK_TODO, spec.chipTextSize) {
-                                onSelectCategory(CategoryCatalog.CODE_WORK_TODO)
-                            }
-                            Spacer(modifier = Modifier.width(8.dp))
-                            GroupChip(buildChipText(stringResource(R.string.cat_schedule), countByCode(CategoryCatalog.CODE_WORK_SCHEDULE)), selectedCategoryCode == CategoryCatalog.CODE_WORK_SCHEDULE, spec.chipTextSize) {
-                                onSelectCategory(CategoryCatalog.CODE_WORK_SCHEDULE)
-                            }
-                        }
-
-                        if (!hasLoadedRecords || filtered.isEmpty()) {
-                            Spacer(modifier = Modifier.weight(1f))
-                        } else {
-                            LazyColumn(
-                                modifier = Modifier
-                                    .weight(1f),
-                                state = listState,
-                                contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                    top = if (spec.widthClass == NoMemoWidthClass.EXPANDED) 14.dp else 12.dp,
-                                    bottom = spec.pageBottomPadding + 20.dp
-                                ),
-                                verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 14.dp else 12.dp)
-                            ) {
-                                items(
-                                    items = filtered,
-                                    key = { it.recordId },
-                                    contentType = {
-                                        if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
-                                    }
-                                ) { record ->
-                                    RecordCard(
-                                        record = record,
-                                        selected = selectedRecordId == record.recordId,
-                                        onSwipeDeleteRequest = if (selectedRecordId == null) {
-                                            { swipeDeleteTarget = record }
-                                        } else {
-                                            null
-                                        },
-                                        palette = palette,
-                                        adaptive = spec,
-                                        allowImageLoading = true,
-                                        onClick = {
-                                        when {
-                                            selectedRecordId == record.recordId -> {
-                                                selectedRecordId = null
-                                                }
-                                                selectedRecordId != null -> {
-                                                    selectedRecordId = record.recordId
-                                                }
-                                                else -> {
-                                                    onOpenDetail(record)
-                                                }
-                                        }
-                                    },
-                                    onLongPress = {
-                                        searchEnabled = false
-                                        moreMenuExpanded = false
-                                        selectedRecordId = record.recordId
-                                    }
-                                )
-                            }
-                        }
-                        }
-                    }
-
-                    if (showCenteredEmptyState) {
-                        NoMemoEmptyState(
-                            iconRes = if (searchQuery.isNotBlank()) R.drawable.ic_nm_search else R.drawable.ic_nm_group,
-                            title = if (searchQuery.isNotBlank()) stringResource(R.string.search_empty) else stringResource(R.string.group_empty),
-                            modifier = Modifier
-                                .align(Alignment.Center)
-                                .padding(horizontal = spec.pageHorizontalPadding)
-                        )
-                    }
-
-                    NoMemoBottomDock(
-                        selectedTab = NoMemoDockTab.GROUP,
-                        onOpenMemory = onOpenMemory,
-                        onOpenGroup = {},
-                        onOpenReminder = onOpenReminder,
-                        onAddClick = onAddClick,
-                        spec = spec,
-                        animateFabHalo = !listState.isScrollInProgress,
-                        showEnhancedOutline = dockHasUnderContent,
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .navigationBarsPadding()
-                            .padding(
-                                start = spec.pageHorizontalPadding,
-                                end = spec.pageHorizontalPadding,
-                                bottom = if (spec.isNarrow) 10.dp else 14.dp
-                            )
-                    )
-
-                    if (showDeleteConfirm && selectedRecord != null) {
-                        NoMemoDeleteConfirmDialog(
-                            title = stringResource(R.string.delete_selected_title),
-                            message = stringResource(R.string.delete_selected_message),
-                            onConfirm = {
-                                onDeleteRecord(selectedRecord)
-                                selectedRecordId = null
-                                showDeleteConfirm = false
-                            },
-                            onDismiss = { showDeleteConfirm = false }
-                        )
-                    }
-                    swipeDeleteTarget?.let { targetRecord ->
-                        NoMemoDeleteConfirmDialog(
-                            title = stringResource(R.string.delete_selected_title),
-                            message = stringResource(R.string.delete_selected_message),
-                            onConfirm = {
-                                onDeleteRecord(targetRecord)
-                                swipeDeleteTarget = null
-                            },
-                            onDismiss = { swipeDeleteTarget = null }
-                        )
-                    }
-
-                    NoMemoMenuPopup(
-                        expanded = moreMenuExpanded,
-                        onDismissRequest = { moreMenuExpanded = false },
-                        modifier = Modifier
-                            .statusBarsPadding()
-                            .padding(
-                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 8.dp,
-                                end = spec.pageHorizontalPadding
-                            )
-                            .offset(x = (-6).dp)
-                    ) {
-                        NoMemoMoreMenuPanel(
-                            onOpenSettings = {
-                                moreMenuExpanded = false
-                                onOpenSettings()
-                            }
-                        )
-                    }
-
-                    if (showAddSheet) {
-                        AddMemorySheet(
-                            onDismiss = onDismissAddSheet,
-                            onSaved = { pendingScrollToTopAfterAdd = true }
-                        )
-                    }
-                }
-            }
-        }
     }
 
     @Composable
@@ -941,7 +756,7 @@ class GroupActivity : BaseComposeActivity() {
                     )
 
                     Text(
-                        text = "创建于 $dayText",
+                        text = "创建于$dayText",
                         color = palette.textTertiary,
                         fontSize = 12.sp,
                         maxLines = 1,
@@ -955,9 +770,10 @@ class GroupActivity : BaseComposeActivity() {
     @Composable
     private fun BoxScope.GroupAddExistingMemorySheet(
         visible: Boolean,
-        albumName: String,
         records: List<MemoryRecord>,
         selectedRecordIds: Set<String>,
+        searchQuery: String,
+        onSearchQueryChange: (String) -> Unit,
         onToggleRecord: (String) -> Unit,
         onDismiss: () -> Unit,
         onConfirm: () -> Unit
@@ -965,7 +781,8 @@ class GroupActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val panelSurface = if (isDark) Color(0xFF1A1A1C) else Color.White.copy(alpha = 0.995f)
+        val panelSurface = if (isDark) Color(0xFF121316) else palette.memoBgStart
+        val searchSurface = if (isDark) Color(0xFF1A1A1C) else Color.White.copy(alpha = 0.995f)
         val bodyHeight = if (adaptive.isNarrow) 620.dp else 700.dp
 
         AnimatedVisibility(
@@ -1045,12 +862,6 @@ class GroupActivity : BaseComposeActivity() {
                                 fontWeight = FontWeight.SemiBold,
                                 maxLines = 1
                             )
-                            Text(
-                                text = albumName,
-                                color = palette.textTertiary,
-                                fontSize = 12.sp,
-                                maxLines = 1
-                            )
                         }
                         GlassIconCircleButton(
                             iconRes = R.drawable.ic_sheet_check,
@@ -1058,6 +869,66 @@ class GroupActivity : BaseComposeActivity() {
                             onClick = onConfirm,
                             size = adaptive.topActionButtonSize
                         )
+                    }
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(containerColor = searchSurface)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_nm_search),
+                                contentDescription = stringResource(R.string.action_search),
+                                tint = palette.textSecondary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            BasicTextField(
+                                value = searchQuery,
+                                onValueChange = onSearchQueryChange,
+                                textStyle = TextStyle(
+                                    color = palette.textPrimary,
+                                    fontSize = 15.sp
+                                ),
+                                singleLine = true,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 10.dp)
+                            ) { innerTextField ->
+                                Box(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (searchQuery.isBlank()) {
+                                        Text(
+                                            text = stringResource(R.string.search_placeholder),
+                                            color = palette.textTertiary,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                            if (searchQuery.isNotBlank()) {
+                                PressScaleBox(
+                                    onClick = { onSearchQueryChange("") }
+                                ) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_sheet_close),
+                                        contentDescription = stringResource(R.string.cancel),
+                                        tint = palette.textTertiary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
                     }
 
                     if (records.isEmpty()) {
@@ -1083,13 +954,38 @@ class GroupActivity : BaseComposeActivity() {
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             items(records, key = { it.recordId }) { record ->
-                                RecordCard(
-                                    record = record,
-                                    selected = selectedRecordIds.contains(record.recordId),
-                                    allowImageLoading = true,
-                                    onClick = { onToggleRecord(record.recordId) },
-                                    onLongPress = { onToggleRecord(record.recordId) }
-                                )
+                                val selected = selectedRecordIds.contains(record.recordId)
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    RecordCard(
+                                        record = record,
+                                        palette = palette,
+                                        adaptive = adaptive,
+                                        selected = false,
+                                        allowImageLoading = true,
+                                        showShadow = false,
+                                        darkCardBackgroundOverride = Color(0xFF1A1A1C),
+                                        onClick = { onToggleRecord(record.recordId) },
+                                        onLongPress = { onToggleRecord(record.recordId) }
+                                    )
+                                    if (selected) {
+                                        Box(
+                                            modifier = Modifier
+                                                .align(Alignment.TopEnd)
+                                                .padding(top = 12.dp, end = 12.dp)
+                                                .size(24.dp)
+                                                .clip(RoundedCornerShape(999.dp))
+                                                .background(palette.accent),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_sheet_check),
+                                                contentDescription = null,
+                                                tint = palette.onAccent,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }
@@ -1190,3 +1086,5 @@ class GroupActivity : BaseComposeActivity() {
 
     private fun buildChipText(label: String, count: Int): String = "$label($count)"
 }
+
+
