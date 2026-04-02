@@ -12,6 +12,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
@@ -70,10 +71,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.BlurredEdgeTreatment
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
@@ -101,6 +104,8 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+private val DockEaseOut = androidx.compose.animation.core.CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
 
 private object MemoryThumbnailCache {
     private val cache = object : LruCache<String, Bitmap>(24 * 1024) {
@@ -962,202 +967,110 @@ fun NoMemoBottomDock(
     animateFabHalo: Boolean = true,
     showEnhancedOutline: Boolean = false
 ) {
-    val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val dockShape = RoundedCornerShape(42.dp)
+    val dockShape = RoundedCornerShape(999.dp)
+    val dockHeight = if (spec.isNarrow) 64.dp else 68.dp
+    val dockBlurTint = if (isDark) {
+        Color.Black.copy(alpha = 0.64f)
+    } else {
+        Color(0xFFF8FBFF).copy(alpha = 0.56f)
+    }
     val dockContainerBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF1A1A1C).copy(alpha = 0.98f),
-                Color(0xFF1A1A1C).copy(alpha = 0.98f),
-                Color(0xFF1A1A1C).copy(alpha = 0.98f)
+                Color(0xFF0E1013).copy(alpha = 0.96f),
+                Color(0xFF090B0E).copy(alpha = 0.94f),
+                Color(0xFF06080B).copy(alpha = 0.96f)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.90f),
-                Color(0xFFFAFBFD).copy(alpha = 0.87f),
-                Color(0xFFF2F5F8).copy(alpha = 0.88f)
+                Color.White.copy(alpha = 0.96f),
+                Color(0xFFF2F6FC).copy(alpha = 0.92f),
+                Color(0xFFE8EEF7).copy(alpha = 0.94f)
             )
         )
     }
-    val dockBlurTint = if (isDark) {
-        Color(0xFF1A1A1C).copy(alpha = 0.92f)
+    val dockStroke = if (isDark) {
+        Color.White.copy(alpha = 0.33f)
     } else {
-        Color.White.copy(alpha = 0.48f)
+        Color(0xFF8A98AE).copy(alpha = 0.30f)
     }
-    val dockHighlight = if (isDark) {
-        Color.White.copy(alpha = 0.16f)
+    val dockInnerStroke = if (isDark) {
+        Color.White.copy(alpha = 0.10f)
     } else {
         Color.White.copy(alpha = 0.74f)
     }
-    val dockTopHighlightBrush = Brush.verticalGradient(
-        listOf(
-            if (isDark) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.56f),
-            if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.20f),
-            Color.Transparent
-        )
-    )
     val dockShadow = if (isDark) {
-        Color.Black.copy(alpha = 0.34f)
+        Color.Black.copy(alpha = 0.40f)
     } else {
-        Color.Black.copy(alpha = 0.10f)
-    }
-    val selectedItemBackground = if (isDark) {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.14f),
-                Color.White.copy(alpha = 0.10f),
-                Color.White.copy(alpha = 0.08f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color(0xFFE7EEF8).copy(alpha = 0.98f),
-                Color(0xFFDCE7F4).copy(alpha = 0.97f),
-                Color(0xFFD1DEEF).copy(alpha = 0.96f)
-            )
-        )
-    }
-    val selectedItemStroke = if (isDark) {
-        Color.White.copy(alpha = 0.18f)
-    } else {
-        Color(0xFF90A3BB).copy(alpha = 0.42f)
-    }
-    val selectedItemTopHighlight = if (isDark) {
-        Color.White.copy(alpha = 0.10f)
-    } else {
-        Color.White.copy(alpha = 0.42f)
-    }
-    val selectedItemContentColor = if (isDark) {
-        Color.White.copy(alpha = 0.96f)
-    } else {
-        Color(0xFF2D4258)
+        Color.Black.copy(alpha = 0.12f)
     }
     val enhancedOutlineColor = if (showEnhancedOutline) {
         if (isDark) {
-            Color.White.copy(alpha = 0.18f)
+            Color.White.copy(alpha = 0.16f)
         } else {
-            Color(0xFF7E90A7).copy(alpha = 0.28f)
+            Color(0xFF91A1B8).copy(alpha = 0.32f)
         }
     } else {
         Color.Transparent
     }
-    val enhancedInnerOutlineColor = if (showEnhancedOutline) {
-        if (isDark) {
-            Color.White.copy(alpha = 0.08f)
-        } else {
-            Color.White.copy(alpha = 0.52f)
-        }
-    } else {
-        Color.Transparent
+    val selectedGlowTarget = when (selectedTab) {
+        NoMemoDockTab.MEMORY -> 0.17f
+        NoMemoDockTab.GROUP -> 0.50f
+        NoMemoDockTab.REMINDER -> 0.83f
     }
-    val enhancedTopRimBrush = if (showEnhancedOutline) {
-        Brush.verticalGradient(
-            listOf(
-                if (isDark) Color.White.copy(alpha = 0.18f) else Color.White.copy(alpha = 0.72f),
-                if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.24f),
-                Color.Transparent
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(Color.Transparent, Color.Transparent)
-        )
-    }
-    val fabFrameShape = RoundedCornerShape(39.dp)
-    val fabFrameBrush = if (isDark) {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.10f),
-                Color.White.copy(alpha = 0.06f),
-                Color.White.copy(alpha = 0.08f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.60f),
-                Color.White.copy(alpha = 0.42f),
-                Color.White.copy(alpha = 0.52f)
-            )
-        )
-    }
-    val addButtonSize = spec.fabButtonSize + 4.dp
-    val addButtonShape = RoundedCornerShape(34.dp)
+    val selectedGlowX by animateFloatAsState(
+        targetValue = selectedGlowTarget,
+        animationSpec = tween(durationMillis = 360, easing = DockEaseOut),
+        label = "dockGlowX"
+    )
+    val addButtonShape = CircleShape
+    val addButtonSize = dockHeight
     val addButtonBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFFE7EBF1),
-                Color(0xFFD8DEE6),
-                Color(0xFFC7D0DA)
+                Color(0xFF252B36),
+                Color(0xFF171C25),
+                Color(0xFF121720)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF2F3742),
-                Color(0xFF252D37),
-                Color(0xFF1C232C)
+                Color(0xFF323C4A),
+                Color(0xFF242C38),
+                Color(0xFF1C232E)
             )
         )
     }
-    val addButtonStroke = if (isDark) {
-        Color.White.copy(alpha = 0.22f)
-    } else {
-        Color.White.copy(alpha = 0.12f)
-    }
-    val addButtonTopHighlightBrush = Brush.verticalGradient(
-        listOf(
-            if (isDark) Color.White.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.12f),
-            if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.04f),
-            Color.Transparent
-        )
-    )
-    val addButtonInnerStroke = if (isDark) {
-        Color.White.copy(alpha = 0.08f)
-    } else {
-        Color.White.copy(alpha = 0.05f)
-    }
+    val addButtonIconTint = Color.White.copy(alpha = 0.96f)
     val addButtonShadow = if (isDark) {
-        Color.Black.copy(alpha = 0.22f)
+        Color.Black.copy(alpha = 0.30f)
     } else {
-        Color(0xFF0E1620).copy(alpha = 0.18f)
+        Color(0xFF0E1620).copy(alpha = 0.14f)
     }
-    val addButtonIconTint = if (isDark) {
-        Color(0xFF141A22)
-    } else {
-        Color.White.copy(alpha = 0.96f)
-    }
+    val haloTransition = rememberInfiniteTransition(label = "dockAddHalo")
+    val haloScale by haloTransition.animateFloat(
+        initialValue = 0.92f,
+        targetValue = 1.16f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "dockAddHaloScale"
+    )
+    val haloAlpha by haloTransition.animateFloat(
+        initialValue = 0.24f,
+        targetValue = 0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1800, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "dockAddHaloAlpha"
+    )
     val haptic = LocalHapticFeedback.current
-    val haloScale: Float
-    val haloAlpha: Float
-    if (animateFabHalo) {
-        val haloTransition = rememberInfiniteTransition(label = "dockHaloTransition")
-        haloScale = haloTransition.animateFloat(
-            initialValue = 1f,
-            targetValue = 1.04f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2100, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "dockHaloScale"
-        ).value
-        haloAlpha = haloTransition.animateFloat(
-            initialValue = 0.10f,
-            targetValue = 0.22f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(durationMillis = 2100, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "dockHaloAlpha"
-        ).value
-    } else {
-        haloScale = 1f
-        haloAlpha = 0.10f
-    }
 
     val dockSwipeModifier = when (selectedTab) {
         NoMemoDockTab.MEMORY -> Modifier.pageSwipeNavigation(
@@ -1175,14 +1088,15 @@ fun NoMemoBottomDock(
         modifier = modifier
             .fillMaxWidth()
             .then(dockSwipeModifier),
+        horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {
         Box(
             modifier = Modifier
-                .weight(1f)
-                .height(spec.bottomNavHeight)
+                .fillMaxWidth(if (spec.isNarrow) 0.73f else 0.75f)
+                .height(dockHeight)
                 .shadow(
-                    elevation = if (spec.isNarrow) 10.dp else 14.dp,
+                    elevation = if (spec.isNarrow) 8.dp else 10.dp,
                     shape = dockShape,
                     ambientColor = dockShadow,
                     spotColor = dockShadow
@@ -1192,7 +1106,7 @@ fun NoMemoBottomDock(
                 modifier = Modifier
                     .fillMaxSize()
                     .blur(
-                        radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 28.dp else 18.dp,
+                        radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 24.dp else 14.dp,
                         edgeTreatment = BlurredEdgeTreatment.Unbounded
                     )
                     .clip(dockShape)
@@ -1203,13 +1117,62 @@ fun NoMemoBottomDock(
                     .fillMaxSize()
                     .clip(dockShape)
                     .background(dockContainerBrush)
-                    .border(1.dp, dockHighlight, dockShape)
+                    .border(1.dp, dockStroke, dockShape)
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(1.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .border(0.8.dp, dockInnerStroke, RoundedCornerShape(999.dp))
             )
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(dockShape)
-                    .background(dockTopHighlightBrush)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                if (isDark) Color.White.copy(alpha = 0.24f) else Color.White.copy(alpha = 0.46f),
+                                if (isDark) Color.White.copy(alpha = 0.08f) else Color.White.copy(alpha = 0.16f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(dockShape)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                if (isDark) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.07f),
+                                Color.Transparent,
+                                if (isDark) Color.Black.copy(alpha = 0.24f) else Color(0xFF8CA0BC).copy(alpha = 0.06f)
+                            )
+                        )
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(dockShape)
+                    .background(
+                        Brush.verticalGradient(
+                            listOf(
+                                Color.Transparent,
+                                Color.Transparent,
+                                if (isDark) Color.Black.copy(alpha = 0.24f) else Color(0xFFBAC8DA).copy(alpha = 0.08f),
+                                Color.Transparent
+                            )
+                        )
+                    )
+            )
+            DockGlowLayer(
+                animatedX = selectedGlowX,
+                isDark = isDark,
+                dockShape = dockShape
             )
             if (showEnhancedOutline) {
                 Box(
@@ -1218,148 +1181,121 @@ fun NoMemoBottomDock(
                         .clip(dockShape)
                         .border(1.dp, enhancedOutlineColor, dockShape)
                 )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(1.dp)
-                        .clip(RoundedCornerShape(41.dp))
-                        .border(0.75.dp, enhancedInnerOutlineColor, RoundedCornerShape(41.dp))
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(dockShape)
-                        .background(enhancedTopRimBrush)
-                )
             }
             Row(
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 8.dp),
+                    .align(Alignment.Center)
+                    .fillMaxHeight()
+                    .fillMaxWidth(if (spec.isNarrow) 0.90f else 0.86f)
+                    .padding(
+                        horizontal = if (spec.isNarrow) 4.dp else 6.dp,
+                        vertical = if (spec.isNarrow) 5.dp else 6.dp
+                    ),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 DockNavItem(
                     iconRes = R.drawable.ic_nm_memory,
                     text = stringResource(R.string.nav_memory),
                     selected = selectedTab == NoMemoDockTab.MEMORY,
-                    selectedBackground = selectedItemBackground,
-                    selectedStroke = selectedItemStroke,
-                    selectedTopHighlight = selectedItemTopHighlight,
-                    selectedContentColor = selectedItemContentColor,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onOpenMemory()
                     },
-                    spec = spec
+                    spec = spec,
+                    isDark = isDark,
+                    isPrimaryCenter = false
                 )
                 DockNavItem(
                     iconRes = R.drawable.ic_nm_group,
                     text = stringResource(R.string.nav_group),
                     selected = selectedTab == NoMemoDockTab.GROUP,
-                    selectedBackground = selectedItemBackground,
-                    selectedStroke = selectedItemStroke,
-                    selectedTopHighlight = selectedItemTopHighlight,
-                    selectedContentColor = selectedItemContentColor,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onOpenGroup()
                     },
-                    spec = spec
+                    spec = spec,
+                    isDark = isDark,
+                    isPrimaryCenter = true
                 )
                 DockNavItem(
                     iconRes = R.drawable.ic_nm_reminder,
                     text = stringResource(R.string.nav_reminder),
                     selected = selectedTab == NoMemoDockTab.REMINDER,
-                    selectedBackground = selectedItemBackground,
-                    selectedStroke = selectedItemStroke,
-                    selectedTopHighlight = selectedItemTopHighlight,
-                    selectedContentColor = selectedItemContentColor,
                     onClick = {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onOpenReminder()
                     },
-                    spec = spec
+                    spec = spec,
+                    isDark = isDark,
+                    isPrimaryCenter = false
                 )
             }
         }
 
-        Spacer(modifier = Modifier.width(8.dp))
-
-        Box(
+        PressScaleBox(
+            onClick = {
+                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                onAddClick()
+            },
+            pressedScale = 0.95f,
             modifier = Modifier
-                .size(spec.fabFrameSize)
+                .size(addButtonSize)
                 .shadow(
-                    elevation = if (spec.isNarrow) 10.dp else 12.dp,
-                    shape = fabFrameShape,
-                    ambientColor = dockShadow,
-                    spotColor = dockShadow
-                ),
-            contentAlignment = Alignment.Center
+                    elevation = if (spec.isNarrow) 5.dp else 7.dp,
+                    shape = addButtonShape,
+                    ambientColor = addButtonShadow,
+                    spotColor = addButtonShadow
+                )
         ) {
             Box(
                 modifier = Modifier
-                    .size(spec.fabFrameSize)
-                    .blur(
-                        radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 24.dp else 16.dp,
-                        edgeTreatment = BlurredEdgeTreatment.Unbounded
-                    )
-                    .clip(fabFrameShape)
-                    .background(dockBlurTint)
-            )
-            Box(
-                modifier = Modifier
-                    .size(spec.fabFrameSize)
-                    .graphicsLayer {
-                        scaleX = haloScale
-                        scaleY = haloScale
-                        alpha = haloAlpha
-                    }
-                    .clip(fabFrameShape)
-                    .background(fabFrameBrush)
-                    .border(1.dp, dockHighlight, fabFrameShape)
-            )
-            PressScaleBox(
-                onClick = {
-                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                    onAddClick()
-                },
-                pressedScale = 0.95f,
-                modifier = Modifier
-                    .size(addButtonSize)
-                    .shadow(
-                        elevation = if (spec.isNarrow) 6.dp else 8.dp,
-                        shape = addButtonShape,
-                        ambientColor = addButtonShadow,
-                        spotColor = addButtonShadow
-                    )
+                    .fillMaxSize(),
+                contentAlignment = Alignment.Center
             ) {
+                if (animateFabHalo) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                scaleX = haloScale
+                                scaleY = haloScale
+                                alpha = haloAlpha
+                            }
+                            .clip(CircleShape)
+                            .background(Color(0xFFBE79FF))
+                    )
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(addButtonShape)
                         .background(addButtonBrush)
-                        .border(1.dp, addButtonStroke, addButtonShape)
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(1.dp)
-                        .clip(RoundedCornerShape(33.dp))
-                        .border(0.75.dp, addButtonInnerStroke, RoundedCornerShape(33.dp))
+                        .border(
+                            width = 1.dp,
+                            color = if (isDark) Color.White.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.30f),
+                            shape = addButtonShape
+                        )
                 )
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
                         .clip(addButtonShape)
-                        .background(addButtonTopHighlightBrush)
+                        .background(
+                            Brush.verticalGradient(
+                                listOf(
+                                    Color.White.copy(alpha = if (isDark) 0.26f else 0.18f),
+                                    Color.Transparent,
+                                    Color.Transparent
+                                )
+                            )
+                        )
                 )
                 Icon(
                     painter = painterResource(id = R.drawable.ic_nm_add),
                     contentDescription = stringResource(R.string.save_record_desc),
                     tint = addButtonIconTint,
                     modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(if (spec.isNarrow) 20.dp else 22.dp)
+                        .size(if (spec.isNarrow) 18.dp else 20.dp)
                 )
             }
         }
@@ -1371,65 +1307,140 @@ private fun RowScope.DockNavItem(
     iconRes: Int,
     text: String,
     selected: Boolean,
-    selectedBackground: Brush,
-    selectedStroke: Color,
-    selectedTopHighlight: Color,
-    selectedContentColor: Color,
     onClick: () -> Unit,
-    spec: NoMemoAdaptiveSpec
+    spec: NoMemoAdaptiveSpec,
+    isDark: Boolean,
+    isPrimaryCenter: Boolean
 ) {
-    val palette = rememberNoMemoPalette()
-    val itemShape = RoundedCornerShape(32.dp)
-    val itemColor = if (selected) selectedContentColor else palette.textPrimary
+    val selectedColor = if (isDark) Color(0xFFF3DBFF) else Color(0xFF1F2836)
+    val baseColor = if (isDark) Color.White else Color(0xFF1D2736)
+    val baseAlpha = if (isDark) {
+        if (isPrimaryCenter) 0.62f else 0.48f
+    } else {
+        if (isPrimaryCenter) 0.78f else 0.62f
+    }
+    val alpha by animateFloatAsState(
+        targetValue = if (selected) 1f else baseAlpha,
+        animationSpec = tween(durationMillis = 230, easing = DockEaseOut),
+        label = "dockItemAlpha"
+    )
+    val iconScale by animateFloatAsState(
+        targetValue = if (selected) 1.05f else 1f,
+        animationSpec = tween(durationMillis = 230, easing = DockEaseOut),
+        label = "dockIconScale"
+    )
+    val lift by animateDpAsState(
+        targetValue = if (selected) (-2).dp else 0.dp,
+        animationSpec = tween(durationMillis = 230, easing = DockEaseOut),
+        label = "dockLift"
+    )
+    val contentColor = if (selected) {
+        selectedColor.copy(alpha = alpha)
+    } else {
+        baseColor.copy(alpha = alpha)
+    }
 
     PressScaleBox(
         onClick = onClick,
+        pressedScale = 0.98f,
         modifier = Modifier
             .weight(1f)
-            .height(spec.bottomNavItemHeight)
-            .clip(itemShape)
+            .fillMaxHeight()
     ) {
-        if (selected) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(selectedBackground)
-                    .border(1.dp, selectedStroke, itemShape)
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(itemShape)
-                    .background(
-                        Brush.verticalGradient(
-                            listOf(
-                                selectedTopHighlight,
-                                Color.Transparent
-                            )
-                        )
-                    )
-            )
-        }
         Column(
-            modifier = Modifier.align(Alignment.Center),
-            horizontalAlignment = Alignment.CenterHorizontally
+            modifier = Modifier
+                .fillMaxSize()
+                .offset(y = lift)
+                .padding(vertical = if (spec.isNarrow) 4.dp else 5.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
         ) {
             Icon(
                 painter = painterResource(id = iconRes),
                 contentDescription = text,
-                tint = itemColor,
-                modifier = Modifier.size(if (spec.isNarrow) 20.dp else 22.dp)
+                tint = contentColor,
+                modifier = Modifier
+                    .size(if (spec.isNarrow) 20.dp else 22.dp)
+                    .graphicsLayer {
+                        scaleX = iconScale
+                        scaleY = iconScale
+                    }
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             Text(
                 text = text,
-                color = itemColor,
-                fontSize = if (spec.isNarrow) 11.sp else 12.sp,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                color = contentColor,
+                fontSize = if (spec.isNarrow) 12.sp else 13.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
                 maxLines = 1
             )
         }
     }
+}
+
+@Composable
+private fun DockGlowLayer(
+    animatedX: Float,
+    isDark: Boolean,
+    dockShape: RoundedCornerShape
+) {
+    val whiteAlpha = if (isDark) 0.34f else 0.16f
+    val purpleCore = if (isDark) Color(0xFFD16CFF).copy(alpha = 0.22f) else Color(0xFF9B5CFF).copy(alpha = 0.12f)
+    val purpleMist = if (isDark) Color(0xFF8E2BFF).copy(alpha = 0.28f) else Color(0xFF7D3CFF).copy(alpha = 0.13f)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .clip(dockShape)
+            .drawBehind {
+                val centerX = size.width * animatedX
+                val centerY = size.height * 0.52f
+                val radius = size.minDimension * 0.72f
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            Color.White.copy(alpha = whiteAlpha),
+                            Color(0xFFE8C9FF).copy(alpha = if (isDark) 0.12f else 0.06f),
+                            Color.Transparent
+                        ),
+                        center = Offset(centerX, centerY),
+                        radius = radius
+                    ),
+                    radius = radius,
+                    center = Offset(centerX, centerY)
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(purpleCore, Color.Transparent),
+                        center = Offset(centerX - size.minDimension * 0.40f, centerY - size.minDimension * 0.14f),
+                        radius = size.minDimension * 0.74f
+                    ),
+                    radius = size.minDimension * 0.74f,
+                    center = Offset(centerX - size.minDimension * 0.40f, centerY - size.minDimension * 0.14f)
+                )
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(purpleMist, Color.Transparent),
+                        center = Offset(centerX + size.minDimension * 0.46f, centerY + size.minDimension * 0.10f),
+                        radius = size.minDimension * 0.76f
+                    ),
+                    radius = size.minDimension * 0.76f,
+                    center = Offset(centerX + size.minDimension * 0.46f, centerY + size.minDimension * 0.10f)
+                )
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(
+                            if (isDark) Color.Black.copy(alpha = 0.44f) else Color.Transparent,
+                            Color.Transparent,
+                            if (isDark) Color.Black.copy(alpha = 0.44f) else Color.Transparent
+                        ),
+                        startX = 0f,
+                        endX = size.width
+                    )
+                )
+            }
+            .blur(if (isDark) 30.dp else 18.dp)
+    )
 }
 
 private fun loadSampledBitmap(context: android.content.Context, uri: Uri, widthPx: Int, heightPx: Int): Bitmap? {
