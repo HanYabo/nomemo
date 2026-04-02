@@ -41,18 +41,23 @@ public class MemoryStore {
             preferences.edit().putString(KEY_RECORDS, "[]").apply();
             raw = "[]";
         }
-        // Ensure images are stored in app cache: copy external/content URIs to file:// cache and update records
+        // Ensure images are stored in app private files directory to avoid cache cleanup data loss.
         boolean updatedAny = false;
         List<MemoryRecord> normalized = new ArrayList<>();
         for (MemoryRecord r : records) {
             String img = r.getImageUri();
             String normalizedUri = img == null ? "" : img;
-            if (!normalizedUri.isEmpty() && !normalizedUri.startsWith("file://")) {
+            if (!normalizedUri.isEmpty()) {
                 try {
-                    // Copy to cache; ImageUtils is a Kotlin object, call INSTANCE
                     android.net.Uri parsed = android.net.Uri.parse(normalizedUri);
-                    String copied = ImageUtils.INSTANCE.copyUriToCache(appContext, parsed);
-                    if (copied != null && !copied.isEmpty()) {
+                    String scheme = parsed.getScheme();
+                    String copied = null;
+                    if ("file".equalsIgnoreCase(scheme)) {
+                        copied = ImageUtils.INSTANCE.migrateFileUriToPrivateStorage(appContext, parsed);
+                    } else {
+                        copied = ImageUtils.INSTANCE.copyUriToCache(appContext, parsed);
+                    }
+                    if (copied != null && !copied.isEmpty() && !copied.equals(normalizedUri)) {
                         normalizedUri = copied;
                     }
                 } catch (Exception ignored) {

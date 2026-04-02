@@ -27,6 +27,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -261,7 +262,11 @@ fun AddMemorySheet(
                 modifier = Modifier
                     .fillMaxSize()
                     .background(Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f))
-                    .clickable(onClick = requestDismiss)
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = requestDismiss
+                    )
             )
         }
         AnimatedVisibility(

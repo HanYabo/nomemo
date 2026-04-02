@@ -40,6 +40,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -1579,6 +1580,7 @@ fun RecordCard(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    onSwipeDeleteRequest: (() -> Unit)? = null,
     palette: NoMemoPalette = rememberNoMemoPalette(),
     adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
     allowImageLoading: Boolean = true,
@@ -1660,94 +1662,235 @@ fun RecordCard(
     }
     val thumbnailBackground = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF1F4F8)
     val thumbnailBorder = if (isDark) Color.Transparent else Color.Transparent
-
+    val swipeEnabled = onSwipeDeleteRequest != null
+    val swipeActionWidth = if (adaptive.isNarrow) 88.dp else 96.dp
+    val swipeActionWidthPx = with(LocalDensity.current) { swipeActionWidth.toPx() }
+    val secondarySwipeExtraPx = with(LocalDensity.current) { 46.dp.toPx() }
+    val secondarySwipeTriggerPx = swipeActionWidthPx + secondarySwipeExtraPx * 0.70f
+    val swipeOpenThresholdPx = swipeActionWidthPx * 0.54f
+    val swipeMaxPx = swipeActionWidthPx + secondarySwipeExtraPx
+    val swipeOffsetState = remember(record.recordId, swipeEnabled) {
+        androidx.compose.runtime.mutableFloatStateOf(0f)
+    }
+    val dragStartedFromRevealedState = remember(record.recordId, swipeEnabled) {
+        androidx.compose.runtime.mutableStateOf(false)
+    }
+    val animatedSwipeOffsetPx by animateFloatAsState(
+        targetValue = swipeOffsetState.floatValue,
+        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        label = "recordSwipeOffset"
+    )
+    val swipeRevealProgress = if (swipeActionWidthPx > 0f) {
+        (-animatedSwipeOffsetPx / swipeActionWidthPx).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+    val deleteButtonWidth = if (adaptive.isNarrow) 74.dp else 82.dp
+    val deleteButtonHeight = if (adaptive.isNarrow) 44.dp else 48.dp
+    val deleteActionShape = RoundedCornerShape(24.dp)
+    val deleteActionBrush = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFFD64A4A),
+                Color(0xFFB62F2F)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color(0xFFFF6B6B),
+                Color(0xFFE53935)
+            )
+        )
+    }
     val gestureModifier = if (onLongPress == null && onClick == null) {
         Modifier
     } else {
-        Modifier.pointerInput(onLongPress, onClick) {
+        Modifier.pointerInput(onLongPress, onClick, swipeEnabled) {
             detectTapGestures(
-                onTap = { onClick?.invoke() },
+                onTap = {
+                    if (swipeEnabled && swipeOffsetState.floatValue < -2f) {
+                        swipeOffsetState.floatValue = 0f
+                    } else {
+                        onClick?.invoke()
+                    }
+                },
                 onLongPress = {
+                    if (swipeEnabled && swipeOffsetState.floatValue < -2f) {
+                        swipeOffsetState.floatValue = 0f
+                        return@detectTapGestures
+                    }
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onLongPress?.invoke()
                 }
             )
         }
     }
-
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .then(gestureModifier),
-        shape = cardShape,
-        colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = cardShadow),
-        border = if (selected) BorderStroke(1.dp, cardBorderColor) else null
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(Brush.verticalGradient(cardGradient))
-                .padding(horizontal = 18.dp, vertical = 17.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = titleText,
-                    color = palette.textPrimary,
-                    fontSize = adaptive.recordTitleSize,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = if (compactCard) 2 else 3,
-                    overflow = TextOverflow.Ellipsis
-                )
-                if (!summaryText.isNullOrBlank()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    Text(
-                        text = summaryText,
-                        color = summaryColor,
-                        fontSize = if (compactCard) 13.sp else 14.sp,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis
-                    )
+    val swipeModifier = if (!swipeEnabled) {
+        Modifier
+    } else {
+        Modifier.pointerInput(record.recordId, swipeActionWidthPx, secondarySwipeTriggerPx, swipeMaxPx) {
+            detectHorizontalDragGestures(
+                onDragStart = {
+                    dragStartedFromRevealedState.value =
+                        swipeOffsetState.floatValue <= -swipeActionWidthPx * 0.85f
+                },
+                onHorizontalDrag = { _, dragAmount ->
+                    val next = (swipeOffsetState.floatValue + dragAmount).coerceIn(-swipeMaxPx, 0f)
+                    swipeOffsetState.floatValue = next
+                },
+                onDragEnd = {
+                    val currentOffset = swipeOffsetState.floatValue
+                    val shouldConfirmDelete =
+                        dragStartedFromRevealedState.value && currentOffset <= -secondarySwipeTriggerPx
+                    swipeOffsetState.floatValue = when {
+                        shouldConfirmDelete -> {
+                            onSwipeDeleteRequest?.invoke()
+                            0f
+                        }
+                        currentOffset <= -swipeOpenThresholdPx -> -swipeActionWidthPx
+                        else -> 0f
+                    }
+                    dragStartedFromRevealedState.value = false
+                },
+                onDragCancel = {
+                    val currentOffset = swipeOffsetState.floatValue
+                    swipeOffsetState.floatValue =
+                        if (currentOffset <= -swipeOpenThresholdPx) -swipeActionWidthPx else 0f
+                    dragStartedFromRevealedState.value = false
                 }
-                Spacer(modifier = Modifier.height(10.dp))
-                RecordMetaLine(
-                    timeText = timeText,
-                    categoryText = categoryText,
-                    showAi = record.mode == MemoryRecord.MODE_AI,
-                    metaColor = metaColor,
-                    aiColor = aiMetaColor
-                )
-            }
+            )
+        }
+    }
 
-            if (showPreviewImage) {
-                Spacer(modifier = Modifier.width(14.dp))
-                if (allowImageLoading) {
-                    MemoryThumbnail(
-                        uriString = record.imageUri.orEmpty(),
-                        width = previewWidth,
-                        height = previewHeight,
-                        backgroundColor = thumbnailBackground,
-                        cornerRadius = previewCornerRadius,
-                        modifier = Modifier
-                            .border(
-                                width = 1.dp,
-                                color = thumbnailBorder,
-                                shape = RoundedCornerShape(previewCornerRadius)
-                            )
-                    )
-                } else {
+    Box(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        if (swipeEnabled) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .padding(vertical = 6.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                PressScaleBox(
+                    onClick = {
+                        swipeOffsetState.floatValue = 0f
+                        onSwipeDeleteRequest?.invoke()
+                    },
+                    modifier = Modifier
+                        .padding(end = 10.dp)
+                        .width(deleteButtonWidth)
+                        .height(deleteButtonHeight)
+                        .shadow(
+                            elevation = if (isDark) 11.dp else 8.dp,
+                            shape = deleteActionShape,
+                            ambientColor = if (isDark) Color.Black.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.12f),
+                            spotColor = if (isDark) Color.Black.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.12f)
+                        )
+                        .graphicsLayer {
+                            alpha = swipeRevealProgress
+                            val scale = 0.90f + (0.10f * swipeRevealProgress)
+                            scaleX = scale
+                            scaleY = scale
+                            translationX = (1f - swipeRevealProgress) * 10f
+                            transformOrigin = TransformOrigin(1f, 0.5f)
+                        }
+                        .clip(deleteActionShape)
+                ) {
                     Box(
                         modifier = Modifier
-                            .size(width = previewWidth, height = previewHeight)
-                            .clip(RoundedCornerShape(previewCornerRadius))
-                            .background(thumbnailBackground)
-                            .border(
-                                width = 1.dp,
-                                color = thumbnailBorder,
-                                shape = RoundedCornerShape(previewCornerRadius)
-                            )
+                            .fillMaxSize()
+                            .background(deleteActionBrush),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "删除",
+                            color = Color.White.copy(alpha = 0.98f),
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { translationX = animatedSwipeOffsetPx }
+                .then(swipeModifier)
+                .then(gestureModifier),
+            shape = cardShape,
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            elevation = CardDefaults.cardElevation(defaultElevation = cardShadow),
+            border = if (selected) BorderStroke(1.dp, cardBorderColor) else null
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Brush.verticalGradient(cardGradient))
+                    .padding(horizontal = 18.dp, vertical = 17.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = titleText,
+                        color = palette.textPrimary,
+                        fontSize = adaptive.recordTitleSize,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = if (compactCard) 2 else 3,
+                        overflow = TextOverflow.Ellipsis
                     )
+                    if (!summaryText.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = summaryText,
+                            color = summaryColor,
+                            fontSize = if (compactCard) 13.sp else 14.sp,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    RecordMetaLine(
+                        timeText = timeText,
+                        categoryText = categoryText,
+                        showAi = record.mode == MemoryRecord.MODE_AI,
+                        metaColor = metaColor,
+                        aiColor = aiMetaColor
+                    )
+                }
+
+                if (showPreviewImage) {
+                    Spacer(modifier = Modifier.width(14.dp))
+                    if (allowImageLoading) {
+                        MemoryThumbnail(
+                            uriString = record.imageUri.orEmpty(),
+                            width = previewWidth,
+                            height = previewHeight,
+                            backgroundColor = thumbnailBackground,
+                            cornerRadius = previewCornerRadius,
+                            modifier = Modifier
+                                .border(
+                                    width = 1.dp,
+                                    color = thumbnailBorder,
+                                    shape = RoundedCornerShape(previewCornerRadius)
+                                )
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(width = previewWidth, height = previewHeight)
+                                .clip(RoundedCornerShape(previewCornerRadius))
+                                .background(thumbnailBackground)
+                                .border(
+                                    width = 1.dp,
+                                    color = thumbnailBorder,
+                                    shape = RoundedCornerShape(previewCornerRadius)
+                                )
+                        )
+                    }
                 }
             }
         }

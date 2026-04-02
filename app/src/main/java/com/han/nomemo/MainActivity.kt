@@ -280,6 +280,7 @@ class MainActivity : BaseComposeActivity() {
         var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
+        var swipeDeleteTarget by remember { mutableStateOf<MemoryRecord?>(null) }
 
         val selectedRecords = remember(records, selectedRecordIds) {
             records.filter { selectedRecordIds.contains(it.recordId) }
@@ -332,6 +333,11 @@ class MainActivity : BaseComposeActivity() {
                 RecordCard(
                     record = record,
                     selected = selectedRecordIds.contains(record.recordId),
+                    onSwipeDeleteRequest = if (selectedRecordIds.isEmpty()) {
+                        { swipeDeleteTarget = record }
+                    } else {
+                        null
+                    },
                     palette = palette,
                     adaptive = adaptive,
                     allowImageLoading = true,
@@ -589,6 +595,17 @@ class MainActivity : BaseComposeActivity() {
                                 showDeleteConfirm = false
                             },
                             onDismiss = { showDeleteConfirm = false }
+                        )
+                    }
+                    swipeDeleteTarget?.let { targetRecord ->
+                        NoMemoDeleteConfirmDialog(
+                            title = stringResource(R.string.delete_selected_title),
+                            message = stringResource(R.string.delete_selected_message),
+                            onConfirm = {
+                                onDeleteRecords(setOf(targetRecord.recordId))
+                                swipeDeleteTarget = null
+                            },
+                            onDismiss = { swipeDeleteTarget = null }
                         )
                     }
 

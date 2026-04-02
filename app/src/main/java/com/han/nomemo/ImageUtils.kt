@@ -6,15 +6,20 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.File
+import java.io.FileInputStream
 import java.io.FileOutputStream
 
 object ImageUtils {
     fun copyUriToCache(context: Context, uri: Uri): String? {
+        return copyUriToPrivateStorage(context, uri)
+    }
+
+    fun copyUriToPrivateStorage(context: Context, uri: Uri): String? {
         return try {
             val resolver: ContentResolver = context.contentResolver
             val extension = resolveExtension(resolver, uri)
-            val cacheDir = File(context.cacheDir, "mem_images").apply { if (!exists()) mkdirs() }
-            val target = File(cacheDir, "nomemo_${System.currentTimeMillis()}.$extension")
+            val privateDir = privateImageDir(context)
+            val target = File(privateDir, "nomemo_${System.currentTimeMillis()}.$extension")
             resolver.openInputStream(uri)?.use { input ->
                 FileOutputStream(target).use { out ->
                     input.copyTo(out)
@@ -24,6 +29,49 @@ object ImageUtils {
             Uri.fromFile(target).toString()
         } catch (_: Exception) {
             null
+        }
+    }
+
+    fun migrateFileUriToPrivateStorage(context: Context, uri: Uri): String? {
+        return try {
+            if (uri.scheme != "file") return null
+            val sourcePath = uri.path ?: return null
+            val sourceFile = File(sourcePath)
+            if (!sourceFile.exists() || !sourceFile.isFile) return null
+
+            val privateDir = privateImageDir(context)
+            if (isInsideDirectory(sourceFile, privateDir)) {
+                return Uri.fromFile(sourceFile).toString()
+            }
+
+            val extension = sourceFile.extension.takeIf { it.isNotBlank() } ?: "jpg"
+            val target = File(privateDir, "nomemo_${System.currentTimeMillis()}.$extension")
+            FileInputStream(sourceFile).use { input ->
+                FileOutputStream(target).use { out ->
+                    input.copyTo(out)
+                }
+            }
+            Uri.fromFile(target).toString()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun privateImageDir(context: Context): File {
+        return File(context.filesDir, "mem_images").apply {
+            if (!exists()) {
+                mkdirs()
+            }
+        }
+    }
+
+    private fun isInsideDirectory(file: File, parentDir: File): Boolean {
+        return try {
+            val filePath = file.canonicalPath
+            val parentPath = parentDir.canonicalPath
+            filePath == parentPath || filePath.startsWith("$parentPath${File.separator}")
+        } catch (_: Exception) {
+            false
         }
     }
 

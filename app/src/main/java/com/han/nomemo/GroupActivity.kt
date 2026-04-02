@@ -17,13 +17,21 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -37,7 +45,12 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -48,17 +61,28 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 class GroupActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
@@ -197,6 +221,326 @@ class GroupActivity : BaseComposeActivity() {
         onAddClick: () -> Unit,
         onDismissAddSheet: () -> Unit
     ) {
+        val albumContext = LocalContext.current
+        val albumStore = remember(albumContext) { GroupAlbumStore(albumContext) }
+        val albumAdaptive = rememberNoMemoAdaptiveSpec()
+        val albumPalette = rememberNoMemoPalette()
+        val albumListState = rememberLazyListState()
+        val albumDockHasUnderContent = rememberDockHasUnderContent(
+            listState = albumListState,
+            spec = albumAdaptive
+        )
+        var albumList by remember { mutableStateOf(albumStore.loadAlbums()) }
+        var openedAlbumId by remember { mutableStateOf<String?>(null) }
+        var showCreateAlbumDialog by remember { mutableStateOf(false) }
+        var showAddExistingSheet by remember { mutableStateOf(false) }
+        var selectedExistingRecordIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+        var albumNameInput by remember { mutableStateOf("") }
+        var albumDescriptionInput by remember { mutableStateOf("") }
+
+        val albumColumns = if (albumAdaptive.widthClass == NoMemoWidthClass.EXPANDED) 3 else 2
+        val albumRows = remember(albumList, albumColumns) { albumList.chunked(albumColumns) }
+        val openedAlbum = remember(albumList, openedAlbumId) {
+            albumList.firstOrNull { it.albumId == openedAlbumId }
+        }
+        val openedRecords = remember(allRecords, openedAlbum?.recordIds) {
+            val current = openedAlbum ?: return@remember emptyList()
+            val byId = allRecords.associateBy { it.recordId }
+            current.recordIds.mapNotNull { byId[it] }
+        }
+        val availableExistingRecords = remember(allRecords, openedAlbum?.recordIds) {
+            val currentIds = openedAlbum?.recordIds?.toSet().orEmpty()
+            allRecords.filterNot { currentIds.contains(it.recordId) }
+        }
+        BackHandler(
+            enabled = openedAlbum != null &&
+                !showAddSheet &&
+                !showCreateAlbumDialog &&
+                !showAddExistingSheet
+        ) {
+            openedAlbumId = null
+            resetDoubleBackExitState()
+        }
+        BackHandler(enabled = showAddExistingSheet) {
+            showAddExistingSheet = false
+            selectedExistingRecordIds = emptySet()
+        }
+
+        NoMemoBackground {
+            ResponsiveContentFrame(spec = albumAdaptive) { spec ->
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .statusBarsPadding()
+                            .padding(
+                                start = spec.pageHorizontalPadding,
+                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
+                                end = spec.pageHorizontalPadding,
+                                bottom = 0.dp
+                            )
+                    ) {
+                        if (openedAlbum == null) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_nm_add,
+                                    contentDescription = "新建分组",
+                                    onClick = { showCreateAlbumDialog = true },
+                                    modifier = Modifier.padding(end = 10.dp),
+                                    size = spec.topActionButtonSize
+                                )
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_nm_settings,
+                                    contentDescription = stringResource(R.string.action_settings),
+                                    onClick = onOpenSettings,
+                                    size = spec.topActionButtonSize
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.group_page_title),
+                                color = albumPalette.textPrimary,
+                                fontSize = spec.titleSize,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+
+                            if (albumList.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    NoMemoEmptyState(
+                                        iconRes = R.drawable.ic_nm_group,
+                                        title = "还没有分组",
+                                        subtitle = "点击右上角 + 创建分组"
+                                    )
+                                }
+                            } else {
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f),
+                                    state = albumListState,
+                                    contentPadding = PaddingValues(
+                                        top = 14.dp,
+                                        bottom = spec.pageBottomPadding + 24.dp
+                                    ),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    items(albumRows) { rowAlbums ->
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            rowAlbums.forEach { album ->
+                                                GroupAlbumGridCard(
+                                                    album = album,
+                                                    compact = spec.widthClass == NoMemoWidthClass.COMPACT,
+                                                    memoryCount = album.recordIds.size,
+                                                    modifier = Modifier.weight(1f),
+                                                    onClick = { openedAlbumId = album.albumId }
+                                                )
+                                            }
+                                            repeat(albumColumns - rowAlbums.size) {
+                                                Spacer(modifier = Modifier.weight(1f))
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = openedAlbum.name,
+                                    color = albumPalette.textPrimary,
+                                    fontSize = if (spec.isNarrow) 30.sp else spec.titleSize,
+                                    fontWeight = FontWeight.Bold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .padding(
+                                            start = spec.topActionButtonSize + 24.dp,
+                                            end = spec.topActionButtonSize + 24.dp
+                                        )
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    GlassIconCircleButton(
+                                        iconRes = R.drawable.ic_sheet_close,
+                                        contentDescription = stringResource(R.string.back),
+                                        onClick = { openedAlbumId = null },
+                                        size = spec.topActionButtonSize
+                                    )
+                                    GlassIconCircleButton(
+                                        iconRes = R.drawable.ic_nm_add,
+                                        contentDescription = "添加记忆",
+                                        onClick = {
+                                            selectedExistingRecordIds = emptySet()
+                                            showAddExistingSheet = true
+                                        },
+                                        size = spec.topActionButtonSize
+                                    )
+                                }
+                            }
+
+                            if (openedRecords.isNotEmpty()) {
+                                LazyColumn(
+                                    modifier = Modifier.weight(1f),
+                                    state = albumListState,
+                                    contentPadding = PaddingValues(
+                                        top = 14.dp,
+                                        bottom = spec.pageBottomPadding + 24.dp
+                                    ),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    items(items = openedRecords, key = { it.recordId }) { record ->
+                                        RecordCard(
+                                            record = record,
+                                            allowImageLoading = true,
+                                            onClick = { onOpenDetail(record) }
+                                        )
+                                    }
+                                }
+                            }
+                            if (openedRecords.isEmpty()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .weight(1f),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    NoMemoEmptyState(
+                                        iconRes = R.drawable.ic_nm_memory,
+                                        title = "分组里还没有记忆",
+                                        subtitle = "点击右上角添加记忆"
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    NoMemoBottomDock(
+                        selectedTab = NoMemoDockTab.GROUP,
+                        onOpenMemory = onOpenMemory,
+                        onOpenGroup = {},
+                        onOpenReminder = onOpenReminder,
+                        onAddClick = onAddClick,
+                        spec = spec,
+                        animateFabHalo = !albumListState.isScrollInProgress,
+                        showEnhancedOutline = albumDockHasUnderContent,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(
+                                start = spec.pageHorizontalPadding,
+                                end = spec.pageHorizontalPadding,
+                                bottom = if (spec.isNarrow) 10.dp else 14.dp
+                            )
+                    )
+
+                    if (showCreateAlbumDialog) {
+                        AlertDialog(
+                            onDismissRequest = { showCreateAlbumDialog = false },
+                            title = {
+                                Text(
+                                    text = "新建分组",
+                                    color = albumPalette.textPrimary,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            },
+                            text = {
+                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    GroupAlbumInputField(
+                                        value = albumNameInput,
+                                        onValueChange = { albumNameInput = it },
+                                        placeholder = "分组名称"
+                                    )
+                                    GroupAlbumInputField(
+                                        value = albumDescriptionInput,
+                                        onValueChange = { albumDescriptionInput = it },
+                                        placeholder = "分组描述（可选）",
+                                        minHeight = 88.dp
+                                    )
+                                }
+                            },
+                            confirmButton = {
+                                TextButton(
+                                    enabled = albumNameInput.trim().isNotEmpty(),
+                                    onClick = {
+                                        val finalName = albumNameInput.trim()
+                                        if (finalName.isBlank()) {
+                                            Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
+                                        } else {
+                                            albumStore.addAlbum(finalName, albumDescriptionInput)
+                                            albumList = albumStore.loadAlbums()
+                                            albumNameInput = ""
+                                            albumDescriptionInput = ""
+                                            showCreateAlbumDialog = false
+                                            Toast.makeText(albumContext, "分组已创建", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                ) {
+                                    Text("创建")
+                                }
+                            },
+                            dismissButton = {
+                                TextButton(onClick = { showCreateAlbumDialog = false }) {
+                                    Text("取消")
+                                }
+                            }
+                        )
+                    }
+
+                    if (showAddExistingSheet && openedAlbum != null) {
+                        GroupAddExistingMemorySheet(
+                            visible = showAddExistingSheet,
+                            albumName = openedAlbum.name,
+                            records = availableExistingRecords,
+                            selectedRecordIds = selectedExistingRecordIds,
+                            onToggleRecord = { recordId ->
+                                selectedExistingRecordIds = if (selectedExistingRecordIds.contains(recordId)) {
+                                    selectedExistingRecordIds - recordId
+                                } else {
+                                    selectedExistingRecordIds + recordId
+                                }
+                            },
+                            onDismiss = {
+                                showAddExistingSheet = false
+                                selectedExistingRecordIds = emptySet()
+                            },
+                            onConfirm = {
+                                if (selectedExistingRecordIds.isEmpty()) {
+                                    Toast.makeText(albumContext, "请先选择记忆", Toast.LENGTH_SHORT).show()
+                                    return@GroupAddExistingMemorySheet
+                                }
+                                if (albumStore.addRecordIds(openedAlbum.albumId, selectedExistingRecordIds)) {
+                                    albumList = albumStore.loadAlbums()
+                                    Toast.makeText(albumContext, "已添加到分组", Toast.LENGTH_SHORT).show()
+                                }
+                                showAddExistingSheet = false
+                                selectedExistingRecordIds = emptySet()
+                            }
+                        )
+                    }
+
+                    if (showAddSheet) {
+                        AddMemorySheet(
+                            onDismiss = onDismissAddSheet
+                        )
+                    }
+                }
+            }
+        }
+        return
+
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
@@ -204,6 +548,7 @@ class GroupActivity : BaseComposeActivity() {
         var searchEnabled by remember { mutableStateOf(false) }
         var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
+        var swipeDeleteTarget by remember { mutableStateOf<MemoryRecord?>(null) }
         var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
         val dockHasUnderContent = rememberDockHasUnderContent(
@@ -398,6 +743,11 @@ class GroupActivity : BaseComposeActivity() {
                                     RecordCard(
                                         record = record,
                                         selected = selectedRecordId == record.recordId,
+                                        onSwipeDeleteRequest = if (selectedRecordId == null) {
+                                            { swipeDeleteTarget = record }
+                                        } else {
+                                            null
+                                        },
                                         palette = palette,
                                         adaptive = spec,
                                         allowImageLoading = true,
@@ -466,6 +816,17 @@ class GroupActivity : BaseComposeActivity() {
                             onDismiss = { showDeleteConfirm = false }
                         )
                     }
+                    swipeDeleteTarget?.let { targetRecord ->
+                        NoMemoDeleteConfirmDialog(
+                            title = stringResource(R.string.delete_selected_title),
+                            message = stringResource(R.string.delete_selected_message),
+                            onConfirm = {
+                                onDeleteRecord(targetRecord)
+                                swipeDeleteTarget = null
+                            },
+                            onDismiss = { swipeDeleteTarget = null }
+                        )
+                    }
 
                     NoMemoMenuPopup(
                         expanded = moreMenuExpanded,
@@ -495,6 +856,316 @@ class GroupActivity : BaseComposeActivity() {
                 }
             }
         }
+    }
+
+    @Composable
+    private fun GroupAlbumGridCard(
+        album: GroupAlbumStore.GroupAlbum,
+        compact: Boolean,
+        memoryCount: Int,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        val dayText = remember(album.createdAt) {
+            SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(Date(album.createdAt))
+        }
+
+        PressScaleBox(onClick = onClick, modifier = modifier) {
+            Card(
+                shape = RoundedCornerShape(if (compact) 22.dp else 24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = noMemoCardSurfaceColor(
+                        isDark = isDark,
+                        lightColor = Color.White.copy(alpha = 0.995f)
+                    )
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(if (compact) 78.dp else 94.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(groupAlbumCoverBrush(album.albumId, isDark))
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_nm_group),
+                            contentDescription = null,
+                            tint = Color.White.copy(alpha = if (isDark) 0.90f else 0.82f),
+                            modifier = Modifier
+                                .align(Alignment.BottomStart)
+                                .padding(10.dp)
+                        )
+                        Text(
+                            text = "${memoryCount}条记忆",
+                            color = Color.White.copy(alpha = 0.92f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 8.dp, end = 9.dp)
+                        )
+                    }
+
+                    Text(
+                        text = album.name,
+                        color = palette.textPrimary,
+                        fontSize = if (compact) 16.sp else 17.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+
+                    val descriptionText = album.description.ifBlank { "未填写分组描述" }
+                    Text(
+                        text = descriptionText,
+                        color = if (album.description.isBlank()) {
+                            palette.textTertiary
+                        } else {
+                            palette.textSecondary
+                        },
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier
+                            .padding(top = 5.dp)
+                            .height(if (compact) 38.dp else 40.dp)
+                    )
+
+                    Text(
+                        text = "创建于 $dayText",
+                        color = palette.textTertiary,
+                        fontSize = 12.sp,
+                        maxLines = 1,
+                        modifier = Modifier.padding(top = 8.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun BoxScope.GroupAddExistingMemorySheet(
+        visible: Boolean,
+        albumName: String,
+        records: List<MemoryRecord>,
+        selectedRecordIds: Set<String>,
+        onToggleRecord: (String) -> Unit,
+        onDismiss: () -> Unit,
+        onConfirm: () -> Unit
+    ) {
+        val adaptive = rememberNoMemoAdaptiveSpec()
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        val panelSurface = if (isDark) Color(0xFF1A1A1C) else Color.White.copy(alpha = 0.995f)
+        val bodyHeight = if (adaptive.isNarrow) 620.dp else 700.dp
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 180))
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .zIndex(20f)
+                    .background(Color.Black.copy(alpha = if (isDark) 0.56f else 0.30f))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onDismiss
+                    )
+            )
+        }
+
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 260)
+            ) + fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 220)
+            ) + fadeOut(animationSpec = tween(durationMillis = 150)),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .zIndex(21f)
+        ) {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+                colors = CardDefaults.cardColors(containerColor = panelSurface)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(bodyHeight)
+                        .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .width(56.dp)
+                            .height(5.dp)
+                            .clip(RoundedCornerShape(999.dp))
+                            .background(if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000))
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GlassIconCircleButton(
+                            iconRes = R.drawable.ic_sheet_close,
+                            contentDescription = stringResource(R.string.cancel),
+                            onClick = onDismiss,
+                            size = adaptive.topActionButtonSize
+                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = "添加记忆",
+                                color = palette.textPrimary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                            Text(
+                                text = albumName,
+                                color = palette.textTertiary,
+                                fontSize = 12.sp,
+                                maxLines = 1
+                            )
+                        }
+                        GlassIconCircleButton(
+                            iconRes = R.drawable.ic_sheet_check,
+                            contentDescription = stringResource(R.string.confirm),
+                            onClick = onConfirm,
+                            size = adaptive.topActionButtonSize
+                        )
+                    }
+
+                    if (records.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            NoMemoEmptyState(
+                                iconRes = R.drawable.ic_nm_memory,
+                                title = "暂无可添加的记忆",
+                                subtitle = "先在记忆页创建内容再添加到分组"
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(
+                                top = 4.dp,
+                                bottom = adaptive.pageBottomPadding + 18.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            items(records, key = { it.recordId }) { record ->
+                                RecordCard(
+                                    record = record,
+                                    selected = selectedRecordIds.contains(record.recordId),
+                                    allowImageLoading = true,
+                                    onClick = { onToggleRecord(record.recordId) },
+                                    onLongPress = { onToggleRecord(record.recordId) }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun GroupAlbumInputField(
+        value: String,
+        onValueChange: (String) -> Unit,
+        placeholder: String,
+        minHeight: Dp = 46.dp,
+        modifier: Modifier = Modifier
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        Card(
+            modifier = modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = noMemoCardSurfaceColor(
+                    isDark = isDark,
+                    lightColor = Color.White.copy(alpha = 0.995f)
+                )
+            ),
+            border = BorderStroke(
+                width = 1.dp,
+                color = palette.glassStroke.copy(alpha = if (isDark) 0.44f else 0.18f)
+            )
+        ) {
+            BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                textStyle = TextStyle(
+                    color = palette.textPrimary,
+                    fontSize = 15.sp,
+                    lineHeight = 22.sp
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = minHeight)
+                    .padding(horizontal = 14.dp, vertical = 12.dp)
+            ) { innerTextField ->
+                Box(
+                    modifier = Modifier.fillMaxWidth(),
+                    contentAlignment = Alignment.CenterStart
+                ) {
+                    if (value.isBlank()) {
+                        Text(
+                            text = placeholder,
+                            color = palette.textTertiary,
+                            fontSize = 14.sp
+                        )
+                    }
+                    innerTextField()
+                }
+            }
+        }
+    }
+
+    private fun groupAlbumCoverBrush(albumId: String, isDark: Boolean): Brush {
+        val gradients = listOf(
+            listOf(Color(0xFF3B82F6), Color(0xFF1D4ED8)),
+            listOf(Color(0xFF22C55E), Color(0xFF15803D)),
+            listOf(Color(0xFFEF4444), Color(0xFFB91C1C)),
+            listOf(Color(0xFFF59E0B), Color(0xFFB45309)),
+            listOf(Color(0xFF14B8A6), Color(0xFF0F766E)),
+            listOf(Color(0xFF8B5CF6), Color(0xFF6D28D9))
+        )
+        val index = abs(albumId.hashCode()) % gradients.size
+        val selected = gradients[index]
+        val start = if (isDark) selected[0].copy(alpha = 0.48f) else selected[0].copy(alpha = 0.30f)
+        val end = if (isDark) selected[1].copy(alpha = 0.34f) else selected[1].copy(alpha = 0.22f)
+        return Brush.linearGradient(listOf(start, end))
     }
 
     @Composable

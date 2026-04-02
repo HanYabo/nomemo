@@ -756,7 +756,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 )
                             }
                         } else NoMemoDetailReanalyzeButton(
-                            text = if (reanalyzing) "正在重新分析..." else "重新分析",
+                            text = when {
+                                reanalyzing && currentRecord.mode == MemoryRecord.MODE_AI -> "正在重新分析..."
+                                reanalyzing -> "正在AI分析..."
+                                currentRecord.mode == MemoryRecord.MODE_AI -> "重新分析"
+                                else -> "AI分析"
+                            },
                             enabled = !reanalyzing,
                             modifier = Modifier.padding(
                                 start = detailTextStartPadding,
