@@ -78,6 +78,27 @@ class GroupAlbumStore(context: Context) {
         return true
     }
 
+    fun updateAlbum(albumId: String, name: String, description: String): Boolean {
+        val trimmedId = albumId.trim()
+        val trimmedName = name.trim()
+        val trimmedDescription = description.trim()
+        if (trimmedId.isEmpty() || trimmedName.isEmpty()) {
+            return false
+        }
+        val albums = loadAlbums().toMutableList()
+        val index = albums.indexOfFirst { it.albumId == trimmedId }
+        if (index < 0) {
+            return false
+        }
+        val current = albums[index]
+        if (current.name == trimmedName && current.description == trimmedDescription) {
+            return false
+        }
+        albums[index] = current.copy(name = trimmedName, description = trimmedDescription)
+        saveAlbums(albums)
+        return true
+    }
+
     private fun saveAlbums(albums: List<GroupAlbum>) {
         val payload = JSONArray()
         albums.forEach { album ->
