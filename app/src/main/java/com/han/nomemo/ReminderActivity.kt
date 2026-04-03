@@ -91,6 +91,7 @@ class ReminderActivity : BaseComposeActivity() {
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
+    private var hasHandledInitialResume = false
 
     private val settingsLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -141,6 +142,10 @@ class ReminderActivity : BaseComposeActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!hasHandledInitialResume) {
+            hasHandledInitialResume = true
+            return
+        }
         refreshReminders()
     }
 
@@ -158,15 +163,17 @@ class ReminderActivity : BaseComposeActivity() {
         val filterSnapshot = selectedFilter
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
-            val all = withContext(Dispatchers.IO) {
-                memoryStore.loadReminderRecords()
-            }
-            val filtered = all.filter { record ->
-                when (filterSnapshot) {
-                    FILTER_PENDING -> !record.isReminderDone
-                    FILTER_DONE -> record.isReminderDone
-                    else -> true
+            val filtered = withContext(Dispatchers.IO) {
+                val all = memoryStore.loadReminderRecords()
+                val result = all.filter { record ->
+                    when (filterSnapshot) {
+                        FILTER_PENDING -> !record.isReminderDone
+                        FILTER_DONE -> record.isReminderDone
+                        else -> true
+                    }
                 }
+                prewarmMemoryThumbnailCache(applicationContext, result)
+                result
             }
             if (selectedFilter == filterSnapshot) {
                 reminderRecords = filtered

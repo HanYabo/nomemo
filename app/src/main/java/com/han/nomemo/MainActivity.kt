@@ -94,6 +94,7 @@ class MainActivity : BaseComposeActivity() {
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
+    private var hasHandledInitialResume = false
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -138,6 +139,10 @@ class MainActivity : BaseComposeActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!hasHandledInitialResume) {
+            hasHandledInitialResume = true
+            return
+        }
         refreshRecords()
     }
 
@@ -158,11 +163,13 @@ class MainActivity : BaseComposeActivity() {
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
             val loadedRecords = withContext(Dispatchers.IO) {
-                if (filterSnapshot == FILTER_ARCHIVED) {
+                val result = if (filterSnapshot == FILTER_ARCHIVED) {
                     memoryStore.loadArchivedRecords()
                 } else {
                     memoryStore.loadActiveRecords()
                 }
+                prewarmMemoryThumbnailCache(applicationContext, result)
+                result
             }
             if (selectedFilter == filterSnapshot) {
                 records = loadedRecords

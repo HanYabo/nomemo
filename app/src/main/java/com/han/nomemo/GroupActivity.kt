@@ -91,6 +91,7 @@ class GroupActivity : BaseComposeActivity() {
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
+    private var hasHandledInitialResume = false
 
     private val settingsLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -137,6 +138,10 @@ class GroupActivity : BaseComposeActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (!hasHandledInitialResume) {
+            hasHandledInitialResume = true
+            return
+        }
         refreshContent()
     }
 
@@ -154,7 +159,9 @@ class GroupActivity : BaseComposeActivity() {
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
             val loadedRecords = withContext(Dispatchers.IO) {
-                memoryStore.loadActiveRecords()
+                val result = memoryStore.loadActiveRecords()
+                prewarmMemoryThumbnailCache(applicationContext, result)
+                result
             }
             allRecords = loadedRecords
             hasLoadedRecords = true
