@@ -22,6 +22,8 @@
     <string name="no_records">还没有记忆，点右下角开始第一条</string>
     <string name="no_archived_records">还没有归档内容</string>
     <string name="search_empty">没有匹配到相关记忆</string>
+    <string name="search_idle_title">输入关键词开始搜索</string>
+    <string name="search_idle_subtitle">可搜索标题、摘要、正文、分析和分类</string>
     <string name="search_page_title">搜索</string>
     <string name="input_required">请先输入文字或选择截图</string>
     <string name="save_success">已保存</string>

@@ -99,6 +99,29 @@ class GroupAlbumStore(context: Context) {
         return true
     }
 
+    fun pruneInvalidRecordIds(validRecordIds: Set<String>): Boolean {
+        val valid = validRecordIds.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        val albums = loadAlbums()
+        if (albums.isEmpty()) {
+            return false
+        }
+        var changed = false
+        val sanitized = albums.map { album ->
+            val nextIds = album.recordIds.filter { valid.contains(it) }.distinct()
+            if (nextIds != album.recordIds) {
+                changed = true
+                album.copy(recordIds = nextIds)
+            } else {
+                album
+            }
+        }
+        if (!changed) {
+            return false
+        }
+        saveAlbums(sanitized)
+        return true
+    }
+
     private fun saveAlbums(albums: List<GroupAlbum>) {
         val payload = JSONArray()
         albums.forEach { album ->

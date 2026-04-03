@@ -1016,41 +1016,41 @@ fun NoMemoBottomDock(
     val dockShape = RoundedCornerShape(999.dp)
     val dockHeight = if (spec.isNarrow) 64.dp else 68.dp
     val dockBlurTint = if (isDark) {
-        Color.Black.copy(alpha = 0.64f)
+        Color(0xFF040406).copy(alpha = 0.78f)
     } else {
-        Color(0xFFEFF5FF).copy(alpha = 0.42f)
+        Color(0xFFF4F5F8).copy(alpha = 0.44f)
     }
     val dockContainerBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF0E1013).copy(alpha = 0.96f),
-                Color(0xFF090B0E).copy(alpha = 0.94f),
-                Color(0xFF06080B).copy(alpha = 0.96f)
+                Color(0xFF040406).copy(alpha = 0.78f),
+                Color(0xFF040406).copy(alpha = 0.78f),
+                Color(0xFF040406).copy(alpha = 0.78f)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.78f),
-                Color(0xFFF4F8FF).copy(alpha = 0.70f),
-                Color(0xFFE9F1FF).copy(alpha = 0.74f)
+                Color.White.copy(alpha = 0.74f),
+                Color(0xFFF6F7FA).copy(alpha = 0.66f),
+                Color(0xFFECEFF5).copy(alpha = 0.70f)
             )
         )
     }
     val dockStroke = if (isDark) {
         Color.White.copy(alpha = 0.33f)
     } else {
-        Color(0xFF96A8C5).copy(alpha = 0.54f)
+        Color(0xFFB0B7C4).copy(alpha = 0.56f)
     }
     val dockInnerStroke = if (isDark) {
         Color.White.copy(alpha = 0.10f)
     } else {
-        Color.White.copy(alpha = 0.92f)
+        Color.White.copy(alpha = 0.98f)
     }
     val dockShadow = if (isDark) {
         Color.Black.copy(alpha = 0.40f)
     } else {
-        Color.Black.copy(alpha = 0.12f)
+        Color(0xFF2B2E36).copy(alpha = 0.16f)
     }
     val dockFrostMistBrush = if (isDark) {
         Brush.verticalGradient(
@@ -1063,16 +1063,16 @@ fun NoMemoBottomDock(
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.14f),
-                Color.White.copy(alpha = 0.08f),
-                Color.Black.copy(alpha = 0.04f)
+                Color.White.copy(alpha = 0.18f),
+                Color.White.copy(alpha = 0.10f),
+                Color.Black.copy(alpha = 0.03f)
             )
         )
     }
     val lightGlassRefractionBrush = Brush.linearGradient(
         colors = listOf(
-            Color.White.copy(alpha = 0.24f),
-            Color(0xFFDCE8FF).copy(alpha = 0.12f),
+            Color.White.copy(alpha = 0.28f),
+            Color(0xFFE7E9EF).copy(alpha = 0.14f),
             Color.Transparent
         ),
         start = Offset(0f, 0f),
@@ -1080,11 +1080,30 @@ fun NoMemoBottomDock(
     )
     val lightGlassTopSheenBrush = Brush.verticalGradient(
         listOf(
-            Color.White.copy(alpha = 0.30f),
-            Color.White.copy(alpha = 0.10f),
+            Color.White.copy(alpha = 0.38f),
+            Color.White.copy(alpha = 0.14f),
             Color.Transparent
         )
     )
+    val lightGlassDepthBrush = Brush.verticalGradient(
+        listOf(
+            Color.Transparent,
+            Color.Transparent,
+            Color(0xFF959AA4).copy(alpha = 0.10f)
+        )
+    )
+    val lightGlassEdgeVignette = Brush.horizontalGradient(
+        listOf(
+            Color(0xFFB3B9C4).copy(alpha = 0.08f),
+            Color.Transparent,
+            Color(0xFFB3B9C4).copy(alpha = 0.08f)
+        )
+    )
+    val overlayBackdropTint = if (isDark) {
+        Color(0xFF08090D).copy(alpha = 0.28f)
+    } else {
+        Color(0xFFE4E7EE).copy(alpha = 0.18f)
+    }
     val enhancedOutlineColor = if (showEnhancedOutline) {
         if (isDark) {
             Color.White.copy(alpha = 0.16f)
@@ -1198,15 +1217,37 @@ fun NoMemoBottomDock(
                     .fillMaxSize()
                     .blur(
                         radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                            if (isDark) 24.dp else 22.dp
+                            when {
+                                isDark && showEnhancedOutline -> 30.dp
+                                isDark -> 24.dp
+                                showEnhancedOutline -> 30.dp
+                                else -> 20.dp
+                            }
                         } else {
-                            if (isDark) 14.dp else 18.dp
+                            when {
+                                isDark && showEnhancedOutline -> 20.dp
+                                isDark -> 14.dp
+                                showEnhancedOutline -> 22.dp
+                                else -> 16.dp
+                            }
                         },
                         edgeTreatment = BlurredEdgeTreatment.Unbounded
                     )
                     .clip(dockShape)
                     .background(dockBlurTint)
             )
+            if (showEnhancedOutline) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .blur(
+                            radius = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) 24.dp else 16.dp,
+                            edgeTreatment = BlurredEdgeTreatment.Unbounded
+                        )
+                        .clip(dockShape)
+                        .background(overlayBackdropTint)
+                )
+            }
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -1227,7 +1268,7 @@ fun NoMemoBottomDock(
                     .clip(dockShape)
                     .background(dockFrostMistBrush)
                     .blur(
-                        radius = 18.dp,
+                        radius = if (showEnhancedOutline) 22.dp else 18.dp,
                         edgeTreatment = BlurredEdgeTreatment.Unbounded
                     )
                     .clip(dockShape)
@@ -1253,6 +1294,18 @@ fun NoMemoBottomDock(
                                 cap = StrokeCap.Round
                             )
                         }
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(dockShape)
+                        .background(lightGlassDepthBrush)
+                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .clip(dockShape)
+                        .background(lightGlassEdgeVignette)
                 )
             }
             DockGlowLayer(
