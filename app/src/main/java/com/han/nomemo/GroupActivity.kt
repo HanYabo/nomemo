@@ -18,6 +18,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -43,6 +44,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -688,68 +691,6 @@ class GroupActivity : BaseComposeActivity() {
                         )
                     }
 
-                    if (showEditAlbumDialog && openedAlbum != null) {
-                        AlertDialog(
-                            onDismissRequest = {
-                                showEditAlbumDialog = false
-                                editingAlbumId = null
-                            },
-                            title = {
-                                Text(
-                                    text = "编辑分组",
-                                    color = albumPalette.textPrimary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            },
-                            text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    GroupAlbumInputField(
-                                        value = albumNameInput,
-                                        onValueChange = { albumNameInput = it },
-                                        placeholder = "分组名称"
-                                    )
-                                    GroupAlbumInputField(
-                                        value = albumDescriptionInput,
-                                        onValueChange = { albumDescriptionInput = it },
-                                        placeholder = "分组描述（可选）",
-                                        minHeight = 88.dp
-                                    )
-                                }
-                            },
-                            confirmButton = {
-                                TextButton(
-                                    enabled = albumNameInput.trim().isNotEmpty(),
-                                    onClick = {
-                                        val targetId = editingAlbumId ?: openedAlbum.albumId
-                                        val finalName = albumNameInput.trim()
-                                        if (finalName.isBlank()) {
-                                            Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
-                                            return@TextButton
-                                        }
-                                        if (albumStore.updateAlbum(targetId, finalName, albumDescriptionInput)) {
-                                            albumList = albumStore.loadAlbums()
-                                            Toast.makeText(albumContext, "分组已更新", Toast.LENGTH_SHORT).show()
-                                        }
-                                        showEditAlbumDialog = false
-                                        editingAlbumId = null
-                                    }
-                                ) {
-                                    Text("保存")
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(
-                                    onClick = {
-                                        showEditAlbumDialog = false
-                                        editingAlbumId = null
-                                    }
-                                ) {
-                                    Text("取消")
-                                }
-                            }
-                        )
-                    }
-
                     if (showAddExistingSheet && openedAlbum != null) {
                         GroupAddExistingMemorySheet(
                             visible = showAddExistingSheet,
@@ -790,6 +731,34 @@ class GroupActivity : BaseComposeActivity() {
                                 showAddExistingSheet = false
                                 selectedExistingRecordIds = emptySet()
                                 addExistingSearchQuery = ""
+                            }
+                        )
+                    }
+
+                    if (showEditAlbumDialog && openedAlbum != null) {
+                        GroupEditAlbumSheet(
+                            visible = showEditAlbumDialog,
+                            albumName = albumNameInput,
+                            albumDescription = albumDescriptionInput,
+                            onNameChange = { albumNameInput = it },
+                            onDescriptionChange = { albumDescriptionInput = it },
+                            onDismiss = {
+                                showEditAlbumDialog = false
+                                editingAlbumId = null
+                            },
+                            onConfirm = {
+                                val targetId = editingAlbumId ?: openedAlbum.albumId
+                                val finalName = albumNameInput.trim()
+                                if (finalName.isBlank()) {
+                                    Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
+                                    return@GroupEditAlbumSheet
+                                }
+                                if (albumStore.updateAlbum(targetId, finalName, albumDescriptionInput)) {
+                                    albumList = albumStore.loadAlbums()
+                                    Toast.makeText(albumContext, "分组已更新", Toast.LENGTH_SHORT).show()
+                                }
+                                showEditAlbumDialog = false
+                                editingAlbumId = null
                             }
                         )
                     }
@@ -1134,6 +1103,203 @@ class GroupActivity : BaseComposeActivity() {
             }
         }
     }
+    }
+
+    @Composable
+    private fun BoxScope.GroupEditAlbumSheet(
+        visible: Boolean,
+        albumName: String,
+        albumDescription: String,
+        onNameChange: (String) -> Unit,
+        onDescriptionChange: (String) -> Unit,
+        onDismiss: () -> Unit,
+        onConfirm: () -> Unit
+    ) {
+        val adaptive = rememberNoMemoAdaptiveSpec()
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        val panelSurface = if (isDark) Color(0xFF121316) else palette.memoBgStart
+        val inputSurface = if (isDark) Color(0xFF1A1A1C) else Color.White.copy(alpha = 0.995f)
+        val bodyHeight = if (adaptive.isNarrow) 450.dp else 500.dp
+        val descriptionScrollState = rememberScrollState()
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(20f)
+        ) {
+            AnimatedVisibility(
+                visible = visible,
+                enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+                exit = fadeOut(animationSpec = tween(durationMillis = 180))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = onDismiss
+                        )
+                )
+            }
+
+            AnimatedVisibility(
+                visible = visible,
+                enter = slideInVertically(
+                    initialOffsetY = { fullHeight -> fullHeight },
+                    animationSpec = tween(durationMillis = 260)
+                ) + fadeIn(animationSpec = tween(durationMillis = 180)),
+                exit = slideOutVertically(
+                    targetOffsetY = { fullHeight -> fullHeight },
+                    animationSpec = tween(durationMillis = 220)
+                ) + fadeOut(animationSpec = tween(durationMillis = 150)),
+                modifier = Modifier.align(Alignment.BottomCenter)
+            ) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .shadow(
+                            elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
+                            shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp)
+                        ),
+                    shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+                    colors = CardDefaults.cardColors(containerColor = panelSurface)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(bodyHeight)
+                            .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.CenterHorizontally)
+                                .width(56.dp)
+                                .height(5.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000))
+                        )
+
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp, bottom = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            GlassIconCircleButton(
+                                iconRes = R.drawable.ic_sheet_close,
+                                contentDescription = stringResource(R.string.cancel),
+                                onClick = onDismiss,
+                                size = adaptive.topActionButtonSize
+                            )
+                            Column(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 10.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "编辑分组",
+                                    color = palette.textPrimary,
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1
+                                )
+                            }
+                            GlassIconCircleButton(
+                                iconRes = R.drawable.ic_sheet_check,
+                                contentDescription = stringResource(R.string.confirm),
+                                onClick = onConfirm,
+                                size = adaptive.topActionButtonSize
+                            )
+                        }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            Text(
+                                text = "分组名称",
+                                color = palette.textSecondary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 2.dp, bottom = 6.dp)
+                            )
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(bottom = 12.dp),
+                                shape = RoundedCornerShape(22.dp),
+                                colors = CardDefaults.cardColors(containerColor = inputSurface)
+                            ) {
+                                BasicTextField(
+                                    value = albumName,
+                                    onValueChange = onNameChange,
+                                    singleLine = true,
+                                    textStyle = TextStyle(
+                                        color = palette.textPrimary,
+                                        fontSize = 16.sp,
+                                        lineHeight = 24.sp
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(56.dp)
+                                        .padding(horizontal = 14.dp)
+                                ) { innerTextField ->
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.CenterStart
+                                    ) {
+                                        innerTextField()
+                                    }
+                                }
+                            }
+
+                            Text(
+                                text = "分组描述（可选）",
+                                color = palette.textSecondary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 2.dp, bottom = 6.dp)
+                            )
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(22.dp),
+                                colors = CardDefaults.cardColors(containerColor = inputSurface)
+                            ) {
+                                BasicTextField(
+                                    value = albumDescription,
+                                    onValueChange = onDescriptionChange,
+                                    textStyle = TextStyle(
+                                        color = palette.textPrimary,
+                                        fontSize = 16.sp,
+                                        lineHeight = 24.sp
+                                    ),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(148.dp)
+                                        .padding(horizontal = 14.dp, vertical = 14.dp)
+                                ) { innerTextField ->
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .verticalScroll(descriptionScrollState),
+                                        contentAlignment = Alignment.TopStart
+                                    ) {
+                                        innerTextField()
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(adaptive.pageBottomPadding + 6.dp))
+                        }
+                    }
+                }
+            }
+        }
     }
 
     @Composable

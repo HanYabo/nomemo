@@ -1,4 +1,4 @@
-package com.han.nomemo
+﻿package com.han.nomemo
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -139,7 +139,6 @@ fun NoMemoDetailSummaryBox(
         }
     }
 }
-
 @Composable
 fun NoMemoPickupCodeCard(
     info: StructuredPickupInfo,
@@ -263,7 +262,7 @@ fun NoMemoPickupLocationCard(
                 }
                 if (hasNavigation) {
                     NoMemoLocationNavigateButton(
-                        text = "导航",
+                        text = "瀵艰埅",
                         onClick = { onNavigate(info.navigationQuery) },
                         modifier = Modifier.align(Alignment.CenterEnd)
                     )
@@ -284,7 +283,7 @@ private fun buildPickupLocationSupportingText(info: StructuredPickupInfo): Strin
         return detail
             .removePrefix(title)
             .trimStart('：', ':', '，', ',', '-', ' ')
-            .removeSurrounding("（", "）")
+            .removeSurrounding("：", "：")
             .removeSurrounding("(", ")")
             .trim()
             .takeIf { it.isNotBlank() }
@@ -364,3 +363,4 @@ fun NoMemoDetailActionButton(
         }
     }
 }
+

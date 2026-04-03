@@ -86,10 +86,19 @@ class MainActivity : BaseComposeActivity() {
         private const val FILTER_AI = "AI"
         private const val FILTER_ARCHIVED = "ARCHIVED"
     }
+    private data class FilterChipCounts(
+        val all: Int = 0,
+        val quick: Int = 0,
+        val life: Int = 0,
+        val work: Int = 0,
+        val ai: Int = 0,
+        val archived: Int = 0
+    )
 
     private lateinit var memoryStore: MemoryStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
+    private var filterChipCounts by mutableStateOf(FilterChipCounts())
     private var hasLoadedRecords by mutableStateOf(false)
     private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
@@ -117,6 +126,7 @@ class MainActivity : BaseComposeActivity() {
         setContent {
             MainContent(
                 records = records,
+                filterChipCounts = filterChipCounts,
                 hasLoadedRecords = hasLoadedRecords,
                 selectedFilter = selectedFilter,
                 onFilterSelect = { filter ->
@@ -163,17 +173,25 @@ class MainActivity : BaseComposeActivity() {
         val filterSnapshot = selectedFilter
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
-            val loadedRecords = withContext(Dispatchers.IO) {
-                val result = if (filterSnapshot == FILTER_ARCHIVED) {
-                    memoryStore.loadArchivedRecords()
-                } else {
-                    memoryStore.loadActiveRecords()
-                }
-                prewarmMemoryThumbnailCache(applicationContext, result)
-                result
+            val payload = withContext(Dispatchers.IO) {
+                val allRecords = memoryStore.loadRecords()
+                val activeRecords = allRecords.filter { !it.isArchived }
+                val archivedRecords = allRecords.filter { it.isArchived }
+                val chipCounts = FilterChipCounts(
+                    all = activeRecords.size,
+                    quick = activeRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_QUICK },
+                    life = activeRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_LIFE },
+                    work = activeRecords.count { it.categoryGroupCode == CategoryCatalog.GROUP_WORK },
+                    ai = activeRecords.count { it.mode == MemoryRecord.MODE_AI },
+                    archived = archivedRecords.size
+                )
+                val displayRecords = if (filterSnapshot == FILTER_ARCHIVED) archivedRecords else activeRecords
+                prewarmMemoryThumbnailCache(applicationContext, displayRecords)
+                Pair(displayRecords, chipCounts)
             }
             if (selectedFilter == filterSnapshot) {
-                records = loadedRecords
+                records = payload.first
+                filterChipCounts = payload.second
                 hasLoadedRecords = true
             }
         }
@@ -272,6 +290,7 @@ class MainActivity : BaseComposeActivity() {
     @Composable
     private fun MainContent(
         records: List<MemoryRecord>,
+        filterChipCounts: FilterChipCounts,
         hasLoadedRecords: Boolean,
         selectedFilter: String,
         onFilterSelect: (String) -> Unit,
@@ -464,27 +483,51 @@ class MainActivity : BaseComposeActivity() {
                                     .padding(top = 14.dp, bottom = 10.dp)
                                     .horizontalScroll(rememberScrollState())
                             ) {
-                                FilterChip(spec, stringResource(R.string.filter_all), selectedFilter == FILTER_ALL) {
+                                FilterChip(
+                                    spec = spec,
+                                    text = buildFilterChipText(stringResource(R.string.filter_all), filterChipCounts.all),
+                                    selected = selectedFilter == FILTER_ALL
+                                ) {
                                     onFilterSelect(FILTER_ALL)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(spec, stringResource(R.string.filter_quick), selectedFilter == FILTER_QUICK) {
+                                FilterChip(
+                                    spec = spec,
+                                    text = buildFilterChipText(stringResource(R.string.filter_quick), filterChipCounts.quick),
+                                    selected = selectedFilter == FILTER_QUICK
+                                ) {
                                     onFilterSelect(FILTER_QUICK)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(spec, stringResource(R.string.filter_life), selectedFilter == FILTER_LIFE) {
+                                FilterChip(
+                                    spec = spec,
+                                    text = buildFilterChipText(stringResource(R.string.filter_life), filterChipCounts.life),
+                                    selected = selectedFilter == FILTER_LIFE
+                                ) {
                                     onFilterSelect(FILTER_LIFE)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(spec, stringResource(R.string.filter_work), selectedFilter == FILTER_WORK) {
+                                FilterChip(
+                                    spec = spec,
+                                    text = buildFilterChipText(stringResource(R.string.filter_work), filterChipCounts.work),
+                                    selected = selectedFilter == FILTER_WORK
+                                ) {
                                     onFilterSelect(FILTER_WORK)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(spec, stringResource(R.string.filter_ai), selectedFilter == FILTER_AI) {
+                                FilterChip(
+                                    spec = spec,
+                                    text = buildFilterChipText(stringResource(R.string.filter_ai), filterChipCounts.ai),
+                                    selected = selectedFilter == FILTER_AI
+                                ) {
                                     onFilterSelect(FILTER_AI)
                                 }
                                 Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(spec, stringResource(R.string.filter_archived), selectedFilter == FILTER_ARCHIVED) {
+                                FilterChip(
+                                    spec = spec,
+                                    text = buildFilterChipText(stringResource(R.string.filter_archived), filterChipCounts.archived),
+                                    selected = selectedFilter == FILTER_ARCHIVED
+                                ) {
                                     onFilterSelect(FILTER_ARCHIVED)
                                 }
                             }
@@ -633,11 +676,17 @@ class MainActivity : BaseComposeActivity() {
             text = text,
             selected = selected,
             onClick = onClick,
-            horizontalPadding = if (spec.isNarrow) 16.dp else 22.dp,
+            horizontalPadding = if (spec.isNarrow) 18.dp else 24.dp,
+            verticalPadding = if (spec.isNarrow) 11.dp else 12.dp,
             showBorder = false,
-            textStyle = TextStyle(fontSize = spec.chipTextSize, fontWeight = FontWeight.Bold)
+            textStyle = TextStyle(
+                fontSize = (spec.chipTextSize.value + 1f).sp,
+                fontWeight = FontWeight.Bold
+            )
         )
     }
+
+    private fun buildFilterChipText(label: String, count: Int): String = "$label($count)"
 
     @Composable
     private fun SearchBarCard(

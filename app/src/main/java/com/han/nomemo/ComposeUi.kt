@@ -457,6 +457,7 @@ fun GlassChip(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     horizontalPadding: Dp = 18.dp,
+    verticalPadding: Dp = 10.dp,
     showBorder: Boolean = true,
     textStyle: TextStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Bold)
 ) {
@@ -482,7 +483,7 @@ fun GlassChip(
                 text = text,
                 color = textColor,
                 style = textStyle,
-                modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 10.dp)
+                modifier = Modifier.padding(horizontal = horizontalPadding, vertical = verticalPadding)
             )
         }
     }

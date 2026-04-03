@@ -67,6 +67,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -450,6 +451,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         val summaryText = deriveInsightText(currentRecord)
                         val createdAtText = rememberTime(currentRecord.createdAt)
                         val detailTextStartPadding = if (spec.isNarrow) 12.dp else 18.dp
+                        val detailScrollState = rememberScrollState()
+                        val collapsedTitleThresholdPx = with(density) { 64.dp.toPx() }
+                        val showCollapsedTopTitle by remember(editing, detailScrollState.value) {
+                            derivedStateOf {
+                                !editing && detailScrollState.value > collapsedTitleThresholdPx
+                            }
+                        }
                         val pickupInfo = remember(
                             currentRecord.recordId,
                             currentRecord.categoryCode,
@@ -517,7 +525,27 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 onClick = onBack,
                                 size = spec.topActionButtonSize
                             )
-                            Spacer(modifier = Modifier.weight(1f))
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(horizontal = 12.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                androidx.compose.animation.AnimatedVisibility(
+                                    visible = showCollapsedTopTitle,
+                                    enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+                                    exit = fadeOut(animationSpec = tween(durationMillis = 140))
+                                ) {
+                                    Text(
+                                        text = titleText,
+                                        color = palette.textPrimary,
+                                        fontSize = if (spec.isNarrow) 18.sp else 19.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
                             GlassIconCircleButton(
                                 iconRes = if (editing) R.drawable.ic_sheet_check else R.drawable.ic_nm_more,
                                 contentDescription = if (editing) "保存修改" else getString(R.string.action_more),
@@ -536,7 +564,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = spec.topActionButtonSize + 8.dp)
-                                .verticalScroll(rememberScrollState())
+                                .verticalScroll(detailScrollState)
                         ) {
                         if (displayImageUri.isNotBlank()) {
                             Card(
