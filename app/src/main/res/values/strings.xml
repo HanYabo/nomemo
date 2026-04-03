@@ -22,6 +22,7 @@
     <string name="no_records">还没有记忆，点右下角开始第一条</string>
     <string name="no_archived_records">还没有归档内容</string>
     <string name="search_empty">没有匹配到相关记忆</string>
+    <string name="search_page_title">搜索</string>
     <string name="input_required">请先输入文字或选择截图</string>
     <string name="save_success">已保存</string>
     <string name="saving_ai">AI 正在分析，请稍候...</string>

@@ -131,6 +131,7 @@ class ReminderActivity : BaseComposeActivity() {
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenGroup = { openGroupPage() },
+                onOpenSearch = { openSearchPage() },
                 onOpenSettings = { openSettingsPage() },
                 showAddSheet = showAddSheet,
                 onAddClick = { showAddSheet = true },
@@ -222,6 +223,10 @@ class ReminderActivity : BaseComposeActivity() {
         settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
     }
 
+    private fun openSearchPage() {
+        startActivity(SearchActivity.createIntent(this))
+    }
+
     private fun deleteRecord(record: MemoryRecord) {
         val deleted = memoryStore.deleteRecord(record.recordId)
         if (deleted) {
@@ -241,6 +246,7 @@ class ReminderActivity : BaseComposeActivity() {
         onOpenDetail: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenGroup: () -> Unit,
+        onOpenSearch: () -> Unit,
         onOpenSettings: () -> Unit,
         showAddSheet: Boolean,
         onAddClick: () -> Unit,
@@ -250,8 +256,6 @@ class ReminderActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
-        var searchEnabled by remember { mutableStateOf(false) }
-        var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
@@ -259,23 +263,7 @@ class ReminderActivity : BaseComposeActivity() {
             listState = listState,
             spec = adaptive
         )
-        val filteredRecords = remember(records, searchQuery) {
-            records.filter { record ->
-                val query = searchQuery.trim()
-                if (query.isBlank()) {
-                    return@filter true
-                }
-                val haystack = listOf(
-                    record.title,
-                    record.summary,
-                    record.memory,
-                    record.sourceText,
-                    record.analysis,
-                    record.categoryName
-                ).joinToString("\n") { it.orEmpty() }.lowercase()
-                haystack.contains(query.lowercase())
-            }
-        }
+        val filteredRecords = records
         val selectedRecord = remember(filteredRecords, selectedRecordId) {
             filteredRecords.firstOrNull { it.recordId == selectedRecordId }
         }
@@ -295,11 +283,6 @@ class ReminderActivity : BaseComposeActivity() {
         BackHandler(enabled = selectedRecordId != null) {
             selectedRecordId = null
             showDeleteConfirm = false
-            resetDoubleBackExitState()
-        }
-        BackHandler(enabled = searchEnabled) {
-            searchEnabled = false
-            searchQuery = ""
             resetDoubleBackExitState()
         }
 
@@ -349,19 +332,10 @@ class ReminderActivity : BaseComposeActivity() {
                                     size = spec.topActionButtonSize
                                 )
                             }
-                        } else if (searchEnabled) {
-                            NoMemoSearchBarCard(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                onClose = {
-                                    searchEnabled = false
-                                    searchQuery = ""
-                                }
-                            )
                         } else {
                             NoMemoTopActionButtons(
                                 spec = spec,
-                                onSearchClick = { searchEnabled = true },
+                                onSearchClick = onOpenSearch,
                                 onMoreClick = { moreMenuExpanded = !moreMenuExpanded }
                             )
                             Column(
@@ -422,7 +396,6 @@ class ReminderActivity : BaseComposeActivity() {
                                         palette = palette,
                                         onDoneChanged = onDoneChanged,
                                         onLongPressSelect = {
-                                            searchEnabled = false
                                             moreMenuExpanded = false
                                             selectedRecordId = record.recordId
                                         },
@@ -447,8 +420,8 @@ class ReminderActivity : BaseComposeActivity() {
 
                     if (showCenteredEmptyState) {
                         NoMemoEmptyState(
-                            iconRes = if (searchQuery.isNotBlank()) R.drawable.ic_nm_search else R.drawable.ic_nm_reminder,
-                            title = if (searchQuery.isNotBlank()) stringResource(R.string.search_empty) else stringResource(R.string.reminder_empty),
+                            iconRes = R.drawable.ic_nm_reminder,
+                            title = stringResource(R.string.reminder_empty),
                             modifier = Modifier
                                 .align(Alignment.Center)
                                 .padding(horizontal = spec.pageHorizontalPadding)

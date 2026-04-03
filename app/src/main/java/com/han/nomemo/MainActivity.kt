@@ -131,6 +131,7 @@ class MainActivity : BaseComposeActivity() {
                 onDismissAddSheet = { showAddSheet = false },
                 onOpenGroup = { openGroupPage() },
                 onOpenReminder = { openReminderPage() },
+                onOpenSearch = { openSearchPage() },
                 onOpenSettings = { openSettingsPage() }
             )
         }
@@ -211,6 +212,10 @@ class MainActivity : BaseComposeActivity() {
         settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
     }
 
+    private fun openSearchPage() {
+        startActivity(SearchActivity.createIntent(this))
+    }
+
     private fun openDetailPage(recordId: String) {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
     }
@@ -278,14 +283,13 @@ class MainActivity : BaseComposeActivity() {
         onDismissAddSheet: () -> Unit,
         onOpenGroup: () -> Unit,
         onOpenReminder: () -> Unit,
+        onOpenSearch: () -> Unit,
         onOpenSettings: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         var selectedRecordIds by remember { mutableStateOf(setOf<String>()) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
-        var searchEnabled by remember { mutableStateOf(false) }
-        var searchQuery by remember { mutableStateOf("") }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
         var swipeDeleteTarget by remember { mutableStateOf<MemoryRecord?>(null) }
@@ -298,7 +302,7 @@ class MainActivity : BaseComposeActivity() {
             listState = listState,
             spec = adaptive
         )
-        val filteredRecords = remember(records, selectedFilter, searchQuery) {
+        val filteredRecords = remember(records, selectedFilter) {
             records.filter { record ->
                 val matchesFilter = when (selectedFilter) {
                     FILTER_QUICK -> record.categoryGroupCode == CategoryCatalog.GROUP_QUICK
@@ -307,22 +311,7 @@ class MainActivity : BaseComposeActivity() {
                     FILTER_AI -> record.mode == MemoryRecord.MODE_AI
                     else -> true
                 }
-                if (!matchesFilter) {
-                    return@filter false
-                }
-                val query = searchQuery.trim()
-                if (query.isBlank()) {
-                    return@filter true
-                }
-                val haystack = listOf(
-                    record.title,
-                    record.summary,
-                    record.memory,
-                    record.sourceText,
-                    record.analysis,
-                    record.categoryName
-                ).joinToString("\n") { it.orEmpty() }.lowercase()
-                haystack.contains(query.lowercase())
+                matchesFilter
             }
         }
         val allFilteredSelected = remember(filteredRecords, selectedRecordIds) {
@@ -365,7 +354,6 @@ class MainActivity : BaseComposeActivity() {
                         }
                     },
                     onLongPress = {
-                        searchEnabled = false
                         moreMenuExpanded = false
                         selectedRecordIds = if (selectedRecordIds.contains(record.recordId)) {
                             selectedRecordIds - record.recordId
@@ -396,11 +384,6 @@ class MainActivity : BaseComposeActivity() {
         BackHandler(enabled = selectedRecordIds.isNotEmpty()) {
             selectedRecordIds = emptySet()
             showDeleteConfirm = false
-            resetDoubleBackExitState()
-        }
-        BackHandler(enabled = searchEnabled) {
-            searchEnabled = false
-            searchQuery = ""
             resetDoubleBackExitState()
         }
         NoMemoBackground {
@@ -454,19 +437,10 @@ class MainActivity : BaseComposeActivity() {
                                     size = spec.topActionButtonSize
                                 )
                             }
-                        } else if (searchEnabled) {
-                            NoMemoSearchBarCard(
-                                value = searchQuery,
-                                onValueChange = { searchQuery = it },
-                                onClose = {
-                                    searchEnabled = false
-                                    searchQuery = ""
-                                }
-                            )
                         } else {
                             NoMemoTopActionButtons(
                                 spec = spec,
-                                onSearchClick = { searchEnabled = true },
+                                onSearchClick = onOpenSearch,
                                 onMoreClick = { moreMenuExpanded = !moreMenuExpanded }
                             )
 
@@ -540,14 +514,11 @@ class MainActivity : BaseComposeActivity() {
 
                     if (showCenteredEmptyState) {
                         NoMemoEmptyState(
-                            iconRes = when {
-                                searchQuery.isNotBlank() -> R.drawable.ic_nm_search
-                                else -> R.drawable.ic_nm_memory
-                            },
-                            title = when {
-                                searchQuery.isNotBlank() -> stringResource(R.string.search_empty)
-                                selectedFilter == FILTER_ARCHIVED -> stringResource(R.string.no_archived_records)
-                                else -> stringResource(R.string.no_records)
+                            iconRes = R.drawable.ic_nm_memory,
+                            title = if (selectedFilter == FILTER_ARCHIVED) {
+                                stringResource(R.string.no_archived_records)
+                            } else {
+                                stringResource(R.string.no_records)
                             },
                             modifier = Modifier
                                 .align(Alignment.Center)

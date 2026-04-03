@@ -1,4 +1,4 @@
-package com.han.nomemo
+﻿package com.han.nomemo
 
 import android.content.BroadcastReceiver
 import android.content.Intent
@@ -123,6 +123,7 @@ class GroupActivity : BaseComposeActivity() {
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenReminder = { openReminderPage() },
+                onOpenSearch = { openSearchPage() },
                 onOpenSettings = { openSettingsPage() },
                 showAddSheet = showAddSheet,
                 onAddClick = { showAddSheet = true },
@@ -212,6 +213,10 @@ class GroupActivity : BaseComposeActivity() {
         settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
     }
 
+    private fun openSearchPage() {
+        startActivity(SearchActivity.createIntent(this))
+    }
+
     private fun deleteRecord(record: MemoryRecord) {
         val deleted = memoryStore.deleteRecord(record.recordId)
         if (deleted) {
@@ -230,6 +235,7 @@ class GroupActivity : BaseComposeActivity() {
         onOpenDetail: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenReminder: () -> Unit,
+        onOpenSearch: () -> Unit,
         onOpenSettings: () -> Unit,
         showAddSheet: Boolean,
         onAddClick: () -> Unit,
@@ -254,8 +260,6 @@ class GroupActivity : BaseComposeActivity() {
         var showAddExistingSheet by remember { mutableStateOf(false) }
         var selectedExistingRecordIds by remember { mutableStateOf<Set<String>>(emptySet()) }
         var addExistingSearchQuery by remember { mutableStateOf("") }
-        var groupListSearchEnabled by remember { mutableStateOf(false) }
-        var groupListSearchQuery by remember { mutableStateOf("") }
         var groupListMoreExpanded by remember { mutableStateOf(false) }
         var detailMoreExpanded by remember { mutableStateOf(false) }
         var showEditAlbumDialog by remember { mutableStateOf(false) }
@@ -264,17 +268,7 @@ class GroupActivity : BaseComposeActivity() {
         var albumDescriptionInput by remember { mutableStateOf("") }
 
         val albumColumns = if (albumAdaptive.widthClass == NoMemoWidthClass.EXPANDED) 3 else 2
-        val filteredAlbumList = remember(albumList, groupListSearchQuery) {
-            val query = groupListSearchQuery.trim().lowercase()
-            if (query.isBlank()) {
-                albumList
-            } else {
-                albumList.filter { album ->
-                    album.name.lowercase().contains(query) ||
-                        album.description.lowercase().contains(query)
-                }
-            }
-        }
+        val filteredAlbumList = albumList
         val albumRows = remember(filteredAlbumList, albumColumns) { filteredAlbumList.chunked(albumColumns) }
         val openedAlbum = remember(albumList, openedAlbumId) {
             albumList.firstOrNull { it.albumId == openedAlbumId }
@@ -350,18 +344,13 @@ class GroupActivity : BaseComposeActivity() {
         }
         BackHandler(
             enabled = openedAlbum == null &&
-                (groupListSearchEnabled || groupListMoreExpanded) &&
+                groupListMoreExpanded &&
                 !showAddSheet &&
                 !showCreateAlbumDialog &&
                 !showAddExistingSheet &&
                 !showEditAlbumDialog
         ) {
-            if (groupListMoreExpanded) {
-                groupListMoreExpanded = false
-            } else {
-                groupListSearchEnabled = false
-                groupListSearchQuery = ""
-            }
+            groupListMoreExpanded = false
         }
 
         NoMemoBackground {
@@ -388,38 +377,26 @@ class GroupActivity : BaseComposeActivity() {
                                     iconRes = R.drawable.ic_nm_search,
                                     contentDescription = stringResource(R.string.action_search),
                                     onClick = {
-                                        groupListSearchEnabled = true
                                         groupListMoreExpanded = false
+                                        onOpenSearch()
                                     },
                                     modifier = Modifier.padding(end = 10.dp),
                                     size = spec.topActionButtonSize
                                 )
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_nm_more,
-                                    contentDescription = "更多",
+                                    contentDescription = "鏇村",
                                     onClick = { groupListMoreExpanded = !groupListMoreExpanded },
                                     size = spec.topActionButtonSize
                                 )
                             }
-                            if (groupListSearchEnabled) {
-                                NoMemoSearchBarCard(
-                                    value = groupListSearchQuery,
-                                    onValueChange = { groupListSearchQuery = it },
-                                    onClose = {
-                                        groupListSearchEnabled = false
-                                        groupListSearchQuery = ""
-                                    },
-                                    modifier = Modifier.padding(top = 2.dp)
-                                )
-                            } else {
-                                Text(
-                                    text = stringResource(R.string.group_page_title),
-                                    color = albumPalette.textPrimary,
-                                    fontSize = spec.titleSize,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.padding(top = 2.dp)
-                                )
-                            }
+                            Text(
+                                text = stringResource(R.string.group_page_title),
+                                color = albumPalette.textPrimary,
+                                fontSize = spec.titleSize,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.padding(top = 2.dp, bottom = 12.dp)
+                            )
 
                             if (albumList.isEmpty()) {
                                 Box(
@@ -432,19 +409,6 @@ class GroupActivity : BaseComposeActivity() {
                                         iconRes = R.drawable.ic_nm_group,
                                         title = "还没有分组",
                                         subtitle = "点击右上角更多菜单新增分组"
-                                    )
-                                }
-                            } else if (filteredAlbumList.isEmpty()) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .weight(1f),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    NoMemoEmptyState(
-                                        iconRes = R.drawable.ic_nm_search,
-                                        title = "没有匹配到分组",
-                                        subtitle = "试试其他关键词"
                                     )
                                 }
                             } else {
@@ -601,7 +565,7 @@ class GroupActivity : BaseComposeActivity() {
                             actions = listOf(
                                 NoMemoMenuActionItem(
                                     iconRes = R.drawable.ic_nm_add,
-                                    label = "新增分组",
+                                    label = "鏂板鍒嗙粍",
                                     onClick = {
                                         groupListMoreExpanded = false
                                         showCreateAlbumDialog = true
@@ -634,7 +598,7 @@ class GroupActivity : BaseComposeActivity() {
                             actions = listOf(
                                 NoMemoMenuActionItem(
                                     iconRes = R.drawable.ic_nm_edit,
-                                    label = "编辑分组",
+                                    label = "缂栬緫鍒嗙粍",
                                     onClick = {
                                         detailMoreExpanded = false
                                         openedAlbum?.let { album ->
@@ -647,7 +611,7 @@ class GroupActivity : BaseComposeActivity() {
                                 ),
                                 NoMemoMenuActionItem(
                                     iconRes = R.drawable.ic_nm_add,
-                                    label = "新增记忆",
+                                    label = "鏂板璁板繂",
                                     onClick = {
                                         detailMoreExpanded = false
                                         selectedExistingRecordIds = emptySet()
@@ -664,7 +628,7 @@ class GroupActivity : BaseComposeActivity() {
                             onDismissRequest = { showCreateAlbumDialog = false },
                             title = {
                                 Text(
-                                    text = "新建分组",
+                                    text = "鏂板缓鍒嗙粍",
                                     color = albumPalette.textPrimary,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -674,12 +638,12 @@ class GroupActivity : BaseComposeActivity() {
                                     GroupAlbumInputField(
                                         value = albumNameInput,
                                         onValueChange = { albumNameInput = it },
-                                        placeholder = "分组名称"
+                                        placeholder = "鍒嗙粍鍚嶇О"
                                     )
                                     GroupAlbumInputField(
                                         value = albumDescriptionInput,
                                         onValueChange = { albumDescriptionInput = it },
-                                        placeholder = "分组描述（可选）",
+                                        placeholder = "鍒嗙粍鎻忚堪锛堝彲閫夛級",
                                         minHeight = 88.dp
                                     )
                                 }
@@ -701,12 +665,12 @@ class GroupActivity : BaseComposeActivity() {
                                         }
                                     }
                                 ) {
-                                    Text("创建")
+                                    Text("鍒涘缓")
                                 }
                             },
                             dismissButton = {
                                 TextButton(onClick = { showCreateAlbumDialog = false }) {
-                                    Text("取消")
+                                    Text("鍙栨秷")
                                 }
                             }
                         )
@@ -720,7 +684,7 @@ class GroupActivity : BaseComposeActivity() {
                             },
                             title = {
                                 Text(
-                                    text = "编辑分组",
+                                    text = "缂栬緫鍒嗙粍",
                                     color = albumPalette.textPrimary,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -730,12 +694,12 @@ class GroupActivity : BaseComposeActivity() {
                                     GroupAlbumInputField(
                                         value = albumNameInput,
                                         onValueChange = { albumNameInput = it },
-                                        placeholder = "分组名称"
+                                        placeholder = "鍒嗙粍鍚嶇О"
                                     )
                                     GroupAlbumInputField(
                                         value = albumDescriptionInput,
                                         onValueChange = { albumDescriptionInput = it },
-                                        placeholder = "分组描述（可选）",
+                                        placeholder = "鍒嗙粍鎻忚堪锛堝彲閫夛級",
                                         minHeight = 88.dp
                                     )
                                 }
@@ -758,7 +722,7 @@ class GroupActivity : BaseComposeActivity() {
                                         editingAlbumId = null
                                     }
                                 ) {
-                                    Text("保存")
+                                    Text("淇濆瓨")
                                 }
                             },
                             dismissButton = {
@@ -768,7 +732,7 @@ class GroupActivity : BaseComposeActivity() {
                                         editingAlbumId = null
                                     }
                                 ) {
-                                    Text("取消")
+                                    Text("鍙栨秷")
                                 }
                             }
                         )
@@ -795,12 +759,12 @@ class GroupActivity : BaseComposeActivity() {
                             },
                             onConfirm = {
                                 if (selectedExistingRecordIds.isEmpty()) {
-                                    Toast.makeText(albumContext, "请先选择记忆", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(albumContext, "璇峰厛閫夋嫨璁板繂", Toast.LENGTH_SHORT).show()
                                     return@GroupAddExistingMemorySheet
                                 }
                                 if (albumStore.addRecordIds(openedAlbum.albumId, selectedExistingRecordIds)) {
                                     albumList = albumStore.loadAlbums()
-                                    Toast.makeText(albumContext, "已添加到分组", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(albumContext, "宸叉坊鍔犲埌鍒嗙粍", Toast.LENGTH_SHORT).show()
                                 }
                                 showAddExistingSheet = false
                                 selectedExistingRecordIds = emptySet()
@@ -903,7 +867,7 @@ class GroupActivity : BaseComposeActivity() {
                     )
 
                     Text(
-                        text = "创建于$dayText",
+                        text = "鍒涘缓浜?dayText",
                         color = palette.textTertiary,
                         fontSize = 12.sp,
                         maxLines = 1,
@@ -1012,7 +976,7 @@ class GroupActivity : BaseComposeActivity() {
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             Text(
-                                text = "添加记忆",
+                                text = "娣诲姞璁板繂",
                                 color = palette.textPrimary,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.SemiBold,
