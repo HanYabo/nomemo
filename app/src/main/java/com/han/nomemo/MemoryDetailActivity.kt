@@ -453,9 +453,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         val detailTextStartPadding = if (spec.isNarrow) 12.dp else 18.dp
                         val detailScrollState = rememberScrollState()
                         val collapsedTitleThresholdPx = with(density) { 64.dp.toPx() }
-                        val showCollapsedTopTitle by remember(editing, detailScrollState.value) {
+                        val showCollapsedTopTitle by remember(detailScrollState.value) {
                             derivedStateOf {
-                                !editing && detailScrollState.value > collapsedTitleThresholdPx
+                                detailScrollState.value > collapsedTitleThresholdPx
                             }
                         }
                         val pickupInfo = remember(
@@ -496,6 +496,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             }
                         }
                         val displayImageUri = if (editing) draftImageUri else currentRecord.imageUri.orEmpty()
+                        val collapsedTitleText = if (editing) draftTitle.ifBlank { titleText } else titleText
                         val commitEdits = {
                             val saved = saveEditedRecord(
                                 currentRecord,
@@ -537,7 +538,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     exit = fadeOut(animationSpec = tween(durationMillis = 140))
                                 ) {
                                     Text(
-                                        text = titleText,
+                                        text = collapsedTitleText,
                                         color = palette.textPrimary,
                                         fontSize = if (spec.isNarrow) 18.sp else 19.sp,
                                         fontWeight = FontWeight.SemiBold,
@@ -763,8 +764,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
                         if (editing) {
                             Row(
-                                modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(
+                                        start = detailTextStartPadding,
+                                        end = detailTextStartPadding,
+                                        top = 24.dp
+                                    ),
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 NoMemoDetailActionButton(
                                     text = "取消",
@@ -778,7 +785,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     }
                                 )
                                 NoMemoDetailActionButton(
-                                    text = "保存修改",
+                                    text = "保存",
                                     primary = true,
                                     onClick = { commitEdits() }
                                 )

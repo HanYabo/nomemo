@@ -11,10 +11,15 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
@@ -45,6 +50,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AssignmentTurnedIn
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.ConfirmationNumber
+import androidx.compose.material.icons.outlined.LocalShipping
+import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,6 +65,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -64,11 +77,15 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import kotlinx.coroutines.Dispatchers
@@ -312,6 +329,8 @@ class MainActivity : BaseComposeActivity() {
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
         var swipeDeleteTarget by remember { mutableStateOf<MemoryRecord?>(null) }
+        var selectedSecondaryByPrimary by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+        var expandedPrimaryFilter by remember { mutableStateOf<String?>(null) }
 
         val selectedRecords = remember(records, selectedRecordIds) {
             records.filter { selectedRecordIds.contains(it.recordId) }
@@ -321,22 +340,94 @@ class MainActivity : BaseComposeActivity() {
             listState = listState,
             spec = adaptive
         )
-        val filteredRecords = remember(records, selectedFilter) {
+        val density = LocalDensity.current
+        val secondaryCategories = remember(selectedFilter) {
+            getSecondaryCategoriesForPrimary(selectedFilter)
+        }
+        val selectedSecondaryCode = selectedSecondaryByPrimary[selectedFilter]
+        val useSecondaryFilter =
+            isPrimaryCategoryFilter(selectedFilter) &&
+                expandedPrimaryFilter == selectedFilter &&
+                secondaryCategories.isNotEmpty()
+        val showSecondaryCategoryChips = selectedRecords.isEmpty() && useSecondaryFilter
+        val categoryCountMap = remember(records) {
+            records.groupingBy { it.categoryCode }.eachCount()
+        }
+        LaunchedEffect(selectedFilter, selectedSecondaryCode, secondaryCategories, records) {
+            if (!isPrimaryCategoryFilter(selectedFilter) || secondaryCategories.isEmpty()) {
+                return@LaunchedEffect
+            }
+            val hasValidSelection = selectedSecondaryCode != null &&
+                secondaryCategories.any { it.categoryCode == selectedSecondaryCode }
+            if (hasValidSelection) {
+                return@LaunchedEffect
+            }
+            val preferredCode = secondaryCategories
+                .maxByOrNull { option ->
+                    records.count { record -> record.categoryCode == option.categoryCode }
+                }
+                ?.categoryCode
+                ?: secondaryCategories.first().categoryCode
+            selectedSecondaryByPrimary = selectedSecondaryByPrimary + (selectedFilter to preferredCode)
+        }
+        LaunchedEffect(selectedFilter) {
+            if (!isPrimaryCategoryFilter(selectedFilter)) {
+                expandedPrimaryFilter = null
+            }
+        }
+        val filteredRecords = remember(records, selectedFilter, selectedSecondaryCode, useSecondaryFilter) {
             records.filter { record ->
-                val matchesFilter = when (selectedFilter) {
+                val matchesPrimaryFilter = when (selectedFilter) {
                     FILTER_QUICK -> record.categoryGroupCode == CategoryCatalog.GROUP_QUICK
                     FILTER_LIFE -> record.categoryGroupCode == CategoryCatalog.GROUP_LIFE
                     FILTER_WORK -> record.categoryGroupCode == CategoryCatalog.GROUP_WORK
                     FILTER_AI -> record.mode == MemoryRecord.MODE_AI
                     else -> true
                 }
-                matchesFilter
+                val matchesSecondaryFilter = if (useSecondaryFilter) {
+                    selectedSecondaryCode?.let { record.categoryCode == it } ?: true
+                } else {
+                    true
+                }
+                matchesPrimaryFilter && matchesSecondaryFilter
             }
         }
-        val allFilteredSelected = remember(filteredRecords, selectedRecordIds) {
-            filteredRecords.isNotEmpty() &&
-                filteredRecords.all { selectedRecordIds.contains(it.recordId) }
+        val headerCollapseDistancePx = with(density) { 84.dp.toPx() }
+        val headerCollapseTarget by remember(selectedRecords.isEmpty(), listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+            derivedStateOf {
+                if (selectedRecords.isNotEmpty()) {
+                    0f
+                } else {
+                    when {
+                        listState.firstVisibleItemIndex > 0 -> 1f
+                        headerCollapseDistancePx <= 0f -> 0f
+                        else -> (listState.firstVisibleItemScrollOffset / headerCollapseDistancePx).coerceIn(0f, 1f)
+                    }
+                }
+            }
         }
+        val headerCollapseProgress by animateFloatAsState(
+            targetValue = headerCollapseTarget,
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "memoryHeaderCollapse"
+        )
+        val expandedTitleAlpha = (1f - headerCollapseProgress).coerceIn(0f, 1f)
+        val collapsedTitleAlpha = headerCollapseProgress.coerceIn(0f, 1f)
+        val expandedTitleTranslateY = with(density) { (-22).dp.toPx() * headerCollapseProgress }
+        val recordSpacing = 14.dp
+        val chipBottomPadding = 12.dp
+        val listTopPadding = (recordSpacing - chipBottomPadding).coerceAtLeast(0.dp)
+        val expandedTitleMaxHeight = if (adaptive.isNarrow) 44.dp else 52.dp
+        val expandedTitleHeight by animateDpAsState(
+            targetValue = lerp(expandedTitleMaxHeight, 0.dp, headerCollapseProgress),
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "memoryExpandedTitleHeight"
+        )
+        val chipsTopPadding by animateDpAsState(
+            targetValue = lerp(14.dp, 13.dp, headerCollapseProgress),
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "memoryChipsTopPadding"
+        )
         val showCenteredEmptyState = hasLoadedRecords && filteredRecords.isEmpty()
         val recordItems: LazyListScope.() -> Unit = {
             items(
@@ -346,41 +437,62 @@ class MainActivity : BaseComposeActivity() {
                     if (it.imageUri.isNullOrBlank()) "record_plain" else "record_image"
                 }
             ) { record ->
-                RecordCard(
-                    record = record,
-                    selected = selectedRecordIds.contains(record.recordId),
-                    onSwipeDeleteRequest = if (selectedRecordIds.isEmpty()) {
-                        { swipeDeleteTarget = record }
-                    } else {
-                        null
-                    },
-                    palette = palette,
-                    adaptive = adaptive,
-                    allowImageLoading = true,
-                    showShadow = false,
-                    darkCardBackgroundOverride = Color(0xFF1A1A1C),
-                    onClick = {
-                        when {
-                            selectedRecordIds.contains(record.recordId) -> {
-                                selectedRecordIds = selectedRecordIds - record.recordId
+                val selected = selectedRecordIds.contains(record.recordId)
+                Box(modifier = Modifier.fillMaxWidth()) {
+                    RecordCard(
+                        record = record,
+                        selected = false,
+                        onSwipeDeleteRequest = if (selectedRecordIds.isEmpty()) {
+                            { swipeDeleteTarget = record }
+                        } else {
+                            null
+                        },
+                        palette = palette,
+                        adaptive = adaptive,
+                        allowImageLoading = true,
+                        showShadow = false,
+                        darkCardBackgroundOverride = Color(0xFF1A1A1C),
+                        onClick = {
+                            when {
+                                selected -> {
+                                    selectedRecordIds = selectedRecordIds - record.recordId
+                                }
+                                selectedRecordIds.isNotEmpty() -> {
+                                    selectedRecordIds = selectedRecordIds + record.recordId
+                                }
+                                else -> {
+                                    onOpenDetail(record)
+                                }
                             }
-                            selectedRecordIds.isNotEmpty() -> {
-                                selectedRecordIds = selectedRecordIds + record.recordId
-                            }
-                            else -> {
-                                onOpenDetail(record)
+                        },
+                        onLongPress = {
+                            moreMenuExpanded = false
+                            selectedRecordIds = if (selected) {
+                                selectedRecordIds - record.recordId
+                            } else {
+                                selectedRecordIds + record.recordId
                             }
                         }
-                    },
-                    onLongPress = {
-                        moreMenuExpanded = false
-                        selectedRecordIds = if (selectedRecordIds.contains(record.recordId)) {
-                            selectedRecordIds - record.recordId
-                        } else {
-                            selectedRecordIds + record.recordId
+                    )
+                    if (selected) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(top = 12.dp, end = 12.dp)
+                                .size(24.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(palette.accent),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_sheet_check),
+                                contentDescription = null,
+                                tint = palette.onAccent,
+                                modifier = Modifier.size(14.dp)
+                            )
                         }
                     }
-                )
+                }
             }
         }
 
@@ -420,32 +532,11 @@ class MainActivity : BaseComposeActivity() {
                             )
                     ) {
                         if (selectedRecords.isNotEmpty()) {
-                            Row(
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .padding(top = 8.dp, bottom = 12.dp),
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = getString(R.string.selected_count_format, selectedRecords.size),
-                                        color = palette.textPrimary,
-                                        fontSize = spec.titleSize,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                                NoMemoSelectionHeaderButton(
-                                    text = if (allFilteredSelected) "\u53D6\u6D88\u5168\u9009" else stringResource(R.string.action_select_all),
-                                    onClick = {
-                                        selectedRecordIds = if (allFilteredSelected) {
-                                            emptySet()
-                                        } else {
-                                            filteredRecords.map { it.recordId }.toSet()
-                                        }
-                                        showDeleteConfirm = false
-                                    },
-                                    modifier = Modifier.padding(end = 10.dp)
-                                )
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_sheet_close,
                                     contentDescription = stringResource(R.string.cancel),
@@ -453,20 +544,62 @@ class MainActivity : BaseComposeActivity() {
                                         selectedRecordIds = emptySet()
                                         showDeleteConfirm = false
                                     },
+                                    modifier = Modifier.align(Alignment.CenterStart),
+                                    size = spec.topActionButtonSize
+                                )
+                                Text(
+                                    text = getString(R.string.selected_count_format, selectedRecords.size),
+                                    color = palette.textPrimary,
+                                    fontSize = if (spec.isNarrow) 20.sp else 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.align(Alignment.Center)
+                                )
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_sheet_check,
+                                    contentDescription = stringResource(R.string.action_select_all),
+                                    onClick = {
+                                        selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
+                                        showDeleteConfirm = false
+                                    },
+                                    modifier = Modifier.align(Alignment.CenterEnd),
                                     size = spec.topActionButtonSize
                                 )
                             }
                         } else {
-                            NoMemoTopActionButtons(
-                                spec = spec,
-                                onSearchClick = onOpenSearch,
-                                onMoreClick = { moreMenuExpanded = !moreMenuExpanded }
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(spec.topActionButtonSize)
+                                    .padding(top = 2.dp)
+                            ) {
+                                NoMemoTopActionButtons(
+                                    spec = spec,
+                                    onSearchClick = onOpenSearch,
+                                    onMoreClick = { moreMenuExpanded = !moreMenuExpanded },
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                )
+                                Text(
+                                    text = stringResource(R.string.page_title),
+                                    color = palette.textPrimary,
+                                    fontSize = if (spec.isNarrow) 18.sp else 19.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .graphicsLayer {
+                                            alpha = collapsedTitleAlpha
+                                        }
+                                )
+                            }
 
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .height(expandedTitleHeight)
                                     .padding(top = 2.dp)
+                                    .graphicsLayer {
+                                        alpha = expandedTitleAlpha
+                                        translationY = expandedTitleTranslateY
+                                    }
                             ) {
                                 Text(
                                     text = stringResource(R.string.page_title),
@@ -478,57 +611,145 @@ class MainActivity : BaseComposeActivity() {
                         }
 
                         if (selectedRecords.isEmpty()) {
-                            Row(
+                            Column(
                                 modifier = Modifier
-                                    .padding(top = 14.dp, bottom = 10.dp)
-                                    .horizontalScroll(rememberScrollState())
+                                    .padding(top = chipsTopPadding, bottom = chipBottomPadding)
                             ) {
-                                FilterChip(
-                                    spec = spec,
-                                    text = buildFilterChipText(stringResource(R.string.filter_all), filterChipCounts.all),
-                                    selected = selectedFilter == FILTER_ALL
+                                Row(
+                                    modifier = Modifier
+                                        .horizontalScroll(rememberScrollState())
                                 ) {
-                                    onFilterSelect(FILTER_ALL)
+                                    FilterChip(
+                                        spec = spec,
+                                        text = buildFilterChipText(stringResource(R.string.filter_all), filterChipCounts.all),
+                                        selected = selectedFilter == FILTER_ALL
+                                    ) {
+                                        expandedPrimaryFilter = null
+                                        onFilterSelect(FILTER_ALL)
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    FilterChip(
+                                        spec = spec,
+                                        text = buildFilterChipText(stringResource(R.string.filter_quick), filterChipCounts.quick),
+                                        selected = selectedFilter == FILTER_QUICK
+                                    ) {
+                                        expandedPrimaryFilter = null
+                                        onFilterSelect(FILTER_QUICK)
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    PrimaryFilterChip(
+                                        spec = spec,
+                                        text = buildFilterChipText(stringResource(R.string.filter_life), filterChipCounts.life),
+                                        selected = selectedFilter == FILTER_LIFE,
+                                        showExpandIndicator = selectedFilter == FILTER_LIFE,
+                                        expanded = selectedFilter == FILTER_LIFE && expandedPrimaryFilter == FILTER_LIFE
+                                    ) {
+                                        val wasSelected = selectedFilter == FILTER_LIFE
+                                        val wasExpanded = expandedPrimaryFilter == FILTER_LIFE
+                                        if (selectedSecondaryByPrimary[FILTER_LIFE] == null) {
+                                            val lifeDefault = CategoryCatalog.getLifeCategories()
+                                                .firstOrNull()
+                                                ?.categoryCode
+                                            if (lifeDefault != null) {
+                                                selectedSecondaryByPrimary =
+                                                    selectedSecondaryByPrimary + (FILTER_LIFE to lifeDefault)
+                                            }
+                                        }
+                                        expandedPrimaryFilter = if (wasSelected && wasExpanded) null else FILTER_LIFE
+                                        onFilterSelect(FILTER_LIFE)
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    PrimaryFilterChip(
+                                        spec = spec,
+                                        text = buildFilterChipText(stringResource(R.string.filter_work), filterChipCounts.work),
+                                        selected = selectedFilter == FILTER_WORK,
+                                        showExpandIndicator = selectedFilter == FILTER_WORK,
+                                        expanded = selectedFilter == FILTER_WORK && expandedPrimaryFilter == FILTER_WORK
+                                    ) {
+                                        val wasSelected = selectedFilter == FILTER_WORK
+                                        val wasExpanded = expandedPrimaryFilter == FILTER_WORK
+                                        if (selectedSecondaryByPrimary[FILTER_WORK] == null) {
+                                            val workDefault = CategoryCatalog.getWorkCategories()
+                                                .firstOrNull()
+                                                ?.categoryCode
+                                            if (workDefault != null) {
+                                                selectedSecondaryByPrimary =
+                                                    selectedSecondaryByPrimary + (FILTER_WORK to workDefault)
+                                            }
+                                        }
+                                        expandedPrimaryFilter = if (wasSelected && wasExpanded) null else FILTER_WORK
+                                        onFilterSelect(FILTER_WORK)
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    FilterChip(
+                                        spec = spec,
+                                        text = buildFilterChipText(stringResource(R.string.filter_ai), filterChipCounts.ai),
+                                        selected = selectedFilter == FILTER_AI
+                                    ) {
+                                        expandedPrimaryFilter = null
+                                        onFilterSelect(FILTER_AI)
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    FilterChip(
+                                        spec = spec,
+                                        text = buildFilterChipText(stringResource(R.string.filter_archived), filterChipCounts.archived),
+                                        selected = selectedFilter == FILTER_ARCHIVED
+                                    ) {
+                                        expandedPrimaryFilter = null
+                                        onFilterSelect(FILTER_ARCHIVED)
+                                    }
                                 }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(
-                                    spec = spec,
-                                    text = buildFilterChipText(stringResource(R.string.filter_quick), filterChipCounts.quick),
-                                    selected = selectedFilter == FILTER_QUICK
+
+                                AnimatedVisibility(
+                                    visible = showSecondaryCategoryChips,
+                                    enter = expandVertically(
+                                        expandFrom = Alignment.Top,
+                                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                                    ) + fadeIn(
+                                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                                    ),
+                                    exit = shrinkVertically(
+                                        shrinkTowards = Alignment.Top,
+                                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                                    ) + fadeOut(
+                                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                                    )
                                 ) {
-                                    onFilterSelect(FILTER_QUICK)
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(
-                                    spec = spec,
-                                    text = buildFilterChipText(stringResource(R.string.filter_life), filterChipCounts.life),
-                                    selected = selectedFilter == FILTER_LIFE
-                                ) {
-                                    onFilterSelect(FILTER_LIFE)
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(
-                                    spec = spec,
-                                    text = buildFilterChipText(stringResource(R.string.filter_work), filterChipCounts.work),
-                                    selected = selectedFilter == FILTER_WORK
-                                ) {
-                                    onFilterSelect(FILTER_WORK)
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(
-                                    spec = spec,
-                                    text = buildFilterChipText(stringResource(R.string.filter_ai), filterChipCounts.ai),
-                                    selected = selectedFilter == FILTER_AI
-                                ) {
-                                    onFilterSelect(FILTER_AI)
-                                }
-                                Spacer(modifier = Modifier.width(10.dp))
-                                FilterChip(
-                                    spec = spec,
-                                    text = buildFilterChipText(stringResource(R.string.filter_archived), filterChipCounts.archived),
-                                    selected = selectedFilter == FILTER_ARCHIVED
-                                ) {
-                                    onFilterSelect(FILTER_ARCHIVED)
+                                    Crossfade(
+                                        targetState = selectedFilter,
+                                        animationSpec = tween(
+                                            durationMillis = 180,
+                                            easing = FastOutSlowInEasing
+                                        ),
+                                        label = "secondaryCategoryCrossfade"
+                                    ) { currentPrimary ->
+                                        val currentSecondaryCategories = getSecondaryCategoriesForPrimary(currentPrimary)
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 10.dp)
+                                                .horizontalScroll(rememberScrollState())
+                                        ) {
+                                            currentSecondaryCategories.forEachIndexed { index, option ->
+                                                SecondaryFilterChip(
+                                                    spec = spec,
+                                                    categoryCode = option.categoryCode,
+                                                    text = buildSecondaryFilterChipText(
+                                                        option.categoryName,
+                                                        categoryCountMap[option.categoryCode] ?: 0
+                                                    ),
+                                                    selected = selectedSecondaryCode == option.categoryCode,
+                                                    onClick = {
+                                                        selectedSecondaryByPrimary =
+                                                            selectedSecondaryByPrimary + (selectedFilter to option.categoryCode)
+                                                    }
+                                                )
+                                                if (index < currentSecondaryCategories.lastIndex) {
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -544,10 +765,10 @@ class MainActivity : BaseComposeActivity() {
                                     modifier = Modifier.fillMaxSize(),
                                     state = listState,
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                        top = 12.dp,
+                                        top = listTopPadding,
                                         bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
                                     ),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(recordSpacing),
                                     content = recordItems
                                 )
                             }
@@ -686,7 +907,169 @@ class MainActivity : BaseComposeActivity() {
         )
     }
 
-    private fun buildFilterChipText(label: String, count: Int): String = "$label($count)"
+    @Composable
+    private fun PrimaryFilterChip(
+        spec: NoMemoAdaptiveSpec,
+        text: String,
+        selected: Boolean,
+        showExpandIndicator: Boolean,
+        expanded: Boolean,
+        onClick: () -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        val bg = if (selected) palette.accent else if (isDark) palette.glassFill else Color.White
+        val textColor = if (selected) palette.onAccent else palette.textPrimary
+        val chevronRotation by animateFloatAsState(
+            targetValue = if (expanded) 180f else 0f,
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "primaryFilterChevronRotation"
+        )
+        PressScaleBox(onClick = onClick) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(bg)
+                    .padding(
+                        start = if (spec.isNarrow) 18.dp else 24.dp,
+                        end = if (spec.isNarrow) 14.dp else 20.dp,
+                        top = if (spec.isNarrow) 11.dp else 12.dp,
+                        bottom = if (spec.isNarrow) 11.dp else 12.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = text,
+                    color = textColor,
+                    style = TextStyle(
+                        fontSize = (spec.chipTextSize.value + 1f).sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                )
+                if (showExpandIndicator) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_sheet_chevron_down),
+                        contentDescription = null,
+                        tint = textColor.copy(alpha = 0.9f),
+                        modifier = Modifier
+                            .padding(start = 6.dp)
+                            .size(12.dp)
+                            .graphicsLayer {
+                                rotationZ = chevronRotation
+                            }
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SecondaryFilterChip(
+        spec: NoMemoAdaptiveSpec,
+        categoryCode: String,
+        text: String,
+        selected: Boolean,
+        onClick: () -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        val accentColor = secondaryCategoryAccentColor(categoryCode)
+        val bg = if (selected) {
+            accentColor.copy(alpha = if (isDark) 0.34f else 0.18f)
+        } else if (isDark) {
+            palette.glassFill
+        } else {
+            Color.White
+        }
+        val textColor = if (selected) {
+            if (isDark) Color.White else accentColor
+        } else {
+            palette.textPrimary
+        }
+        val iconContainer = if (selected) {
+            accentColor.copy(alpha = if (isDark) 0.24f else 0.14f)
+        } else {
+            accentColor.copy(alpha = if (isDark) 0.22f else 0.16f)
+        }
+
+        PressScaleBox(onClick = onClick) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(bg)
+                    .padding(
+                        start = if (spec.isNarrow) 10.dp else 12.dp,
+                        end = if (spec.isNarrow) 14.dp else 18.dp,
+                        top = if (spec.isNarrow) 8.dp else 9.dp,
+                        bottom = if (spec.isNarrow) 8.dp else 9.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(20.dp)
+                        .clip(CircleShape)
+                        .background(iconContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = secondaryCategoryIcon(categoryCode),
+                        contentDescription = null,
+                        tint = if (selected) textColor else accentColor,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+                Text(
+                    text = text,
+                    color = textColor,
+                    style = TextStyle(
+                        fontSize = spec.chipTextSize,
+                        fontWeight = FontWeight.SemiBold
+                    ),
+                    modifier = Modifier.padding(start = 6.dp)
+                )
+            }
+        }
+    }
+
+    private fun secondaryCategoryIcon(categoryCode: String): ImageVector {
+        return when (categoryCode) {
+            CategoryCatalog.CODE_LIFE_PICKUP -> Icons.Outlined.Restaurant
+            CategoryCatalog.CODE_LIFE_DELIVERY -> Icons.Outlined.LocalShipping
+            CategoryCatalog.CODE_LIFE_CARD -> Icons.Outlined.Badge
+            CategoryCatalog.CODE_LIFE_TICKET -> Icons.Outlined.ConfirmationNumber
+            CategoryCatalog.CODE_WORK_TODO -> Icons.Outlined.AssignmentTurnedIn
+            CategoryCatalog.CODE_WORK_SCHEDULE -> Icons.Outlined.CalendarMonth
+            else -> Icons.Outlined.Badge
+        }
+    }
+
+    private fun secondaryCategoryAccentColor(categoryCode: String): Color {
+        return when (categoryCode) {
+            CategoryCatalog.CODE_LIFE_PICKUP -> Color(0xFFFFA157)
+            CategoryCatalog.CODE_LIFE_DELIVERY -> Color(0xFF69A7FF)
+            CategoryCatalog.CODE_LIFE_CARD -> Color(0xFFD2B37C)
+            CategoryCatalog.CODE_LIFE_TICKET -> Color(0xFF9C7CFF)
+            CategoryCatalog.CODE_WORK_TODO -> Color(0xFF58D89A)
+            CategoryCatalog.CODE_WORK_SCHEDULE -> Color(0xFF4F8CFF)
+            else -> Color(0xFFB0B0B5)
+        }
+    }
+
+    private fun isPrimaryCategoryFilter(filter: String): Boolean {
+        return filter == FILTER_LIFE || filter == FILTER_WORK
+    }
+
+    private fun getSecondaryCategoriesForPrimary(filter: String): List<CategoryCatalog.CategoryOption> {
+        return when (filter) {
+            FILTER_LIFE -> CategoryCatalog.getLifeCategories()
+            FILTER_WORK -> CategoryCatalog.getWorkCategories()
+            else -> emptyList()
+        }
+    }
+
+    private fun buildFilterChipText(label: String, count: Int): String = "$label $count"
+    private fun buildSecondaryFilterChipText(label: String, count: Int): String = "$label $count"
 
     @Composable
     private fun SearchBarCard(

@@ -11,6 +11,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -46,14 +49,13 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -65,7 +67,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -73,6 +77,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import java.text.SimpleDateFormat
@@ -257,9 +262,10 @@ class GroupActivity : BaseComposeActivity() {
         val albumStore = remember(albumContext) { GroupAlbumStore(albumContext) }
         val albumAdaptive = rememberNoMemoAdaptiveSpec()
         val albumPalette = rememberNoMemoPalette()
-        val albumListState = rememberLazyListState()
+        val groupListState = rememberLazyListState()
+        val albumDetailListState = rememberLazyListState()
         val albumDockHasUnderContent = rememberDockHasUnderContent(
-            listState = albumListState,
+            listState = groupListState,
             spec = albumAdaptive
         )
         var albumList by remember { mutableStateOf(albumStore.loadAlbums()) }
@@ -322,6 +328,48 @@ class GroupActivity : BaseComposeActivity() {
                 }
             }
         }
+        val density = LocalDensity.current
+        val groupHeaderCollapseDistancePx = with(density) { 84.dp.toPx() }
+        val groupHeaderCollapseTarget by remember(
+            openedAlbum?.albumId,
+            albumList.isEmpty(),
+            groupListState.firstVisibleItemIndex,
+            groupListState.firstVisibleItemScrollOffset
+        ) {
+            derivedStateOf {
+                if (openedAlbum != null || albumList.isEmpty()) {
+                    0f
+                } else {
+                    when {
+                        groupListState.firstVisibleItemIndex > 0 -> 1f
+                        groupHeaderCollapseDistancePx <= 0f -> 0f
+                        else -> (groupListState.firstVisibleItemScrollOffset / groupHeaderCollapseDistancePx)
+                            .coerceIn(0f, 1f)
+                    }
+                }
+            }
+        }
+        val groupHeaderCollapseProgress by animateFloatAsState(
+            targetValue = groupHeaderCollapseTarget,
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "groupHeaderCollapse"
+        )
+        val groupExpandedTitleAlpha = (1f - groupHeaderCollapseProgress).coerceIn(0f, 1f)
+        val groupCollapsedTitleAlpha = groupHeaderCollapseProgress.coerceIn(0f, 1f)
+        val groupExpandedTitleTranslateY =
+            with(density) { (-20).dp.toPx() * groupHeaderCollapseProgress }
+        val groupExpandedTitleMaxHeight = if (albumAdaptive.isNarrow) 44.dp else 50.dp
+        val groupExpandedTitleHeight by animateDpAsState(
+            targetValue = lerp(groupExpandedTitleMaxHeight, 0.dp, groupHeaderCollapseProgress),
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "groupExpandedTitleHeight"
+        )
+        val groupListSpacing = 14.dp
+        val groupListTopPadding by animateDpAsState(
+            targetValue = lerp(12.dp, 4.dp, groupHeaderCollapseProgress),
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "groupListTopPadding"
+        )
         LaunchedEffect(hasLoadedRecords, validRecordIds) {
             if (!hasLoadedRecords) {
                 return@LaunchedEffect
@@ -362,6 +410,9 @@ class GroupActivity : BaseComposeActivity() {
             showEditAlbumDialog = false
             editingAlbumId = null
         }
+        BackHandler(enabled = showCreateAlbumDialog) {
+            showCreateAlbumDialog = false
+        }
         BackHandler(
             enabled = openedAlbum == null &&
                 groupListMoreExpanded &&
@@ -388,18 +439,42 @@ class GroupActivity : BaseComposeActivity() {
                             )
                     ) {
                         if (openedAlbum == null) {
-                            NoMemoTopActionButtons(
-                                spec = spec,
-                                onSearchClick = {
-                                    groupListMoreExpanded = false
-                                    onOpenSearch()
-                                },
-                                onMoreClick = { groupListMoreExpanded = !groupListMoreExpanded }
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(spec.topActionButtonSize)
+                                    .padding(top = 2.dp)
+                            ) {
+                                NoMemoTopActionButtons(
+                                    spec = spec,
+                                    onSearchClick = {
+                                        groupListMoreExpanded = false
+                                        onOpenSearch()
+                                    },
+                                    onMoreClick = { groupListMoreExpanded = !groupListMoreExpanded },
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                )
+                                Text(
+                                    text = stringResource(R.string.group_page_title),
+                                    color = albumPalette.textPrimary,
+                                    fontSize = if (spec.isNarrow) 18.sp else 19.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .graphicsLayer {
+                                            alpha = groupCollapsedTitleAlpha
+                                        }
+                                )
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 2.dp, bottom = 12.dp)
+                                    .height(groupExpandedTitleHeight)
+                                    .padding(top = 2.dp)
+                                    .graphicsLayer {
+                                        alpha = groupExpandedTitleAlpha
+                                        translationY = groupExpandedTitleTranslateY
+                                    }
                             ) {
                                 Text(
                                     text = stringResource(R.string.group_page_title),
@@ -425,12 +500,12 @@ class GroupActivity : BaseComposeActivity() {
                             } else {
                                 LazyColumn(
                                     modifier = Modifier.weight(1f),
-                                    state = albumListState,
+                                    state = groupListState,
                                     contentPadding = PaddingValues(
-                                        top = 0.dp,
+                                        top = groupListTopPadding,
                                         bottom = spec.pageBottomPadding + 24.dp
                                     ),
-                                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                                    verticalArrangement = Arrangement.spacedBy(groupListSpacing)
                                 ) {
                                     items(albumRows) { rowAlbums ->
                                         Row(
@@ -507,7 +582,7 @@ class GroupActivity : BaseComposeActivity() {
                             if (openedRecords.isNotEmpty()) {
                                 LazyColumn(
                                     modifier = Modifier.weight(1f),
-                                    state = albumListState,
+                                    state = albumDetailListState,
                                     contentPadding = PaddingValues(
                                         top = 12.dp,
                                         bottom = spec.pageBottomPadding + 24.dp
@@ -552,7 +627,7 @@ class GroupActivity : BaseComposeActivity() {
                             onOpenReminder = onOpenReminder,
                             onAddClick = onAddClick,
                             spec = spec,
-                            animateFabHalo = !albumListState.isScrollInProgress,
+                            animateFabHalo = !groupListState.isScrollInProgress,
                             showEnhancedOutline = albumDockHasUnderContent,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
@@ -639,54 +714,26 @@ class GroupActivity : BaseComposeActivity() {
                     }
 
                     if (showCreateAlbumDialog) {
-                        AlertDialog(
-                            onDismissRequest = { showCreateAlbumDialog = false },
-                            title = {
-                                Text(
-                                    text = "新建分组",
-                                    color = albumPalette.textPrimary,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            },
-                            text = {
-                                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    GroupAlbumInputField(
-                                        value = albumNameInput,
-                                        onValueChange = { albumNameInput = it },
-                                        placeholder = "分组名称"
-                                    )
-                                    GroupAlbumInputField(
-                                        value = albumDescriptionInput,
-                                        onValueChange = { albumDescriptionInput = it },
-                                        placeholder = "分组描述（可选）",
-                                        minHeight = 88.dp
-                                    )
+                        GroupEditAlbumSheet(
+                            visible = showCreateAlbumDialog,
+                            title = "新建分组",
+                            albumName = albumNameInput,
+                            albumDescription = albumDescriptionInput,
+                            onNameChange = { albumNameInput = it },
+                            onDescriptionChange = { albumDescriptionInput = it },
+                            onDismiss = { showCreateAlbumDialog = false },
+                            onConfirm = {
+                                val finalName = albumNameInput.trim()
+                                if (finalName.isBlank()) {
+                                    Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
+                                    return@GroupEditAlbumSheet
                                 }
-                            },
-                            confirmButton = {
-                                TextButton(
-                                    enabled = albumNameInput.trim().isNotEmpty(),
-                                    onClick = {
-                                        val finalName = albumNameInput.trim()
-                                        if (finalName.isBlank()) {
-                                            Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
-                                        } else {
-                                            albumStore.addAlbum(finalName, albumDescriptionInput)
-                                            albumList = albumStore.loadAlbums()
-                                            albumNameInput = ""
-                                            albumDescriptionInput = ""
-                                            showCreateAlbumDialog = false
-                                            Toast.makeText(albumContext, "分组已创建", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                ) {
-                                    Text("创建")
-                                }
-                            },
-                            dismissButton = {
-                                TextButton(onClick = { showCreateAlbumDialog = false }) {
-                                    Text("取消")
-                                }
+                                albumStore.addAlbum(finalName, albumDescriptionInput)
+                                albumList = albumStore.loadAlbums()
+                                albumNameInput = ""
+                                albumDescriptionInput = ""
+                                showCreateAlbumDialog = false
+                                Toast.makeText(albumContext, "分组已创建", Toast.LENGTH_SHORT).show()
                             }
                         )
                     }
@@ -738,6 +785,7 @@ class GroupActivity : BaseComposeActivity() {
                     if (showEditAlbumDialog && openedAlbum != null) {
                         GroupEditAlbumSheet(
                             visible = showEditAlbumDialog,
+                            title = "编辑分组",
                             albumName = albumNameInput,
                             albumDescription = albumDescriptionInput,
                             onNameChange = { albumNameInput = it },
@@ -1108,6 +1156,7 @@ class GroupActivity : BaseComposeActivity() {
     @Composable
     private fun BoxScope.GroupEditAlbumSheet(
         visible: Boolean,
+        title: String,
         albumName: String,
         albumDescription: String,
         onNameChange: (String) -> Unit,
@@ -1201,7 +1250,7 @@ class GroupActivity : BaseComposeActivity() {
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Text(
-                                    text = "编辑分组",
+                                    text = title,
                                     color = palette.textPrimary,
                                     fontSize = 18.sp,
                                     fontWeight = FontWeight.SemiBold,

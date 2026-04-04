@@ -1,13 +1,21 @@
 package com.han.nomemo
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 
 @Composable
 fun NoMemoSelectionHeaderButton(
@@ -30,6 +38,8 @@ fun NoMemoSelectionActionDock(
     modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
+    val adaptive = rememberNoMemoAdaptiveSpec()
+    val actionWidth = if (adaptive.isNarrow) 128.dp else 140.dp
     val archiveLabel = if (selectedRecords.all { it.isArchived }) {
         stringResource(R.string.action_unarchive)
     } else {
@@ -37,25 +47,59 @@ fun NoMemoSelectionActionDock(
     }
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp)
+        horizontalArrangement = Arrangement.SpaceBetween
     ) {
-        NoMemoWideActionButton(
+        NoMemoSelectionTextActionButton(
             text = archiveLabel,
-            iconRes = R.drawable.ic_sheet_calendar,
             onClick = onArchiveClick,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.width(actionWidth),
             containerColor = palette.glassFill,
             contentColor = palette.textPrimary,
             borderColor = palette.glassStroke
         )
-        NoMemoWideActionButton(
+        NoMemoSelectionTextActionButton(
             text = stringResource(R.string.action_delete),
-            iconRes = R.drawable.ic_nm_delete,
             onClick = onDeleteClick,
-            modifier = Modifier.weight(1f),
+            modifier = Modifier.width(actionWidth),
             containerColor = palette.accent,
             contentColor = palette.onAccent,
             borderColor = palette.accent
         )
+    }
+}
+
+@Composable
+private fun NoMemoSelectionTextActionButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    containerColor: androidx.compose.ui.graphics.Color,
+    contentColor: androidx.compose.ui.graphics.Color,
+    borderColor: androidx.compose.ui.graphics.Color
+) {
+    PressScaleBox(
+        onClick = onClick,
+        modifier = modifier
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = containerColor),
+            border = BorderStroke(1.dp, borderColor)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                contentAlignment = androidx.compose.ui.Alignment.Center
+            ) {
+                Text(
+                    text = text,
+                    color = contentColor,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
     }
 }

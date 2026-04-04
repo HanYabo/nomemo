@@ -645,7 +645,7 @@ class SettingsActivity : BaseComposeActivity() {
             Text(
                 text = title,
                 color = titleColor,
-                fontSize = 24.sp,
+                fontSize = if (spec.isNarrow) 20.sp else 22.sp,
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.Center)
             )

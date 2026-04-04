@@ -262,7 +262,7 @@ fun NoMemoPickupLocationCard(
                 }
                 if (hasNavigation) {
                     NoMemoLocationNavigateButton(
-                        text = "瀵艰埅",
+                        text = "导航",
                         onClick = { onNavigate(info.navigationQuery) },
                         modifier = Modifier.align(Alignment.CenterEnd)
                     )

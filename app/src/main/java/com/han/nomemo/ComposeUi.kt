@@ -21,8 +21,6 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -803,14 +801,14 @@ fun NoMemoActionMenuPanel(
     }
     Card(
         modifier = modifier
-            .width(194.dp)
+            .width(176.dp)
             .shadow(
                 elevation = if (isDark) 10.dp else 12.dp,
-                shape = RoundedCornerShape(24.dp),
+                shape = RoundedCornerShape(22.dp),
                 ambientColor = menuShadowColor,
                 spotColor = menuShadowColor
             ),
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = menuSurface)
     ) {
         Column(
@@ -839,12 +837,21 @@ fun NoMemoMenuPopup(
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = expanded
+    val density = LocalDensity.current
+    val popupProgress by animateFloatAsState(
+        targetValue = if (expanded) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (expanded) 170 else 120,
+            easing = FastOutSlowInEasing
+        ),
+        label = "menuPopupProgress"
+    )
 
     if (transitionState.currentState || transitionState.targetState) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .zIndex(5f)
+                .zIndex(20f)
         ) {
             Box(
                 modifier = Modifier
@@ -859,19 +866,13 @@ fun NoMemoMenuPopup(
             Box(
                 modifier = Modifier.fillMaxSize()
             ) {
-                AnimatedVisibility(
-                    modifier = Modifier.align(Alignment.TopEnd),
-                    visibleState = transitionState,
-                    enter = fadeIn(animationSpec = tween(170)) + scaleIn(
-                        initialScale = 0.92f,
-                        transformOrigin = TransformOrigin(1f, 0f),
-                        animationSpec = tween(220, easing = FastOutSlowInEasing)
-                    ),
-                    exit = fadeOut(animationSpec = tween(120)) + scaleOut(
-                        targetScale = 0.96f,
-                        transformOrigin = TransformOrigin(1f, 0f),
-                        animationSpec = tween(160, easing = FastOutSlowInEasing)
-                    )
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .graphicsLayer {
+                            alpha = popupProgress
+                            translationY = with(density) { (-8).dp.toPx() * (1f - popupProgress) }
+                        }
                 ) {
                     Box(modifier = modifier) {
                         content()
@@ -900,21 +901,21 @@ fun NoMemoActionMenuRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 10.dp),
+                .padding(horizontal = 14.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 painter = painterResource(iconRes),
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(19.dp)
             )
             Text(
                 text = label,
                 color = contentColor,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(start = 10.dp)
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 11.dp)
             )
         }
     }
