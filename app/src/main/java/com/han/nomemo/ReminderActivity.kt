@@ -12,6 +12,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -27,6 +28,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -48,6 +50,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -57,8 +60,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -66,6 +71,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import java.text.SimpleDateFormat
@@ -254,6 +260,8 @@ class ReminderActivity : BaseComposeActivity() {
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
+        val density = LocalDensity.current
+        val titleBlockHeight = if (adaptive.isNarrow) 44.dp else 52.dp
         var selectedRecordId by remember { mutableStateOf<String?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var moreMenuExpanded by remember { mutableStateOf(false) }
@@ -265,6 +273,30 @@ class ReminderActivity : BaseComposeActivity() {
             spec = adaptive
         )
         val filteredRecords = records
+        val headerCollapseDistancePx = with(density) { 68.dp.toPx() }
+        val headerCollapseTarget by remember(selectedRecordId, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+            derivedStateOf {
+                if (selectedRecordId != null) {
+                    0f
+                } else {
+                    when {
+                        listState.firstVisibleItemIndex > 0 -> 1f
+                        headerCollapseDistancePx <= 0f -> 0f
+                        else -> (listState.firstVisibleItemScrollOffset / headerCollapseDistancePx).coerceIn(0f, 1f)
+                    }
+                }
+            }
+        }
+        val headerCollapseProgress by animateFloatAsState(
+            targetValue = headerCollapseTarget,
+            animationSpec = tween(durationMillis = 110, easing = FastOutSlowInEasing),
+            label = "reminderHeaderCollapseProgress"
+        )
+        val expandedTitleAlpha = (1f - headerCollapseProgress).coerceIn(0f, 1f)
+        val collapsedTitleAlpha = headerCollapseProgress.coerceIn(0f, 1f)
+        val expandedTitleTranslateY = with(density) { (-22).dp.toPx() * headerCollapseProgress }
+        val chipsTopPadding = lerp(12.dp, 11.dp, headerCollapseProgress)
+        val chipBottomPadding = 12.dp
         val selectedRecord = remember(filteredRecords, selectedRecordId) {
             filteredRecords.firstOrNull { it.recordId == selectedRecordId }
         }
@@ -302,20 +334,12 @@ class ReminderActivity : BaseComposeActivity() {
                             )
                     ) {
                         if (selectedRecord != null) {
-                            Row(
+                            Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically
+                                    .height(spec.topActionButtonSize)
+                                    .padding(top = 2.dp)
                             ) {
-                                Column(modifier = Modifier.weight(1f)) {
-                                    Text(
-                                        text = getString(R.string.selected_count_format, 1),
-                                        color = palette.textPrimary,
-                                        fontSize = spec.titleSize,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_sheet_close,
                                     contentDescription = stringResource(R.string.cancel),
@@ -323,27 +347,60 @@ class ReminderActivity : BaseComposeActivity() {
                                         selectedRecordId = null
                                         showDeleteConfirm = false
                                     },
-                                    modifier = Modifier.padding(end = 10.dp),
+                                    modifier = Modifier.align(Alignment.CenterStart),
                                     size = spec.topActionButtonSize
+                                )
+                                Text(
+                                    text = getString(R.string.selected_count_format, 1),
+                                    color = palette.textPrimary,
+                                    fontSize = if (spec.isNarrow) 20.sp else 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier.align(Alignment.Center)
                                 )
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_nm_delete,
                                     contentDescription = stringResource(R.string.action_delete),
                                     onClick = { showDeleteConfirm = true },
+                                    modifier = Modifier.align(Alignment.CenterEnd),
                                     size = spec.topActionButtonSize
                                 )
                             }
+                            Spacer(modifier = Modifier.height(12.dp))
                         } else {
-                            NoMemoTopActionButtons(
-                                spec = spec,
-                                onSearchClick = onOpenSearch,
-                                onMoreClick = { moreMenuExpanded = !moreMenuExpanded },
-                                onMoreButtonBoundsChanged = { moreMenuAnchorBounds = it }
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(spec.topActionButtonSize)
+                                    .padding(top = 2.dp)
+                            ) {
+                                NoMemoTopActionButtons(
+                                    spec = spec,
+                                    onSearchClick = onOpenSearch,
+                                    onMoreClick = { moreMenuExpanded = !moreMenuExpanded },
+                                    onMoreButtonBoundsChanged = { moreMenuAnchorBounds = it },
+                                    modifier = Modifier.align(Alignment.TopStart)
+                                )
+                                Text(
+                                    text = stringResource(R.string.reminder_page_title),
+                                    color = palette.textPrimary,
+                                    fontSize = if (spec.isNarrow) 18.sp else 19.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier
+                                        .align(Alignment.Center)
+                                        .graphicsLayer {
+                                            alpha = collapsedTitleAlpha
+                                        }
+                                )
+                            }
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .height(titleBlockHeight)
                                     .padding(top = 2.dp)
+                                    .graphicsLayer {
+                                        alpha = expandedTitleAlpha
+                                        translationY = expandedTitleTranslateY
+                                    }
                             ) {
                                 Text(
                                     text = stringResource(R.string.reminder_page_title),
@@ -356,18 +413,18 @@ class ReminderActivity : BaseComposeActivity() {
 
                         Row(
                             modifier = Modifier
-                                .padding(top = 14.dp)
+                                .padding(top = chipsTopPadding, bottom = chipBottomPadding)
                                 .horizontalScroll(rememberScrollState()),
                             horizontalArrangement = Arrangement.Start
                         ) {
                             ReminderChip(stringResource(R.string.reminder_filter_all), selectedFilter == FILTER_ALL, spec.chipTextSize) {
                                 onFilterSelected(FILTER_ALL)
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             ReminderChip(stringResource(R.string.reminder_filter_pending), selectedFilter == FILTER_PENDING, spec.chipTextSize) {
                                 onFilterSelected(FILTER_PENDING)
                             }
-                            Spacer(modifier = Modifier.width(8.dp))
+                            Spacer(modifier = Modifier.width(10.dp))
                             ReminderChip(stringResource(R.string.reminder_filter_done), selectedFilter == FILTER_DONE, spec.chipTextSize) {
                                 onFilterSelected(FILTER_DONE)
                             }
@@ -381,7 +438,7 @@ class ReminderActivity : BaseComposeActivity() {
                                     .weight(1f),
                                 state = listState,
                                 contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                    top = if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp,
+                                    top = 2.dp,
                                     bottom = spec.pageBottomPadding + 20.dp
                                 ),
                                 verticalArrangement = Arrangement.spacedBy(if (spec.widthClass == NoMemoWidthClass.EXPANDED) 12.dp else 10.dp)
@@ -493,16 +550,18 @@ class ReminderActivity : BaseComposeActivity() {
         chipTextSize: TextUnit,
         onClick: () -> Unit
     ) {
+        val adaptive = rememberNoMemoAdaptiveSpec()
         GlassChip(
             text = text,
             selected = selected,
             onClick = onClick,
             showBorder = false,
+            horizontalPadding = if (adaptive.isNarrow) 18.dp else 24.dp,
+            verticalPadding = if (adaptive.isNarrow) 11.dp else 12.dp,
             textStyle = TextStyle(
-                fontSize = chipTextSize,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-            ),
-            horizontalPadding = 16.dp
+                fontSize = (chipTextSize.value + 1f).sp,
+                fontWeight = FontWeight.Bold
+            )
         )
     }
 
@@ -517,7 +576,14 @@ class ReminderActivity : BaseComposeActivity() {
         onClickItem: () -> Unit
     ) {
         val haptic = LocalHapticFeedback.current
+        val isDark = isSystemInDarkTheme()
         val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+        val cardShape = RoundedCornerShape(if (adaptive.isNarrow) 28.dp else 30.dp)
+        val cardBackground = if (selected) {
+            noMemoSelectedCardGradient(isDark).first()
+        } else {
+            if (isDark) noMemoCardSurfaceColor(true) else Color.White.copy(alpha = 0.995f)
+        }
         val title = when {
             !record.title.isNullOrBlank() -> record.title
             !record.memory.isNullOrBlank() -> record.memory
@@ -532,19 +598,8 @@ class ReminderActivity : BaseComposeActivity() {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .background(
-                    if (selected) {
-                        if (isSystemInDarkTheme()) noMemoCardSurfaceColor(true) else palette.glassFillSoft
-                    } else {
-                        if (isSystemInDarkTheme()) noMemoCardSurfaceColor(true) else palette.glassFill
-                    }
-                )
-                .border(
-                    if (selected) 2.dp else 0.dp,
-                    if (selected) palette.accent else palette.glassStroke,
-                    RoundedCornerShape(20.dp)
-                )
+                .clip(cardShape)
+                .background(cardBackground)
                 .pointerInput(onLongPressSelect, onClickItem) {
                     detectTapGestures(
                         onTap = { onClickItem() },
@@ -554,7 +609,7 @@ class ReminderActivity : BaseComposeActivity() {
                         }
                     )
                 }
-                .padding(if (adaptive.isNarrow) 10.dp else 12.dp),
+                .padding(horizontal = 18.dp, vertical = 17.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Checkbox(

@@ -240,6 +240,20 @@ fun noMemoCardSurfaceColor(isDark: Boolean, lightColor: Color = Color.White): Co
     return if (isDark) Color(0xFF1A1A1C) else lightColor
 }
 
+fun noMemoSelectedCardGradient(isDark: Boolean): List<Color> {
+    return if (isDark) {
+        listOf(
+            Color(0xFF253754),
+            Color(0xFF1C2D46)
+        )
+    } else {
+        listOf(
+            Color(0xFFE7F0FF),
+            Color(0xFFDDE9FF)
+        )
+    }
+}
+
 @Composable
 fun rememberNoMemoAdaptiveSpec(): NoMemoAdaptiveSpec {
     LocalNoMemoAdaptiveSpec.current?.let { return it }
@@ -1797,7 +1811,7 @@ private fun loadMemoryThumbnail(
 }
 
 @Composable
-private fun MemoryThumbnail(
+fun MemoryThumbnail(
     uriString: String,
     width: Dp,
     height: Dp,
@@ -1902,25 +1916,24 @@ fun RecordCard(
     }
     val previewCornerRadius = if (adaptive.isNarrow) 15.dp else 17.dp
     val cardShape = RoundedCornerShape(if (adaptive.isNarrow) 28.dp else 30.dp)
-    val cardGradient = if (isDark) {
-        val darkCardColor = darkCardBackgroundOverride ?: noMemoCardSurfaceColor(true)
+    val darkCardColor = darkCardBackgroundOverride ?: noMemoCardSurfaceColor(true)
+    val lightCardTop = Color.White.copy(alpha = 0.995f)
+    val lightCardBottom = Color(0xFFFCFCFD).copy(alpha = 0.995f)
+    val cardGradient = if (selected) {
+        noMemoSelectedCardGradient(isDark)
+    } else if (isDark) {
         listOf(
             darkCardColor,
             darkCardColor
         )
     } else {
         listOf(
-            Color.White.copy(alpha = 0.995f),
-            Color(0xFFFCFCFD).copy(alpha = 0.995f)
+            lightCardTop,
+            lightCardBottom
         )
     }
-    val cardBorderColor = if (selected) {
-        if (isDark) Color.White.copy(alpha = 0.14f) else Color(0x26111111)
-    } else {
-        Color.Transparent
-    }
     val cardShadow = if (showShadow) {
-        if (isDark) 0.dp else if (selected) 7.dp else 4.dp
+        if (isDark) 0.dp else if (selected) 5.dp else 4.dp
     } else {
         0.dp
     }
@@ -1961,8 +1974,7 @@ fun RecordCard(
                 .then(gestureModifier),
             shape = cardShape,
             colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-            elevation = CardDefaults.cardElevation(defaultElevation = cardShadow),
-            border = if (selected) BorderStroke(1.dp, cardBorderColor) else null
+            elevation = CardDefaults.cardElevation(defaultElevation = cardShadow)
         ) {
             Row(
                 modifier = Modifier

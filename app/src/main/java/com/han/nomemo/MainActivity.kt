@@ -432,60 +432,37 @@ class MainActivity : BaseComposeActivity() {
                 }
             ) { record ->
                 val selected = selectedRecordIds.contains(record.recordId)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                ) {
-                    RecordCard(
-                        record = record,
-                        selected = false,
-                        palette = palette,
-                        adaptive = adaptive,
-                        allowImageLoading = true,
-                        showShadow = false,
-                        darkCardBackgroundOverride = Color(0xFF1A1A1C),
-                        onClick = {
-                            when {
-                                selectionModeActive && selected -> {
-                                    selectedRecordIds = selectedRecordIds - record.recordId
-                                }
-                                selectionModeActive -> {
-                                    selectedRecordIds = selectedRecordIds + record.recordId
-                                }
-                                else -> {
-                                    onOpenDetail(record)
-                                }
+                RecordCard(
+                    record = record,
+                    selected = selected,
+                    palette = palette,
+                    adaptive = adaptive,
+                    allowImageLoading = true,
+                    showShadow = false,
+                    darkCardBackgroundOverride = Color(0xFF1A1A1C),
+                    onClick = {
+                        when {
+                            selectionModeActive && selected -> {
+                                selectedRecordIds = selectedRecordIds - record.recordId
                             }
-                        },
-                        onLongPress = {
-                            moreMenuExpanded = false
-                            selectionModeActive = true
-                            selectedRecordIds = if (selected) {
-                                selectedRecordIds - record.recordId
-                            } else {
-                                selectedRecordIds + record.recordId
+                            selectionModeActive -> {
+                                selectedRecordIds = selectedRecordIds + record.recordId
+                            }
+                            else -> {
+                                onOpenDetail(record)
                             }
                         }
-                    )
-                    if (selected) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = 12.dp, end = 12.dp)
-                                .size(24.dp)
-                                .clip(RoundedCornerShape(999.dp))
-                                .background(palette.accent),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_sheet_check),
-                                contentDescription = null,
-                                tint = palette.onAccent,
-                                modifier = Modifier.size(14.dp)
-                            )
+                    },
+                    onLongPress = {
+                        moreMenuExpanded = false
+                        selectionModeActive = true
+                        selectedRecordIds = if (selected) {
+                            selectedRecordIds - record.recordId
+                        } else {
+                            selectedRecordIds + record.recordId
                         }
                     }
-                }
+                )
             }
         }
 
