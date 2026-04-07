@@ -39,7 +39,7 @@ fun NoMemoSelectionActionDock(
 ) {
     val palette = rememberNoMemoPalette()
     val adaptive = rememberNoMemoAdaptiveSpec()
-    val actionWidth = if (adaptive.isNarrow) 128.dp else 140.dp
+    val actionWidth = if (adaptive.isNarrow) 116.dp else 128.dp
     val archiveLabel = if (selectedRecords.all { it.isArchived }) {
         stringResource(R.string.action_unarchive)
     } else {
@@ -90,7 +90,7 @@ private fun NoMemoSelectionTextActionButton(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 16.dp, vertical = 13.dp),
+                    .padding(horizontal = 15.dp, vertical = 12.dp),
                 contentAlignment = androidx.compose.ui.Alignment.Center
             ) {
                 Text(

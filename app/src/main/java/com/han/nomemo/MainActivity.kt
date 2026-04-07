@@ -111,6 +111,7 @@ class MainActivity : BaseComposeActivity() {
         val archived: Int = 0
     )
 
+
     private lateinit var memoryStore: MemoryStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
@@ -593,9 +594,7 @@ class MainActivity : BaseComposeActivity() {
                                     fontWeight = FontWeight.Bold
                                 )
                             }
-                        }
 
-                        if (!selectionModeActive) {
                             Column(
                                 modifier = Modifier
                                     .padding(top = chipsTopPadding, bottom = chipBottomPadding)
@@ -751,7 +750,11 @@ class MainActivity : BaseComposeActivity() {
                                     state = listState,
                                     contentPadding = androidx.compose.foundation.layout.PaddingValues(
                                         top = listTopPadding,
-                                        bottom = if (selectedRecords.isNotEmpty()) 20.dp else spec.pageBottomPadding + 20.dp
+                                        bottom = if (selectedRecords.isNotEmpty()) {
+                                            spec.pageBottomPadding + if (spec.isNarrow) 18.dp else 22.dp
+                                        } else {
+                                            spec.pageBottomPadding + 20.dp
+                                        }
                                     ),
                                     verticalArrangement = Arrangement.spacedBy(recordSpacing),
                                     content = recordItems
@@ -809,7 +812,7 @@ class MainActivity : BaseComposeActivity() {
                                 .padding(
                                     start = spec.pageHorizontalPadding,
                                     end = spec.pageHorizontalPadding,
-                                    bottom = if (spec.isNarrow) 10.dp else 14.dp
+                                    bottom = if (spec.isNarrow) 18.dp else 22.dp
                                 )
                         )
                     }

@@ -796,7 +796,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         top = 10.dp
                                     )
                                 )
-                                if (!info.locationTitle.isNullOrBlank() || !info.addressDetail.isNullOrBlank()) {
+                                if (!info.locationText.isNullOrBlank()) {
                                     Text(
                                         text = "地点",
                                         color = palette.textPrimary,

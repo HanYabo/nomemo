@@ -285,6 +285,7 @@ class GroupActivity : BaseComposeActivity() {
         var groupListMoreAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
         var detailMoreAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
         var showEditAlbumDialog by remember { mutableStateOf(false) }
+        var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
         var editingAlbumId by remember { mutableStateOf<String?>(null) }
         var albumNameInput by remember { mutableStateOf("") }
         var albumDescriptionInput by remember { mutableStateOf("") }
@@ -703,6 +704,15 @@ class GroupActivity : BaseComposeActivity() {
                                         addExistingSearchQuery = ""
                                         showAddExistingSheet = true
                                     }
+                                ),
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_delete,
+                                    label = "删除分组",
+                                    destructive = true,
+                                    onClick = {
+                                        detailMoreExpanded = false
+                                        showDeleteAlbumConfirm = true
+                                    }
                                 )
                             )
                         )
@@ -799,6 +809,30 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                                 true
                             }
+                        )
+                    }
+
+                    if (showDeleteAlbumConfirm && openedAlbum != null) {
+                        NoMemoDeleteConfirmDialog(
+                            title = "删除分组",
+                            message = "删除后将移除这个分组，但不会删除其中的记忆。确定继续吗？",
+                            onConfirm = {
+                                val targetAlbum = openedAlbum
+                                val deleted = albumStore.deleteAlbum(targetAlbum.albumId)
+                                showDeleteAlbumConfirm = false
+                                if (deleted) {
+                                    albumList = albumStore.loadAlbums()
+                                    Toast.makeText(albumContext, "分组已删除", Toast.LENGTH_SHORT).show()
+                                    if (openedAsStandaloneDetail) {
+                                        onCloseAlbumDetail()
+                                    } else {
+                                        openedAlbumId = null
+                                    }
+                                } else {
+                                    Toast.makeText(albumContext, "删除失败，请重试", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onDismiss = { showDeleteAlbumConfirm = false }
                         )
                     }
 

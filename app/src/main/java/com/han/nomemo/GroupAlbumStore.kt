@@ -99,6 +99,19 @@ class GroupAlbumStore(context: Context) {
         return true
     }
 
+    fun deleteAlbum(albumId: String): Boolean {
+        val trimmedId = albumId.trim()
+        if (trimmedId.isEmpty()) {
+            return false
+        }
+        val albums = loadAlbums()
+        if (albums.none { it.albumId == trimmedId }) {
+            return false
+        }
+        saveAlbums(albums.filterNot { it.albumId == trimmedId })
+        return true
+    }
+
     fun pruneInvalidRecordIds(validRecordIds: Set<String>): Boolean {
         val valid = validRecordIds.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
         val albums = loadAlbums()

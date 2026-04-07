@@ -4,6 +4,7 @@ import java.util.Locale
 
 object MemoryDetailParser {
     private val stationNamePattern = Regex("""([\u4E00-\u9FA5A-Za-z0-9]{2,50}(?:驿站|自提点|快递柜|门店|食堂|窗口|前台))""")
+    private val genericStationTexts = setOf("联系驿站", "查看驿站", "驿站", "快递柜", "自提点")
     private val locationStopTokens = listOf(
         "状态",
         "取件码",
@@ -29,14 +30,15 @@ object MemoryDetailParser {
     )
 
     fun parseStructuredPickupInfo(record: MemoryRecord): StructuredPickupInfo? {
-        val source = listOfNotNull(
-            record.title,
-            record.summary,
-            record.analysis,
-            record.memory,
+        val sourceParts = listOfNotNull(
             record.sourceText,
-            record.note
-        ).joinToString("\n") { it.trim() }
+            record.note,
+            record.memory,
+            record.summary,
+            record.title,
+            record.analysis
+        ).map { it.trim() }.filter { it.isNotBlank() }
+        val source = sourceParts.joinToString("\n")
         if (source.isBlank()) {
             return null
         }
@@ -56,22 +58,28 @@ object MemoryDetailParser {
         val code = extractPickupCode(source, lines) ?: return null
         val trackingNumber = extractTrackingNumber(source)
         val company = extractCompanyName(source, isDelivery, trackingNumber)
-        val status = extractStatus(source)
-        val locationBlock = extractLocationBlock(source, lines, isDelivery)
-        val locationTitle = normalizeLocationTitle(locationBlock)
-        val addressDetail = extractAddressDetail(locationBlock, locationTitle)
-        val secondaryCode = extractSecondaryCode(source, lines)
 
-        return StructuredPickupInfo(
-            sectionTitle = if (isDelivery) "取件码" else "取餐码",
-            code = code,
-            company = company,
-            locationTitle = locationTitle,
-            addressDetail = addressDetail,
-            secondaryCodeLabel = secondaryCode?.first,
-            secondaryCodeValue = secondaryCode?.second ?: trackingNumber,
-            status = status
-        )
+        return if (isDelivery) {
+            StructuredPickupInfo(
+                sectionTitle = "取件码",
+                code = code,
+                primaryLabel = "快递公司",
+                primaryValue = fallbackStructuredValue(company),
+                secondaryLabel = "取件地址",
+                secondaryValue = fallbackStructuredValue(extractDeliveryAddress(sourceParts, source, lines)),
+                locationText = extractDeliveryAddress(sourceParts, source, lines)
+            )
+        } else {
+            StructuredPickupInfo(
+                sectionTitle = "取餐码",
+                code = code,
+                primaryLabel = "店铺",
+                primaryValue = fallbackStructuredValue(company),
+                secondaryLabel = "商品",
+                secondaryValue = fallbackStructuredValue(extractPickupItem(sourceParts, source, lines, company)),
+                locationText = extractPickupLocation(sourceParts, source, lines, company)
+            )
+        }
     }
 
     private fun containsAnyKeyword(source: String, vararg keywords: String): Boolean {
@@ -176,7 +184,7 @@ object MemoryDetailParser {
     private fun extractCompanyName(source: String, isDelivery: Boolean, trackingNumber: String?): String? {
         val labeled = extractLabeledValue(
             source,
-            if (isDelivery) listOf("快递公司", "配送公司", "承运公司", "物流公司") else listOf("商家", "门店", "店铺", "平台")
+            if (isDelivery) listOf("快递公司", "配送公司", "承运公司", "物流公司") else listOf("商家", "门店", "店铺")
         )
         if (!labeled.isNullOrBlank()) {
             return labeled
@@ -186,13 +194,207 @@ object MemoryDetailParser {
             if (isDelivery) {
                 listOf("圆通快递", "中通快递", "申通快递", "韵达快递", "顺丰速运", "京东快递", "极兔速递", "中国邮政", "菜鸟速递", "丰巢")
             } else {
-                listOf("美团外卖", "饿了么", "瑞幸咖啡", "奈雪的茶", "喜茶", "蜜雪冰城", "库迪咖啡", "肯德基", "麦当劳")
+                listOf("瑞幸咖啡", "奈雪的茶", "喜茶", "蜜雪冰城", "库迪咖啡", "肯德基", "麦当劳")
             }
         )
         if (!knownName.isNullOrBlank()) {
             return knownName
         }
         return if (isDelivery) inferCourierFromTrackingNumber(trackingNumber) else null
+    }
+
+    private fun fallbackStructuredValue(value: String?): String {
+        return value?.trim()?.takeIf { it.isNotEmpty() } ?: "未识别"
+    }
+
+    private fun extractDeliveryAddress(sourceParts: List<String>, source: String, lines: List<String>): String? {
+        val stationLike = extractStationLikeName(source)
+        val labeledCandidates = extractLabeledLocationCandidatesFromSources(
+            sourceParts,
+            listOf("取件地址", "取货地址", "收货地址", "地址", "地点", "驿站")
+        )
+            .mapNotNull(::normalizeAddressValue)
+            .sortedByDescending { scoreAddressCandidate(it, stationLike) }
+        val labeled = labeledCandidates.firstOrNull()
+
+        val addressLike = lines.asSequence()
+            .map(::cleanLocationCandidate)
+            .firstOrNull { candidate ->
+                candidate.isNotBlank() &&
+                    candidate != stationLike &&
+                    !isStatusLikeText(candidate) &&
+                    !isLikelyCodeOrLogisticsText(candidate) &&
+                    looksLikeLocationText(candidate)
+            }
+            ?.let(::normalizeAddressValue)
+
+        return when {
+            !stationLike.isNullOrBlank() && !labeled.isNullOrBlank() && labeled != stationLike -> mergeStationAndDetail(stationLike, labeled)
+            !stationLike.isNullOrBlank() && !addressLike.isNullOrBlank() && addressLike != stationLike -> mergeStationAndDetail(stationLike, addressLike)
+            !stationLike.isNullOrBlank() -> normalizeAddressValue(stationLike)
+            !labeled.isNullOrBlank() -> labeled
+            else -> addressLike
+        }
+    }
+
+    private fun mergeStationAndDetail(stationLike: String, detail: String): String {
+        val normalizedStation = normalizeAddressValue(stationLike).orEmpty()
+        val normalizedDetail = normalizeAddressValue(detail).orEmpty()
+        if (normalizedStation.isBlank()) return normalizedDetail
+        if (normalizedDetail.isBlank()) return normalizedStation
+        if (normalizedDetail.contains(normalizedStation)) {
+            return normalizedDetail
+        }
+        if (!looksLikeLocationText(normalizedDetail)) {
+            return normalizedStation
+        }
+        return "$normalizedStation $normalizedDetail".trim()
+    }
+
+    private fun extractPickupItem(sourceParts: List<String>, source: String, lines: List<String>, storeName: String?): String? {
+        extractLabeledValue(
+            source,
+            listOf("商品", "商品名", "餐品", "菜品", "套餐", "饮品", "饮料", "物品")
+        )?.let { return cleanStructuredFieldValue(it) }
+
+        sourceParts.forEach { part ->
+            val partSource = part.trim()
+            if (partSource.isBlank()) return@forEach
+            extractLabeledValue(
+                partSource,
+                listOf("商品", "商品名", "餐品", "菜品", "套餐", "饮品", "饮料", "物品")
+            )?.let { return cleanStructuredFieldValue(it) }
+        }
+
+        return lines.asSequence()
+            .map(::cleanStructuredFieldValue)
+            .firstOrNull { candidate ->
+                candidate.isNotBlank() &&
+                    candidate != storeName &&
+                    !isStatusLikeText(candidate) &&
+                    !isLikelyCodeOrLogisticsText(candidate) &&
+                    !looksLikeLocationText(candidate) &&
+                    !containsAnyKeyword(candidate, "取餐码", "取件码", "外卖", "美团", "饿了么", "快递", "驿站", "地址", "地点", "门店地址")
+            }
+    }
+
+    private fun extractPickupLocation(sourceParts: List<String>, source: String, lines: List<String>, storeName: String?): String? {
+        val stationLike = extractStationLikeName(source)
+        val labeledCandidates = extractLabeledLocationCandidatesFromSources(
+            sourceParts,
+            listOf("取餐地址", "门店地址", "地址", "地点", "取餐点", "门店", "窗口", "食堂")
+        )
+            .mapNotNull(::normalizeAddressValue)
+            .sortedByDescending { scoreAddressCandidate(it, stationLike ?: storeName) }
+        val labeled = labeledCandidates.firstOrNull()
+
+        val addressLike = lines.asSequence()
+            .map(::cleanLocationCandidate)
+            .firstOrNull { candidate ->
+                candidate.isNotBlank() &&
+                    !isStatusLikeText(candidate) &&
+                    !isLikelyCodeOrLogisticsText(candidate) &&
+                    looksLikeLocationText(candidate) &&
+                    !containsAnyKeyword(candidate, "取餐码", "外卖", "商品", "餐品")
+            }
+            ?.let(::normalizeAddressValue)
+
+        val storeAsLocation = storeName
+            ?.takeIf { looksLikeLocationText(it) || containsAnyKeyword(it, "门店", "窗口", "食堂", "校区") }
+            ?.let(::normalizeAddressValue)
+
+        return when {
+            !stationLike.isNullOrBlank() && !labeled.isNullOrBlank() && labeled != stationLike -> mergeStationAndDetail(stationLike, labeled)
+            !stationLike.isNullOrBlank() && !addressLike.isNullOrBlank() && addressLike != stationLike -> mergeStationAndDetail(stationLike, addressLike)
+            !labeled.isNullOrBlank() -> labeled
+            !addressLike.isNullOrBlank() -> addressLike
+            !stationLike.isNullOrBlank() -> normalizeAddressValue(stationLike)
+            else -> storeAsLocation
+        }
+    }
+
+    private fun extractLabeledLocationValueFromSources(sourceParts: List<String>, labels: List<String>): String? {
+        sourceParts.forEach { source ->
+            val lines = source.lines()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            extractLabeledLocationValue(lines, labels)?.let { return it }
+        }
+        return null
+    }
+
+    private fun extractLabeledLocationCandidatesFromSources(sourceParts: List<String>, labels: List<String>): List<String> {
+        val results = mutableListOf<String>()
+        sourceParts.forEach { source ->
+            val lines = source.lines()
+                .map { it.trim() }
+                .filter { it.isNotBlank() }
+            labels.forEach { label ->
+                lines.forEach { rawLine ->
+                    extractLocationValueFromLine(rawLine, label)?.let { value ->
+                        val cleaned = cleanLocationCandidate(trimAfterStopTokens(value, locationStopTokens))
+                        if (cleaned.isNotBlank() && !isLikelyCodeOrLogisticsText(cleaned)) {
+                            results += cleaned
+                        }
+                    }
+                }
+            }
+        }
+        return results.distinct()
+    }
+
+    private fun normalizeAddressValue(value: String?): String? {
+        if (value.isNullOrBlank()) {
+            return null
+        }
+        val cleaned = cleanLocationCandidate(
+            simplifyAddressText(trimAfterStopTokens(value, locationStopTokens))
+        )
+        return cleaned.takeIf {
+            it.isNotBlank() &&
+                !isStatusLikeText(it) &&
+                !isLikelyCodeOrLogisticsText(it) &&
+                (stationNamePattern.containsMatchIn(it) || looksLikeLocationText(it))
+        }
+    }
+
+    private fun simplifyAddressText(value: String): String {
+        val instructionTokens = listOf("请于", "请在", "前往", "出示", "凭取件码", "凭码", "后前往", "后到")
+        var result = value
+            .replace('\n', ' ')
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        instructionTokens.forEach { token ->
+            val index = result.indexOf(token)
+            if (index > 0) {
+                result = result.substring(0, index).trim()
+            }
+        }
+        listOf("。", "；", ";").forEach { token ->
+            val index = result.indexOf(token)
+            if (index > 0) {
+                result = result.substring(0, index).trim()
+            }
+        }
+        return result.trim('，', '。', '；', ';', ' ')
+    }
+
+    private fun scoreAddressCandidate(candidate: String, stationLike: String?): Int {
+        var score = 0
+        if (!stationLike.isNullOrBlank() && candidate.contains(stationLike)) score += 10
+        if (stationNamePattern.containsMatchIn(candidate)) score += 8
+        if (containsAnyKeyword(candidate, "校区", "驿站", "快递柜", "自提点", "门店")) score += 6
+        if (looksLikeLocationText(candidate)) score += 4
+        if (containsAnyKeyword(candidate, "请于", "请在", "前往", "出示", "凭码", "今日", "今天")) score -= 8
+        if (candidate.length > 28) score -= 3
+        return score
+    }
+
+    private fun cleanStructuredFieldValue(value: String): String {
+        return value
+            .substringBefore('\n')
+            .trim()
+            .trim('：', ':', '，', '。', ' ')
     }
 
     private fun inferCourierFromTrackingNumber(trackingNumber: String?): String? {
@@ -286,6 +488,15 @@ object MemoryDetailParser {
                 return line.substring(index + token.length).trim()
             }
         }
+        val plainIndex = line.indexOf(label)
+        if (plainIndex >= 0) {
+            val value = line.substring(plainIndex + label.length)
+                .trimStart('：', ':', '，', ',', ' ', '　')
+                .trim()
+            if (value.isNotBlank()) {
+                return value
+            }
+        }
         if (line.startsWith(label)) {
             return line.removePrefix(label).trimStart('：', ':', ' ', '　')
         }
@@ -311,10 +522,16 @@ object MemoryDetailParser {
     }
 
     private fun extractStationLikeName(source: String): String? {
-        return stationNamePattern.find(source)
-            ?.groupValues
-            ?.getOrNull(1)
-            ?.let(::cleanLocationCandidate)
+        return stationNamePattern.findAll(source)
+            .mapNotNull { it.groupValues.getOrNull(1) }
+            .map(::cleanLocationCandidate)
+            .filter { candidate ->
+                candidate.isNotBlank() &&
+                    candidate !in genericStationTexts &&
+                    !candidate.startsWith("联系") &&
+                    !candidate.startsWith("查看")
+            }
+            .maxByOrNull { it.length }
     }
 
     private fun normalizeLocationTitle(rawLocation: String?): String? {

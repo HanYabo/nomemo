@@ -8,6 +8,11 @@
     <color name="glass_stroke">#1F000000</color>
     <color name="glass_stroke_soft">#14000000</color>
     <color name="glass_shadow">#24000000</color>
+    <color name="dock_surface">#F4F7FD</color>
+    <color name="dock_stroke">#9ED0D9E8</color>
+    <color name="dock_indicator">#7B9BFF</color>
+    <color name="dock_glow">#BFD4FF</color>
+    <color name="dock_fab_surface">#ECF1F8</color>
     <color name="accent_blue">#1A1A1A</color>
     <color name="accent_blue_dark">#000000</color>
     <color name="on_accent">#FFFFFF</color>

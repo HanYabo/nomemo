@@ -187,6 +187,11 @@ data class NoMemoPalette(
     val glassFill: Color,
     val glassFillSoft: Color,
     val glassStroke: Color,
+    val dockSurface: Color,
+    val dockStroke: Color,
+    val dockIndicator: Color,
+    val dockGlow: Color,
+    val dockFabSurface: Color,
     val accent: Color,
     val onAccent: Color,
     val textPrimary: Color,
@@ -374,6 +379,11 @@ private fun rememberNoMemoPaletteValue(): NoMemoPalette {
         glassFill = colorResource(id = R.color.glass_fill),
         glassFillSoft = colorResource(id = R.color.glass_fill_soft),
         glassStroke = colorResource(id = R.color.glass_stroke),
+        dockSurface = colorResource(id = R.color.dock_surface),
+        dockStroke = colorResource(id = R.color.dock_stroke),
+        dockIndicator = colorResource(id = R.color.dock_indicator),
+        dockGlow = colorResource(id = R.color.dock_glow),
+        dockFabSurface = colorResource(id = R.color.dock_fab_surface),
         accent = colorResource(id = R.color.accent_blue),
         onAccent = colorResource(id = R.color.on_accent),
         textPrimary = colorResource(id = R.color.text_primary),
@@ -1098,66 +1108,75 @@ fun NoMemoBottomDock(
     showEnhancedOutline: Boolean = false
 ) {
     val isDark = isSystemInDarkTheme()
+    val palette = rememberNoMemoPalette()
     val dockShape = RoundedCornerShape(999.dp)
     val dockHeight = if (spec.isNarrow) 64.dp else 68.dp
     val dockBlurTint = if (isDark) {
-        Color(0xFF040406).copy(alpha = 0.78f)
+        palette.dockSurface.copy(alpha = 0.72f)
     } else {
-        Color(0xFFF4F5F8).copy(alpha = 0.44f)
+        Color.White.copy(alpha = 0.24f)
     }
     val dockContainerBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF040406).copy(alpha = 0.78f),
-                Color(0xFF040406).copy(alpha = 0.78f),
-                Color(0xFF040406).copy(alpha = 0.78f)
+                palette.dockSurface.copy(alpha = 0.96f),
+                Color(0xFF101520).copy(alpha = 0.98f),
+                Color(0xFF0D121A).copy(alpha = 0.96f)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.74f),
-                Color(0xFFF6F7FA).copy(alpha = 0.66f),
-                Color(0xFFECEFF5).copy(alpha = 0.70f)
+                Color.White.copy(alpha = 0.88f),
+                palette.dockSurface.copy(alpha = 0.84f),
+                Color(0xFFEAF0F8).copy(alpha = 0.80f)
             )
         )
     }
     val dockStroke = if (isDark) {
-        Color.White.copy(alpha = 0.33f)
+        if (showEnhancedOutline) {
+            palette.dockStroke.copy(alpha = 0.86f)
+        } else {
+            palette.dockStroke.copy(alpha = 0.34f)
+        }
     } else {
-        Color(0xFFB0B7C4).copy(alpha = 0.56f)
+        palette.dockStroke.copy(alpha = 0.58f)
     }
     val dockInnerStroke = if (isDark) {
-        Color.White.copy(alpha = 0.10f)
+        if (showEnhancedOutline) {
+            Color.White.copy(alpha = 0.06f)
+        } else {
+            Color.White.copy(alpha = 0.028f)
+        }
     } else {
-        Color.White.copy(alpha = 0.98f)
+        Color.White.copy(alpha = 0.92f)
     }
     val dockShadow = if (isDark) {
-        Color.Black.copy(alpha = 0.40f)
+        Color.Black.copy(alpha = 0.28f)
     } else {
-        Color(0xFF2B2E36).copy(alpha = 0.16f)
+        Color(0xFF263242).copy(alpha = 0.10f)
     }
     val dockFrostMistBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
                 Color.White.copy(alpha = 0.05f),
                 Color.White.copy(alpha = 0.02f),
-                Color.Black.copy(alpha = 0.08f)
+                Color.Black.copy(alpha = 0.10f)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color.White.copy(alpha = 0.18f),
+                Color.White.copy(alpha = 0.22f),
                 Color.White.copy(alpha = 0.10f),
-                Color.Black.copy(alpha = 0.03f)
+                Color(0xFFB9C7DA).copy(alpha = 0.04f)
             )
         )
     }
     val lightGlassRefractionBrush = Brush.linearGradient(
         colors = listOf(
-            Color.White.copy(alpha = 0.28f),
-            Color(0xFFE7E9EF).copy(alpha = 0.14f),
+            Color.White.copy(alpha = 0.22f),
+            Color(0xFFDCE6F5).copy(alpha = 0.10f),
             Color.Transparent
         ),
         start = Offset(0f, 0f),
@@ -1165,8 +1184,8 @@ fun NoMemoBottomDock(
     )
     val lightGlassTopSheenBrush = Brush.verticalGradient(
         listOf(
-            Color.White.copy(alpha = 0.38f),
-            Color.White.copy(alpha = 0.14f),
+            Color.White.copy(alpha = 0.34f),
+            Color.White.copy(alpha = 0.12f),
             Color.Transparent
         )
     )
@@ -1174,26 +1193,26 @@ fun NoMemoBottomDock(
         listOf(
             Color.Transparent,
             Color.Transparent,
-            Color(0xFF959AA4).copy(alpha = 0.10f)
+            Color(0xFFB2C0D4).copy(alpha = 0.06f)
         )
     )
     val lightGlassEdgeVignette = Brush.horizontalGradient(
         listOf(
-            Color(0xFFB3B9C4).copy(alpha = 0.08f),
+            Color(0xFFD0D9E8).copy(alpha = 0.07f),
             Color.Transparent,
-            Color(0xFFB3B9C4).copy(alpha = 0.08f)
+            Color(0xFFD0D9E8).copy(alpha = 0.07f)
         )
     )
     val overlayBackdropTint = if (isDark) {
-        Color(0xFF08090D).copy(alpha = 0.28f)
+        Color(0xFF0A0E15).copy(alpha = 0.20f)
     } else {
-        Color(0xFFE4E7EE).copy(alpha = 0.18f)
+        Color(0xFFE6EDF7).copy(alpha = 0.10f)
     }
     val enhancedOutlineColor = if (showEnhancedOutline) {
         if (isDark) {
-            Color.White.copy(alpha = 0.16f)
+            Color.White.copy(alpha = 0.10f)
         } else {
-            Color(0xFF91A1B8).copy(alpha = 0.32f)
+            Color(0xFFAEBED6).copy(alpha = 0.24f)
         }
     } else {
         Color.Transparent
@@ -1209,49 +1228,47 @@ fun NoMemoBottomDock(
         label = "dockGlowX"
     )
     val addButtonShape = CircleShape
-    val addButtonSize = dockHeight
+    val addButtonSize = dockHeight - 2.dp
     val addButtonBrush = if (isDark) {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF252B36),
-                Color(0xFF171C25),
-                Color(0xFF121720)
+                Color(0xFF1F2530),
+                palette.dockFabSurface,
+                Color(0xFF131821)
             )
         )
     } else {
         Brush.verticalGradient(
             listOf(
-                Color(0xFF323C4A),
-                Color(0xFF242C38),
-                Color(0xFF1C232E)
+                Color.White.copy(alpha = 0.99f),
+                palette.dockFabSurface.copy(alpha = 0.98f),
+                Color(0xFFE2EAF6).copy(alpha = 0.96f)
             )
         )
     }
-    val addButtonIconTint = Color.White.copy(alpha = 0.96f)
-    val addButtonShadow = if (isDark) {
-        Color.Black.copy(alpha = 0.30f)
+    val addButtonIconTint = if (isDark) {
+        Color.White.copy(alpha = 0.96f)
     } else {
-        Color(0xFF0E1620).copy(alpha = 0.14f)
+        Color(0xFF253244).copy(alpha = 0.94f)
     }
-    val haloTransition = rememberInfiniteTransition(label = "dockAddHalo")
-    val haloScale by haloTransition.animateFloat(
-        initialValue = 0.92f,
-        targetValue = 1.16f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "dockAddHaloScale"
-    )
-    val haloAlpha by haloTransition.animateFloat(
-        initialValue = 0.24f,
-        targetValue = 0f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1800, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "dockAddHaloAlpha"
-    )
+    val addButtonShadow = if (isDark) {
+        if (showEnhancedOutline) {
+            Color.Black.copy(alpha = 0.24f)
+        } else {
+            Color.Black.copy(alpha = 0.18f)
+        }
+    } else {
+        Color(0xFF223147).copy(alpha = 0.10f)
+    }
+    val addButtonStroke = if (isDark) {
+        if (showEnhancedOutline) {
+            palette.dockStroke.copy(alpha = 0.56f)
+        } else {
+            palette.dockStroke.copy(alpha = 0.24f)
+        }
+    } else {
+        palette.dockStroke.copy(alpha = 0.48f)
+    }
     val haptic = LocalHapticFeedback.current
     val navTrackWidthFraction = if (spec.isNarrow) 0.90f else 0.86f
     val navTrackHorizontalPadding = if (spec.isNarrow) 4.dp else 6.dp
@@ -1396,7 +1413,8 @@ fun NoMemoBottomDock(
             DockGlowLayer(
                 animatedX = selectedGlowX,
                 isDark = isDark,
-                dockShape = dockShape
+                dockShape = dockShape,
+                glowColor = palette.dockGlow
             )
             if (showEnhancedOutline) {
                 Box(
@@ -1467,7 +1485,7 @@ fun NoMemoBottomDock(
                         val endX = startX + indicatorWidthPx
                         val y = size.height - 1.dp.toPx()
                         drawLine(
-                            color = Color(0xFFFF4CF5),
+                            color = palette.dockIndicator,
                             start = Offset(startX, y),
                             end = Offset(endX, y),
                             strokeWidth = 2.dp.toPx(),
@@ -1497,19 +1515,6 @@ fun NoMemoBottomDock(
                     .fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                if (animateFabHalo) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .graphicsLayer {
-                                scaleX = haloScale
-                                scaleY = haloScale
-                                alpha = haloAlpha
-                            }
-                            .clip(CircleShape)
-                            .background(Color(0xFFBE79FF))
-                    )
-                }
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1517,7 +1522,7 @@ fun NoMemoBottomDock(
                         .background(addButtonBrush)
                         .border(
                             width = 1.dp,
-                            color = if (isDark) Color.White.copy(alpha = 0.34f) else Color.White.copy(alpha = 0.30f),
+                            color = addButtonStroke,
                             shape = addButtonShape
                         )
                 )
@@ -1536,11 +1541,11 @@ fun NoMemoBottomDock(
                         )
                 )
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_nm_add),
+                    painter = painterResource(id = R.drawable.ic_nm_compose),
                     contentDescription = stringResource(R.string.save_record_desc),
                     tint = addButtonIconTint,
                     modifier = Modifier
-                        .size(if (spec.isNarrow) 18.dp else 20.dp)
+                        .size(if (spec.isNarrow) 20.dp else 22.dp)
                 )
             }
         }
@@ -1557,13 +1562,13 @@ private fun RowScope.DockNavItem(
     isDark: Boolean,
     isPrimaryCenter: Boolean
 ) {
-    val selectedIconColor = if (isDark) Color(0xFFF3DFFF) else Color(0xFF1F2836)
-    val selectedTextColor = if (isDark) Color(0xFFF0D7FF) else Color(0xFF1F2836)
-    val baseColor = if (isDark) Color.White else Color(0xFF1D2736)
+    val selectedIconColor = if (isDark) Color(0xFFF5F8FF) else Color(0xFF243142)
+    val selectedTextColor = if (isDark) Color(0xFFE8EEFF) else Color(0xFF243142)
+    val baseColor = if (isDark) Color(0xFFE6ECF8) else Color(0xFF536275)
     val baseAlpha = if (isDark) {
-        if (isPrimaryCenter) 0.62f else 0.48f
+        if (isPrimaryCenter) 0.70f else 0.56f
     } else {
-        if (isPrimaryCenter) 0.78f else 0.62f
+        if (isPrimaryCenter) 0.82f else 0.66f
     }
     val alpha by animateFloatAsState(
         targetValue = if (selected) 1f else baseAlpha,
@@ -1571,12 +1576,12 @@ private fun RowScope.DockNavItem(
         label = "dockItemAlpha"
     )
     val iconScale by animateFloatAsState(
-        targetValue = if (selected) 1.05f else 1f,
+        targetValue = if (selected) 1.04f else 1f,
         animationSpec = tween(durationMillis = 230, easing = DockEaseOut),
         label = "dockIconScale"
     )
     val lift by animateDpAsState(
-        targetValue = if (selected) (-2).dp else 0.dp,
+        targetValue = if (selected) (-1.5).dp else 0.dp,
         animationSpec = tween(durationMillis = 230, easing = DockEaseOut),
         label = "dockLift"
     )
@@ -1641,11 +1646,12 @@ private fun RowScope.DockNavItem(
 private fun DockGlowLayer(
     animatedX: Float,
     isDark: Boolean,
-    dockShape: RoundedCornerShape
+    dockShape: RoundedCornerShape,
+    glowColor: Color
 ) {
-    val whiteAlpha = if (isDark) 0.34f else 0.30f
-    val purpleCore = if (isDark) Color(0xFFD16CFF).copy(alpha = 0.22f) else Color(0xFF9B5CFF).copy(alpha = 0.24f)
-    val purpleMist = if (isDark) Color(0xFF8E2BFF).copy(alpha = 0.28f) else Color(0xFF7D3CFF).copy(alpha = 0.24f)
+    val whiteGlow = if (isDark) Color.White.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.24f)
+    val coolGlow = if (isDark) glowColor.copy(alpha = 0.16f) else glowColor.copy(alpha = 0.14f)
+    val edgeShade = if (isDark) Color.Black.copy(alpha = 0.26f) else Color.Transparent
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -1653,13 +1659,12 @@ private fun DockGlowLayer(
             .drawBehind {
                 val centerX = size.width * animatedX
                 val centerY = size.height * 0.52f
-                val radius = size.minDimension * 0.72f
+                val radius = size.minDimension * if (isDark) 0.56f else 0.50f
 
                 drawCircle(
                     brush = Brush.radialGradient(
                         colors = listOf(
-                            Color.White.copy(alpha = whiteAlpha),
-                            Color(0xFFE8C9FF).copy(alpha = if (isDark) 0.12f else 0.16f),
+                            whiteGlow,
                             Color.Transparent
                         ),
                         center = Offset(centerX, centerY),
@@ -1670,35 +1675,26 @@ private fun DockGlowLayer(
                 )
                 drawCircle(
                     brush = Brush.radialGradient(
-                        colors = listOf(purpleCore, Color.Transparent),
-                        center = Offset(centerX - size.minDimension * 0.40f, centerY - size.minDimension * 0.14f),
-                        radius = size.minDimension * 0.74f
+                        colors = listOf(coolGlow, Color.Transparent),
+                        center = Offset(centerX, centerY + size.minDimension * 0.02f),
+                        radius = size.minDimension * if (isDark) 0.64f else 0.58f
                     ),
-                    radius = size.minDimension * 0.74f,
-                    center = Offset(centerX - size.minDimension * 0.40f, centerY - size.minDimension * 0.14f)
-                )
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(purpleMist, Color.Transparent),
-                        center = Offset(centerX + size.minDimension * 0.46f, centerY + size.minDimension * 0.10f),
-                        radius = size.minDimension * 0.76f
-                    ),
-                    radius = size.minDimension * 0.76f,
-                    center = Offset(centerX + size.minDimension * 0.46f, centerY + size.minDimension * 0.10f)
+                    radius = size.minDimension * if (isDark) 0.64f else 0.58f,
+                    center = Offset(centerX, centerY + size.minDimension * 0.02f)
                 )
                 drawRect(
                     brush = Brush.horizontalGradient(
                         colors = listOf(
-                            if (isDark) Color.Black.copy(alpha = 0.44f) else Color.Transparent,
+                            edgeShade,
                             Color.Transparent,
-                            if (isDark) Color.Black.copy(alpha = 0.44f) else Color.Transparent
+                            edgeShade
                         ),
                         startX = 0f,
                         endX = size.width
                     )
                 )
             }
-            .blur(if (isDark) 30.dp else 24.dp)
+            .blur(if (isDark) 22.dp else 18.dp)
     )
 }
 
