@@ -12,7 +12,6 @@ import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -325,10 +324,11 @@ class MainActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         var selectedRecordIds by remember { mutableStateOf(setOf<String>()) }
+        var selectionModeActive by remember { mutableStateOf(false) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var moreMenuExpanded by remember { mutableStateOf(false) }
+        var moreMenuAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
         var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
-        var swipeDeleteTarget by remember { mutableStateOf<MemoryRecord?>(null) }
         var selectedSecondaryByPrimary by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
         var expandedPrimaryFilter by remember { mutableStateOf<String?>(null) }
 
@@ -349,7 +349,7 @@ class MainActivity : BaseComposeActivity() {
             isPrimaryCategoryFilter(selectedFilter) &&
                 expandedPrimaryFilter == selectedFilter &&
                 secondaryCategories.isNotEmpty()
-        val showSecondaryCategoryChips = selectedRecords.isEmpty() && useSecondaryFilter
+        val showSecondaryCategoryChips = !selectionModeActive && useSecondaryFilter
         val categoryCountMap = remember(records) {
             records.groupingBy { it.categoryCode }.eachCount()
         }
@@ -392,10 +392,10 @@ class MainActivity : BaseComposeActivity() {
                 matchesPrimaryFilter && matchesSecondaryFilter
             }
         }
-        val headerCollapseDistancePx = with(density) { 84.dp.toPx() }
-        val headerCollapseTarget by remember(selectedRecords.isEmpty(), listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        val headerCollapseDistancePx = with(density) { 68.dp.toPx() }
+        val headerCollapseTarget by remember(selectionModeActive, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
             derivedStateOf {
-                if (selectedRecords.isNotEmpty()) {
+                if (selectionModeActive) {
                     0f
                 } else {
                     when {
@@ -408,8 +408,8 @@ class MainActivity : BaseComposeActivity() {
         }
         val headerCollapseProgress by animateFloatAsState(
             targetValue = headerCollapseTarget,
-            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-            label = "memoryHeaderCollapse"
+            animationSpec = tween(durationMillis = 110, easing = FastOutSlowInEasing),
+            label = "memoryHeaderCollapseProgress"
         )
         val expandedTitleAlpha = (1f - headerCollapseProgress).coerceIn(0f, 1f)
         val collapsedTitleAlpha = headerCollapseProgress.coerceIn(0f, 1f)
@@ -418,17 +418,11 @@ class MainActivity : BaseComposeActivity() {
         val chipBottomPadding = 12.dp
         val listTopPadding = (recordSpacing - chipBottomPadding).coerceAtLeast(0.dp)
         val expandedTitleMaxHeight = if (adaptive.isNarrow) 44.dp else 52.dp
-        val expandedTitleHeight by animateDpAsState(
-            targetValue = lerp(expandedTitleMaxHeight, 0.dp, headerCollapseProgress),
-            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-            label = "memoryExpandedTitleHeight"
-        )
-        val chipsTopPadding by animateDpAsState(
-            targetValue = lerp(14.dp, 13.dp, headerCollapseProgress),
-            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-            label = "memoryChipsTopPadding"
-        )
+        val expandedTitleHeight = lerp(expandedTitleMaxHeight, 0.dp, headerCollapseProgress)
+        val chipsTopPadding = lerp(12.dp, 11.dp, headerCollapseProgress)
         val showCenteredEmptyState = hasLoadedRecords && filteredRecords.isEmpty()
+        val allVisibleRecordsSelected = filteredRecords.isNotEmpty() &&
+            filteredRecords.all { selectedRecordIds.contains(it.recordId) }
         val recordItems: LazyListScope.() -> Unit = {
             items(
                 items = filteredRecords,
@@ -438,15 +432,13 @@ class MainActivity : BaseComposeActivity() {
                 }
             ) { record ->
                 val selected = selectedRecordIds.contains(record.recordId)
-                Box(modifier = Modifier.fillMaxWidth()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                ) {
                     RecordCard(
                         record = record,
                         selected = false,
-                        onSwipeDeleteRequest = if (selectedRecordIds.isEmpty()) {
-                            { swipeDeleteTarget = record }
-                        } else {
-                            null
-                        },
                         palette = palette,
                         adaptive = adaptive,
                         allowImageLoading = true,
@@ -454,10 +446,10 @@ class MainActivity : BaseComposeActivity() {
                         darkCardBackgroundOverride = Color(0xFF1A1A1C),
                         onClick = {
                             when {
-                                selected -> {
+                                selectionModeActive && selected -> {
                                     selectedRecordIds = selectedRecordIds - record.recordId
                                 }
-                                selectedRecordIds.isNotEmpty() -> {
+                                selectionModeActive -> {
                                     selectedRecordIds = selectedRecordIds + record.recordId
                                 }
                                 else -> {
@@ -467,6 +459,7 @@ class MainActivity : BaseComposeActivity() {
                         },
                         onLongPress = {
                             moreMenuExpanded = false
+                            selectionModeActive = true
                             selectedRecordIds = if (selected) {
                                 selectedRecordIds - record.recordId
                             } else {
@@ -512,7 +505,8 @@ class MainActivity : BaseComposeActivity() {
                 pendingScrollToTopAfterAdd = false
             }
         }
-        BackHandler(enabled = selectedRecordIds.isNotEmpty()) {
+        BackHandler(enabled = selectionModeActive) {
+            selectionModeActive = false
             selectedRecordIds = emptySet()
             showDeleteConfirm = false
             resetDoubleBackExitState()
@@ -531,7 +525,7 @@ class MainActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
-                        if (selectedRecords.isNotEmpty()) {
+                        if (selectionModeActive) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -541,6 +535,7 @@ class MainActivity : BaseComposeActivity() {
                                     iconRes = R.drawable.ic_sheet_close,
                                     contentDescription = stringResource(R.string.cancel),
                                     onClick = {
+                                        selectionModeActive = false
                                         selectedRecordIds = emptySet()
                                         showDeleteConfirm = false
                                     },
@@ -555,10 +550,22 @@ class MainActivity : BaseComposeActivity() {
                                     modifier = Modifier.align(Alignment.Center)
                                 )
                                 GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_sheet_check,
-                                    contentDescription = stringResource(R.string.action_select_all),
+                                    iconRes = if (allVisibleRecordsSelected) {
+                                        R.drawable.ic_sheet_deselect_all
+                                    } else {
+                                        R.drawable.ic_sheet_select_all
+                                    },
+                                    contentDescription = if (allVisibleRecordsSelected) {
+                                        "取消全选"
+                                    } else {
+                                        "全选"
+                                    },
                                     onClick = {
-                                        selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
+                                        selectedRecordIds = if (allVisibleRecordsSelected) {
+                                            emptySet()
+                                        } else {
+                                            filteredRecords.map { it.recordId }.toSet()
+                                        }
                                         showDeleteConfirm = false
                                     },
                                     modifier = Modifier.align(Alignment.CenterEnd),
@@ -576,6 +583,7 @@ class MainActivity : BaseComposeActivity() {
                                     spec = spec,
                                     onSearchClick = onOpenSearch,
                                     onMoreClick = { moreMenuExpanded = !moreMenuExpanded },
+                                    onMoreButtonBoundsChanged = { moreMenuAnchorBounds = it },
                                     modifier = Modifier.align(Alignment.TopStart)
                                 )
                                 Text(
@@ -610,7 +618,7 @@ class MainActivity : BaseComposeActivity() {
                             }
                         }
 
-                        if (selectedRecords.isEmpty()) {
+                        if (!selectionModeActive) {
                             Column(
                                 modifier = Modifier
                                     .padding(top = chipsTopPadding, bottom = chipBottomPadding)
@@ -790,7 +798,7 @@ class MainActivity : BaseComposeActivity() {
                         )
                     }
 
-                    if (selectedRecords.isEmpty()) {
+                    if (!selectionModeActive) {
                         NoMemoBottomDock(
                             selectedTab = NoMemoDockTab.MEMORY,
                             spec = spec,
@@ -809,11 +817,12 @@ class MainActivity : BaseComposeActivity() {
                             animateFabHalo = !listState.isScrollInProgress,
                             showEnhancedOutline = dockHasUnderContent
                         )
-                    } else {
+                    } else if (selectedRecords.isNotEmpty()) {
                         NoMemoSelectionActionDock(
                             selectedRecords = selectedRecords,
                             onArchiveClick = {
                                 onArchiveRecords(selectedRecords)
+                                selectionModeActive = false
                                 selectedRecordIds = emptySet()
                             },
                             onDeleteClick = { showDeleteConfirm = true },
@@ -834,39 +843,29 @@ class MainActivity : BaseComposeActivity() {
                             message = getString(R.string.delete_selected_batch_message, selectedRecordIds.size),
                             onConfirm = {
                                 onDeleteRecords(selectedRecordIds)
+                                selectionModeActive = false
                                 selectedRecordIds = emptySet()
                                 showDeleteConfirm = false
                             },
                             onDismiss = { showDeleteConfirm = false }
                         )
                     }
-                    swipeDeleteTarget?.let { targetRecord ->
-                        NoMemoDeleteConfirmDialog(
-                            title = stringResource(R.string.delete_selected_title),
-                            message = stringResource(R.string.delete_selected_message),
-                            onConfirm = {
-                                onDeleteRecords(setOf(targetRecord.recordId))
-                                swipeDeleteTarget = null
-                            },
-                            onDismiss = { swipeDeleteTarget = null }
-                        )
-                    }
-
                     NoMemoMenuPopup(
                         expanded = moreMenuExpanded,
                         onDismissRequest = { moreMenuExpanded = false },
-                        modifier = Modifier
-                            .statusBarsPadding()
-                            .padding(
-                                top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp) + spec.topActionButtonSize + 8.dp,
-                                end = spec.pageHorizontalPadding
-                            )
-                            .offset(x = (-6).dp)
+                        anchorBounds = moreMenuAnchorBounds
                     ) {
                         NoMemoMoreMenuPanel(
                             onSelectAll = {
-                                selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
                                 moreMenuExpanded = false
+                                showDeleteConfirm = false
+                                if (filteredRecords.isNotEmpty()) {
+                                    selectionModeActive = true
+                                    selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
+                                } else {
+                                    selectionModeActive = false
+                                    selectedRecordIds = emptySet()
+                                }
                             },
                             onOpenSettings = {
                                 moreMenuExpanded = false

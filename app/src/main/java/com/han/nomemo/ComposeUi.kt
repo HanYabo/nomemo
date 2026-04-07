@@ -46,12 +46,21 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.AssignmentTurnedIn
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.ConfirmationNumber
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.LocalShipping
+import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -76,16 +85,21 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -96,17 +110,21 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.graphics.TransformOrigin
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 private val DockEaseOut = androidx.compose.animation.core.CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
 
@@ -493,7 +511,8 @@ fun GlassIconCircleButton(
     contentDescription: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    size: Dp = 56.dp
+    size: Dp = 56.dp,
+    onBoundsChanged: ((IntRect) -> Unit)? = null
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
@@ -501,6 +520,17 @@ fun GlassIconCircleButton(
         onClick = onClick,
         modifier = modifier
             .size(size)
+            .onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                onBoundsChanged?.invoke(
+                    IntRect(
+                        left = bounds.left.roundToInt(),
+                        top = bounds.top.roundToInt(),
+                        right = bounds.right.roundToInt(),
+                        bottom = bounds.bottom.roundToInt()
+                    )
+                )
+            }
     ) {
         Box(
             modifier = Modifier
@@ -525,7 +555,8 @@ fun NoMemoTopActionButtons(
     spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
     modifier: Modifier = Modifier,
     onSearchClick: () -> Unit,
-    onMoreClick: () -> Unit
+    onMoreClick: () -> Unit,
+    onMoreButtonBoundsChanged: ((IntRect) -> Unit)? = null
 ) {
     Row(
         modifier = modifier
@@ -547,7 +578,8 @@ fun NoMemoTopActionButtons(
             iconRes = R.drawable.ic_nm_more,
             contentDescription = stringResource(R.string.action_more),
             onClick = onMoreClick,
-            size = spec.topActionButtonSize
+            size = spec.topActionButtonSize,
+            onBoundsChanged = onMoreButtonBoundsChanged
         )
     }
 }
@@ -801,7 +833,7 @@ fun NoMemoActionMenuPanel(
     }
     Card(
         modifier = modifier
-            .width(176.dp)
+            .fillMaxWidth()
             .shadow(
                 elevation = if (isDark) 10.dp else 12.dp,
                 shape = RoundedCornerShape(22.dp),
@@ -829,15 +861,50 @@ fun NoMemoActionMenuPanel(
 }
 
 @Composable
+fun NoMemoMenuAnimatedLayer(
+    progress: Float,
+    menuWidth: Dp = 164.dp,
+    modifier: Modifier = Modifier,
+    content: @Composable () -> Unit
+) {
+    val density = LocalDensity.current
+    Box(
+        modifier = modifier
+            .width(menuWidth)
+            .zIndex(20f)
+            .graphicsLayer {
+                alpha = progress
+                scaleX = 0.94f + (0.06f * progress)
+                scaleY = 0.94f + (0.06f * progress)
+                translationY = with(density) { (-6).dp.toPx() * (1f - progress) }
+                transformOrigin = TransformOrigin(1f, 0f)
+                clip = false
+            }
+    ) {
+        content()
+    }
+}
+
+@Composable
 fun NoMemoMenuPopup(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
-    modifier: Modifier = Modifier,
+    anchorBounds: IntRect?,
+    anchorBoundsInRoot: Boolean = false,
+    anchorAdjustment: IntOffset = IntOffset.Zero,
+    menuWidth: Dp = 164.dp,
+    verticalGap: Dp = 8.dp,
     content: @Composable () -> Unit
 ) {
     val transitionState = remember { MutableTransitionState(false) }
     transitionState.targetState = expanded
     val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val view = LocalView.current
+    val menuWidthPx = with(density) { menuWidth.roundToPx() }
+    val verticalGapPx = with(density) { verticalGap.roundToPx() }
+    val screenWidthPx = view.width.takeIf { it > 0 } ?: with(density) { configuration.screenWidthDp.dp.roundToPx() }
+    val horizontalInsetPx = with(density) { 12.dp.roundToPx() }
     val popupProgress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(
@@ -847,37 +914,39 @@ fun NoMemoMenuPopup(
         label = "menuPopupProgress"
     )
 
-    if (transitionState.currentState || transitionState.targetState) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(20f)
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onDismissRequest
-                    )
+    if ((transitionState.currentState || transitionState.targetState) && anchorBounds != null) {
+        val composeRootLocation = remember(view) {
+            IntArray(2).also(view::getLocationInWindow)
+        }
+        val anchorRightInRoot = if (anchorBoundsInRoot) {
+            anchorBounds.right
+        } else {
+            anchorBounds.right - composeRootLocation[0]
+        } + anchorAdjustment.x
+        val anchorBottomInRoot = if (anchorBoundsInRoot) {
+            anchorBounds.bottom
+        } else {
+            anchorBounds.bottom - composeRootLocation[1]
+        } + anchorAdjustment.y
+        val popupX = (anchorRightInRoot - menuWidthPx)
+            .coerceIn(horizontalInsetPx, screenWidthPx - horizontalInsetPx - menuWidthPx)
+        val popupY = anchorBottomInRoot + verticalGapPx
+        Popup(
+            alignment = Alignment.TopStart,
+            offset = IntOffset(popupX, popupY),
+            onDismissRequest = onDismissRequest,
+            properties = PopupProperties(
+                focusable = true,
+                dismissOnBackPress = true,
+                dismissOnClickOutside = true,
+                clippingEnabled = false
             )
-
-            Box(
-                modifier = Modifier.fillMaxSize()
+        ) {
+            NoMemoMenuAnimatedLayer(
+                progress = popupProgress,
+                menuWidth = menuWidth
             ) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .graphicsLayer {
-                            alpha = popupProgress
-                            translationY = with(density) { (-8).dp.toPx() * (1f - popupProgress) }
-                        }
-                ) {
-                    Box(modifier = modifier) {
-                        content()
-                    }
-                }
+                content()
             }
         }
     }
@@ -901,21 +970,21 @@ fun NoMemoActionMenuRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 12.dp),
+                .padding(horizontal = 13.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 painter = painterResource(iconRes),
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(19.dp)
+                modifier = Modifier.size(18.dp)
             )
             Text(
                 text = label,
                 color = contentColor,
-                fontSize = 15.sp,
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 11.dp)
+                modifier = Modifier.padding(start = 10.dp)
             )
         }
     }
@@ -1791,7 +1860,6 @@ fun RecordCard(
     selected: Boolean = false,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
-    onSwipeDeleteRequest: (() -> Unit)? = null,
     palette: NoMemoPalette = rememberNoMemoPalette(),
     adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
     allowImageLoading: Boolean = true,
@@ -1866,109 +1934,19 @@ fun RecordCard(
     } else {
         Color(0xFF98A1AE)
     }
-    val aiMetaColor = if (isDark) {
-        Color.White.copy(alpha = 0.72f)
-    } else {
-        Color(0xFF6E7B92)
-    }
     val thumbnailBackground = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF1F4F8)
     val thumbnailBorder = if (isDark) Color.Transparent else Color.Transparent
-    val swipeEnabled = onSwipeDeleteRequest != null
-    val swipeActionWidth = if (adaptive.isNarrow) 88.dp else 96.dp
-    val swipeActionWidthPx = with(LocalDensity.current) { swipeActionWidth.toPx() }
-    val secondarySwipeExtraPx = with(LocalDensity.current) { 46.dp.toPx() }
-    val secondarySwipeTriggerPx = swipeActionWidthPx + secondarySwipeExtraPx * 0.70f
-    val swipeOpenThresholdPx = swipeActionWidthPx * 0.54f
-    val swipeMaxPx = swipeActionWidthPx + secondarySwipeExtraPx
-    val swipeOffsetState = remember(record.recordId, swipeEnabled) {
-        androidx.compose.runtime.mutableFloatStateOf(0f)
-    }
-    val dragStartedFromRevealedState = remember(record.recordId, swipeEnabled) {
-        androidx.compose.runtime.mutableStateOf(false)
-    }
-    val animatedSwipeOffsetPx by animateFloatAsState(
-        targetValue = swipeOffsetState.floatValue,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "recordSwipeOffset"
-    )
-    val swipeRevealProgress = if (swipeActionWidthPx > 0f) {
-        (-animatedSwipeOffsetPx / swipeActionWidthPx).coerceIn(0f, 1f)
-    } else {
-        0f
-    }
-    val deleteButtonWidth = if (adaptive.isNarrow) 74.dp else 82.dp
-    val deleteButtonHeight = if (adaptive.isNarrow) 44.dp else 48.dp
-    val deleteActionShape = RoundedCornerShape(24.dp)
-    val deleteActionBrush = if (isDark) {
-        Brush.verticalGradient(
-            listOf(
-                Color(0xFFD64A4A),
-                Color(0xFFB62F2F)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color(0xFFFF6B6B),
-                Color(0xFFE53935)
-            )
-        )
-    }
     val gestureModifier = if (onLongPress == null && onClick == null) {
         Modifier
     } else {
-        Modifier.pointerInput(onLongPress, onClick, swipeEnabled) {
+        Modifier.pointerInput(onLongPress, onClick) {
             detectTapGestures(
                 onTap = {
-                    if (swipeEnabled && swipeOffsetState.floatValue < -2f) {
-                        swipeOffsetState.floatValue = 0f
-                    } else {
-                        onClick?.invoke()
-                    }
+                    onClick?.invoke()
                 },
                 onLongPress = {
-                    if (swipeEnabled && swipeOffsetState.floatValue < -2f) {
-                        swipeOffsetState.floatValue = 0f
-                        return@detectTapGestures
-                    }
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onLongPress?.invoke()
-                }
-            )
-        }
-    }
-    val swipeModifier = if (!swipeEnabled) {
-        Modifier
-    } else {
-        Modifier.pointerInput(record.recordId, swipeActionWidthPx, secondarySwipeTriggerPx, swipeMaxPx) {
-            detectHorizontalDragGestures(
-                onDragStart = {
-                    dragStartedFromRevealedState.value =
-                        swipeOffsetState.floatValue <= -swipeActionWidthPx * 0.85f
-                },
-                onHorizontalDrag = { _, dragAmount ->
-                    val next = (swipeOffsetState.floatValue + dragAmount).coerceIn(-swipeMaxPx, 0f)
-                    swipeOffsetState.floatValue = next
-                },
-                onDragEnd = {
-                    val currentOffset = swipeOffsetState.floatValue
-                    val shouldConfirmDelete =
-                        dragStartedFromRevealedState.value && currentOffset <= -secondarySwipeTriggerPx
-                    swipeOffsetState.floatValue = when {
-                        shouldConfirmDelete -> {
-                            onSwipeDeleteRequest?.invoke()
-                            0f
-                        }
-                        currentOffset <= -swipeOpenThresholdPx -> -swipeActionWidthPx
-                        else -> 0f
-                    }
-                    dragStartedFromRevealedState.value = false
-                },
-                onDragCancel = {
-                    val currentOffset = swipeOffsetState.floatValue
-                    swipeOffsetState.floatValue =
-                        if (currentOffset <= -swipeOpenThresholdPx) -swipeActionWidthPx else 0f
-                    dragStartedFromRevealedState.value = false
                 }
             )
         }
@@ -1977,60 +1955,9 @@ fun RecordCard(
     Box(
         modifier = modifier.fillMaxWidth()
     ) {
-        if (swipeEnabled) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.CenterEnd
-            ) {
-                PressScaleBox(
-                    onClick = {
-                        swipeOffsetState.floatValue = 0f
-                        onSwipeDeleteRequest?.invoke()
-                    },
-                    modifier = Modifier
-                        .padding(end = 10.dp)
-                        .width(deleteButtonWidth)
-                        .height(deleteButtonHeight)
-                        .shadow(
-                            elevation = if (isDark) 11.dp else 8.dp,
-                            shape = deleteActionShape,
-                            ambientColor = if (isDark) Color.Black.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.12f),
-                            spotColor = if (isDark) Color.Black.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.12f)
-                        )
-                        .graphicsLayer {
-                            alpha = swipeRevealProgress
-                            val scale = 0.90f + (0.10f * swipeRevealProgress)
-                            scaleX = scale
-                            scaleY = scale
-                            translationX = (1f - swipeRevealProgress) * 10f
-                            transformOrigin = TransformOrigin(1f, 0.5f)
-                        }
-                        .clip(deleteActionShape)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(deleteActionBrush),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = "删除",
-                            color = Color.White.copy(alpha = 0.98f),
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
-            }
-        }
-
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .graphicsLayer { translationX = animatedSwipeOffsetPx }
-                .then(swipeModifier)
                 .then(gestureModifier),
             shape = cardShape,
             colors = CardDefaults.cardColors(containerColor = Color.Transparent),
@@ -2066,10 +1993,9 @@ fun RecordCard(
                     Spacer(modifier = Modifier.height(10.dp))
                     RecordMetaLine(
                         timeText = timeText,
+                        categoryCode = record.categoryCode,
                         categoryText = categoryText,
-                        showAi = record.mode == MemoryRecord.MODE_AI,
-                        metaColor = metaColor,
-                        aiColor = aiMetaColor
+                        metaColor = metaColor
                     )
                 }
 
@@ -2133,34 +2059,45 @@ fun rememberDockHasUnderContent(
 }
 
 @Composable
-private fun RecordMetaLine(
+fun RecordMetaLine(
     timeText: String,
+    categoryCode: String,
     categoryText: String,
-    showAi: Boolean,
-    metaColor: Color,
-    aiColor: Color
+    metaColor: Color
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
             text = timeText,
             color = metaColor,
-            fontSize = 12.sp
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
         )
         MetaDividerDot(color = metaColor)
+        Icon(
+            imageVector = recordCategoryMetaIcon(categoryCode),
+            contentDescription = null,
+            tint = metaColor.copy(alpha = 0.86f),
+            modifier = Modifier.size(12.dp)
+        )
+        Spacer(modifier = Modifier.width(4.dp))
         Text(
             text = categoryText,
             color = metaColor,
-            fontSize = 12.sp
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
         )
-        if (showAi) {
-            MetaDividerDot(color = metaColor)
-            Text(
-                text = "AI",
-                color = aiColor,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Medium
-            )
-        }
+    }
+}
+
+private fun recordCategoryMetaIcon(categoryCode: String): ImageVector {
+    return when (categoryCode) {
+        CategoryCatalog.CODE_LIFE_PICKUP -> Icons.Outlined.Restaurant
+        CategoryCatalog.CODE_LIFE_DELIVERY -> Icons.Outlined.LocalShipping
+        CategoryCatalog.CODE_LIFE_CARD -> Icons.Outlined.Badge
+        CategoryCatalog.CODE_LIFE_TICKET -> Icons.Outlined.ConfirmationNumber
+        CategoryCatalog.CODE_WORK_TODO -> Icons.Outlined.AssignmentTurnedIn
+        CategoryCatalog.CODE_WORK_SCHEDULE -> Icons.Outlined.CalendarMonth
+        else -> Icons.Outlined.Edit
     }
 }
 
