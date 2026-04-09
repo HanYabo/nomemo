@@ -7,19 +7,12 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.graphics.Typeface
-import android.graphics.drawable.ColorDrawable
 import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
-import android.util.TypedValue
-import android.widget.EditText
 import android.widget.ImageView
-import android.widget.NumberPicker
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -43,12 +36,17 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -80,7 +78,9 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -88,6 +88,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
@@ -102,8 +103,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
@@ -123,12 +125,19 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.roundToInt
+
+private object MemoryDetailReanalyzeScope {
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+}
 
 class MemoryDetailActivity : BaseComposeActivity() {
     companion object {
@@ -243,28 +252,114 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }
     }
 
+    private data class EditableStructuredFields(
+        val code: String = "",
+        val primaryValue: String = "",
+        val secondaryValue: String = "",
+        val locationText: String = ""
+    )
+
+    private data class StructuredCategoryPresentation(
+        val sectionTitle: String,
+        val primaryLabel: String,
+        val secondaryLabel: String
+    )
+
+    private fun structuredPresentation(categoryCode: String): StructuredCategoryPresentation? {
+        return when (categoryCode) {
+            CategoryCatalog.CODE_LIFE_DELIVERY -> StructuredCategoryPresentation(
+                sectionTitle = "取件码",
+                primaryLabel = "快递公司",
+                secondaryLabel = "取件地址"
+            )
+
+            CategoryCatalog.CODE_LIFE_PICKUP -> StructuredCategoryPresentation(
+                sectionTitle = "取餐码",
+                primaryLabel = "店铺",
+                secondaryLabel = "商品"
+            )
+
+            else -> null
+        }
+    }
+
+    private fun resolveCategoryOption(record: MemoryRecord): CategoryCatalog.CategoryOption {
+        return CategoryCatalog.getAllCategories().firstOrNull { it.categoryCode == record.categoryCode }
+            ?: CategoryCatalog.CategoryOption(
+                CategoryCatalog.getGroupByCategoryCode(record.categoryCode),
+                record.categoryCode,
+                record.categoryName ?: CategoryCatalog.getCategoryName(record.categoryCode)
+            )
+    }
+
+    private fun sanitizeStructuredDraftValue(value: String?): String {
+        val normalized = value?.trim().orEmpty()
+        return if (normalized == "未识别") "" else normalized
+    }
+
+    private fun buildEditableStructuredFields(
+        categoryCode: String,
+        info: StructuredPickupInfo?
+    ): EditableStructuredFields {
+        if (structuredPresentation(categoryCode) == null) {
+            return EditableStructuredFields()
+        }
+        return EditableStructuredFields(
+            code = sanitizeStructuredDraftValue(info?.code),
+            primaryValue = sanitizeStructuredDraftValue(info?.primaryValue),
+            secondaryValue = sanitizeStructuredDraftValue(info?.secondaryValue),
+            locationText = sanitizeStructuredDraftValue(info?.locationText)
+        )
+    }
+
+    private fun buildStructuredOverrideText(
+        category: CategoryCatalog.CategoryOption,
+        currentRecord: MemoryRecord,
+        draft: EditableStructuredFields?
+    ): String? {
+        val presentation = structuredPresentation(category.categoryCode) ?: return null
+        val existing = buildEditableStructuredFields(
+            category.categoryCode,
+            MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
+        )
+        val effective = draft ?: existing
+        val code = effective.code.trim().ifBlank { existing.code }
+        val primaryValue = effective.primaryValue.trim()
+        val secondaryValue = effective.secondaryValue.trim()
+        val locationText = effective.locationText.trim()
+        return buildList {
+            add("${presentation.sectionTitle}：$code")
+            add("${presentation.primaryLabel}：$primaryValue")
+            add("${presentation.secondaryLabel}：$secondaryValue")
+            add("地点：$locationText")
+        }.joinToString("\n")
+    }
+
     private fun saveEditedRecord(
         currentRecord: MemoryRecord,
         title: String,
         summary: String,
-        imageUri: String?
+        imageUri: String?,
+        category: CategoryCatalog.CategoryOption,
+        structuredFields: EditableStructuredFields?
     ): Boolean {
         val trimmedDetail = summary.trim()
+        val structuredOverride = buildStructuredOverrideText(category, currentRecord, structuredFields)
         val updated = MemoryRecord(
             currentRecord.recordId,
             currentRecord.createdAt,
             currentRecord.mode,
             title.trim().ifBlank { deriveTitle(currentRecord) },
             if (currentRecord.mode == MemoryRecord.MODE_AI) currentRecord.summary else trimmedDetail,
-            currentRecord.sourceText,
-            currentRecord.note,
+            structuredOverride ?: currentRecord.sourceText,
+            structuredOverride ?: currentRecord.note,
             imageUri.orEmpty(),
             if (currentRecord.mode == MemoryRecord.MODE_AI) trimmedDetail else currentRecord.analysis,
             currentRecord.memory,
             currentRecord.engine,
-            currentRecord.categoryGroupCode,
-            currentRecord.categoryCode,
-            currentRecord.categoryName,
+            category.groupCode,
+            category.categoryCode,
+            category.categoryName,
             currentRecord.reminderAt,
             currentRecord.isReminderDone,
             currentRecord.isArchived
@@ -308,57 +403,161 @@ class MemoryDetailActivity : BaseComposeActivity() {
     }
 
     private fun reanalyzeRecord(currentRecord: MemoryRecord) {
-        if (reanalyzing) {
+        val recordId = currentRecord.recordId
+        if (reanalyzing || AiProcessingStateRegistry.isProcessing(recordId)) {
             return
         }
+        val previousRecord = normalizeStableAiRecord(currentRecord)
+        val appContext = applicationContext
+        AiProcessingStateRegistry.markProcessing(recordId)
         reanalyzing = true
-        lifecycleScope.launch {
-            val updated = withContext(Dispatchers.IO) {
-                try {
-                    val input = buildAiInput(currentRecord)
-                    val imageUri = currentRecord.imageUri
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let(Uri::parse)
-                    val result = aiMemoryService.generateEnhancedMemory(
-                        input,
-                        imageUri,
-                        buildEnhancedAiContext(currentRecord)
-                    )
-                    MemoryRecord(
-                        currentRecord.recordId,
-                        currentRecord.createdAt,
-                        currentRecord.mode,
-                        result.title.ifBlank { deriveTitle(currentRecord) },
-                        result.summary.ifBlank { deriveSummary(currentRecord) },
-                        currentRecord.sourceText,
-                        currentRecord.note,
-                        currentRecord.imageUri,
-                        result.analysis,
-                        result.memory,
-                        result.engine,
-                        currentRecord.categoryGroupCode,
-                        currentRecord.categoryCode,
-                        currentRecord.categoryName,
-                        currentRecord.reminderAt,
-                        currentRecord.isReminderDone,
-                        currentRecord.isArchived
-                    )
-                } catch (_: Exception) {
-                    null
+        MemoryDetailReanalyzeScope.scope.launch {
+            try {
+                val updated = withContext(Dispatchers.IO) {
+                    try {
+                        val service = AiMemoryService(appContext)
+                        val input = buildAiInput(previousRecord)
+                        val imageUri = previousRecord.imageUri
+                            ?.takeIf { it.isNotBlank() }
+                            ?.let(Uri::parse)
+                        val result = service.generateEnhancedMemory(
+                            input,
+                            imageUri,
+                            buildEnhancedAiContext(previousRecord)
+                        )
+                        val resolvedTitle = result.title
+                            .trim()
+                            .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                            ?: deriveTitle(previousRecord)
+                        val resolvedSummary = result.summary
+                            .trim()
+                            .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                            ?: deriveSummary(previousRecord)
+                        val resolvedAnalysis = result.analysis
+                            .trim()
+                            .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                            ?: previousRecord.analysis
+                                ?.trim()
+                                ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                                ?: deriveSummary(previousRecord)
+                        val resolvedEngine = result.engine
+                            .trim()
+                            .takeIf { it.isNotEmpty() && !it.equals("pending", ignoreCase = true) }
+                            ?: "local"
+                        MemoryRecord(
+                            previousRecord.recordId,
+                            previousRecord.createdAt,
+                            previousRecord.mode,
+                            resolvedTitle,
+                            resolvedSummary,
+                            previousRecord.sourceText,
+                            previousRecord.note,
+                            previousRecord.imageUri,
+                            resolvedAnalysis,
+                            result.memory.takeIf { it.isNotBlank() } ?: previousRecord.memory,
+                            resolvedEngine,
+                            previousRecord.categoryGroupCode,
+                            previousRecord.categoryCode,
+                            previousRecord.categoryName,
+                            previousRecord.reminderAt,
+                            previousRecord.isReminderDone,
+                            previousRecord.isArchived
+                        )
+                    } catch (_: Exception) {
+                        null
+                    }
+                }
+                if (updated == null) {
+                    withContext(Dispatchers.Main) {
+                        reanalyzing = false
+                        Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                val updateSuccess = withContext(Dispatchers.IO) {
+                    memoryStore.updateRecord(updated)
+                }
+                if (!updateSuccess) {
+                    withContext(Dispatchers.Main) {
+                        reanalyzing = false
+                        Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                withContext(Dispatchers.Main) {
+                    reanalyzing = false
+                    Toast.makeText(appContext, "已重新分析", Toast.LENGTH_SHORT).show()
+                    if (record?.recordId == recordId) {
+                        loadRecordOrFinish()
+                    }
+                }
+            } finally {
+                withContext(Dispatchers.Main.immediate) {
+                    reanalyzing = false
+                    AiProcessingStateRegistry.clearProcessing(recordId)
                 }
             }
-            reanalyzing = false
-            if (updated == null) {
-                Toast.makeText(this@MemoryDetailActivity, "重新分析失败", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            if (!memoryStore.updateRecord(updated)) {
-                Toast.makeText(this@MemoryDetailActivity, "重新分析失败", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            record = updated
-            Toast.makeText(this@MemoryDetailActivity, "已重新分析", Toast.LENGTH_SHORT).show()
         }
+    }
+
+    private fun normalizeStableAiRecord(record: MemoryRecord): MemoryRecord {
+        if (record.mode != MemoryRecord.MODE_AI) {
+            return record
+        }
+        val normalizedTitle = record.title
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+            ?: deriveTitle(record)
+        val normalizedSummary = record.summary
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+            ?: deriveSummary(record)
+        val normalizedAnalysis = record.analysis
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+            ?: deriveSummary(record)
+        val normalizedEngine = record.engine
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !it.equals("pending", ignoreCase = true) }
+            ?: "local"
+        if (
+            normalizedTitle == record.title
+            && normalizedSummary == record.summary
+            && normalizedAnalysis == record.analysis
+            && normalizedEngine == record.engine
+        ) {
+            return record
+        }
+        return MemoryRecord(
+            record.recordId,
+            record.createdAt,
+            record.mode,
+            normalizedTitle,
+            normalizedSummary,
+            record.sourceText,
+            record.note,
+            record.imageUri,
+            normalizedAnalysis,
+            record.memory,
+            normalizedEngine,
+            record.categoryGroupCode,
+            record.categoryCode,
+            record.categoryName,
+            record.reminderAt,
+            record.isReminderDone,
+            record.isArchived
+        )
+    }
+
+    private fun isAiPlaceholderText(value: String?): Boolean {
+        val normalized = value?.trim().orEmpty()
+        if (normalized.isEmpty()) return false
+        return normalized == "AI 分析中"
+            || normalized == "AI分析中"
+            || normalized == "AI 分析中..."
+            || normalized == "AI分析中..."
+            || normalized == "分析中"
+            || normalized == "分析中..."
     }
 
     private fun buildAiInput(record: MemoryRecord): String {
@@ -484,11 +683,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(top = statusBarHeightDp)
-                                    .padding(
-                                        start = spec.pageHorizontalPadding,
-                                        top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
-                                        end = spec.pageHorizontalPadding
-                                    )
                             ) {
                         val currentRecord = record
                         if (currentRecord == null) {
@@ -504,6 +698,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         val summaryText = deriveInsightText(currentRecord)
                         val createdAtText = rememberTime(currentRecord.createdAt)
                         val detailTextStartPadding = if (spec.isNarrow) 12.dp else 18.dp
+                        val sectionTitleStartPadding = detailTextStartPadding + 4.dp
+                        val sectionTitleTopSpacing = 22.dp
+                        val sectionCardTopSpacing = 8.dp
                         val detailScrollState = rememberScrollState()
                         val collapsedTitleThresholdPx = with(density) { 64.dp.toPx() }
                         val showCollapsedTopTitle by remember(detailScrollState.value) {
@@ -522,6 +719,30 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             currentRecord.note
                         ) {
                             MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
+                        }
+                        val allCategories = remember { CategoryCatalog.getAllCategories() }
+                        var draftCategory by remember(
+                            currentRecord.recordId,
+                            currentRecord.categoryCode,
+                            currentRecord.categoryName
+                        ) {
+                            mutableStateOf(resolveCategoryOption(currentRecord))
+                        }
+                        var categoryMenuExpanded by remember(currentRecord.recordId) {
+                            mutableStateOf(false)
+                        }
+                        var draftStructuredFields by remember(
+                            currentRecord.recordId,
+                            currentRecord.categoryCode,
+                            pickupInfo?.code,
+                            pickupInfo?.primaryValue,
+                            pickupInfo?.secondaryValue,
+                            pickupInfo?.locationText
+                        ) {
+                            mutableStateOf(buildEditableStructuredFields(currentRecord.categoryCode, pickupInfo))
+                        }
+                        val activeStructuredPresentation = remember(draftCategory.categoryCode) {
+                            structuredPresentation(draftCategory.categoryCode)
                         }
                         var draftTitle by remember(currentRecord.recordId, currentRecord.title) {
                             mutableStateOf(titleText)
@@ -550,67 +771,76 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         }
                         val displayImageUri = if (editing) draftImageUri else currentRecord.imageUri.orEmpty()
                         val collapsedTitleText = if (editing) draftTitle.ifBlank { titleText } else titleText
+                        val resetEditDrafts = {
+                            draftTitle = titleText
+                            draftSummary = summaryText
+                            draftImageUri = currentRecord.imageUri.orEmpty()
+                            draftCategory = resolveCategoryOption(currentRecord)
+                            draftStructuredFields = buildEditableStructuredFields(currentRecord.categoryCode, pickupInfo)
+                            categoryMenuExpanded = false
+                        }
                         val commitEdits = {
                             val saved = saveEditedRecord(
                                 currentRecord,
                                 draftTitle,
                                 draftSummary,
-                                draftImageUri
+                                draftImageUri,
+                                draftCategory,
+                                draftStructuredFields.takeIf { activeStructuredPresentation != null }
                             )
                             if (saved) {
                                 editing = false
+                                categoryMenuExpanded = false
                                 Toast.makeText(this@MemoryDetailActivity, "已保存修改", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(this@MemoryDetailActivity, "保存失败", Toast.LENGTH_SHORT).show()
                             }
                         }
-                        Row(
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .align(Alignment.TopStart)
-                                .padding(top = 0.dp)
-                                .offset(y = (-4).dp)
-                                .zIndex(6f),
-                            verticalAlignment = Alignment.CenterVertically
+                                .fillMaxSize()
+                                .padding(
+                                    start = spec.pageHorizontalPadding,
+                                    top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
+                                    end = spec.pageHorizontalPadding
+                                )
                         ) {
-                            GlassIconCircleButton(
-                                iconRes = R.drawable.ic_sheet_back,
-                                contentDescription = getString(R.string.back),
-                                onClick = onBack,
-                                size = spec.topActionButtonSize
-                            )
-                            Box(
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 12.dp),
-                                contentAlignment = Alignment.Center
+                                    .fillMaxWidth()
+                                    .height(spec.topActionButtonSize)
+                                    .align(Alignment.TopStart)
+                                    .padding(top = 2.dp)
+                                    .zIndex(6f),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                androidx.compose.animation.AnimatedVisibility(
-                                    visible = showCollapsedTopTitle,
-                                    enter = fadeIn(animationSpec = tween(durationMillis = 180)),
-                                    exit = fadeOut(animationSpec = tween(durationMillis = 140))
+                                GlassIconCircleButton(
+                                    iconRes = R.drawable.ic_sheet_back,
+                                    contentDescription = getString(R.string.back),
+                                    onClick = onBack,
+                                    size = spec.topActionButtonSize
+                                )
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .padding(horizontal = 12.dp),
+                                    contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = collapsedTitleText,
-                                        color = palette.textPrimary,
-                                        fontSize = if (spec.isNarrow) 18.sp else 19.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        visible = showCollapsedTopTitle,
+                                        enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+                                        exit = fadeOut(animationSpec = tween(durationMillis = 140))
+                                    ) {
+                                        Text(
+                                            text = collapsedTitleText,
+                                            color = palette.textPrimary,
+                                            fontSize = if (spec.isNarrow) 18.sp else 19.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
-                            }
-                            Box(
-                                modifier = Modifier.onGloballyPositioned { coordinates ->
-                                    val bounds = coordinates.boundsInRoot()
-                                    moreMenuAnchorBounds = IntRect(
-                                        left = bounds.left.roundToInt(),
-                                        top = bounds.top.roundToInt(),
-                                        right = bounds.right.roundToInt(),
-                                        bottom = bounds.bottom.roundToInt()
-                                    )
-                                }
-                            ) {
                                 GlassIconCircleButton(
                                     iconRes = if (editing) R.drawable.ic_sheet_check else R.drawable.ic_nm_more,
                                     contentDescription = if (editing) "保存修改" else getString(R.string.action_more),
@@ -621,17 +851,17 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                             moreMenuExpanded = !moreMenuExpanded
                                         }
                                     },
-                                    size = spec.topActionButtonSize
+                                    size = spec.topActionButtonSize,
+                                    onBoundsChanged = { moreMenuAnchorBounds = it }
                                 )
                             }
-                        }
 
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = spec.topActionButtonSize + 8.dp)
-                                .verticalScroll(detailScrollState)
-                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = spec.topActionButtonSize + 8.dp)
+                                    .verticalScroll(detailScrollState)
+                            ) {
                         if (displayImageUri.isNotBlank()) {
                             Card(
                                 modifier = Modifier
@@ -705,31 +935,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         }
 
                         if (editing) {
-                            BasicTextField(
+                            NoMemoDetailTitleEditor(
                                 value = draftTitle,
-                                onValueChange = { draftTitle = it },
-                                textStyle = TextStyle(
-                                    color = palette.textPrimary,
-                                    fontSize = if (spec.isNarrow) 27.sp else 31.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    lineHeight = if (spec.isNarrow) 35.sp else 39.sp
+                                modifier = Modifier.padding(
+                                    start = detailTextStartPadding,
+                                    end = detailTextStartPadding,
+                                    top = 20.dp
                                 ),
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = detailTextStartPadding, top = 20.dp, end = 8.dp)
-                            ) { innerTextField ->
-                                Box(modifier = Modifier.fillMaxWidth()) {
-                                    if (draftTitle.isBlank()) {
-                                        Text(
-                                            text = "输入标题",
-                                            color = palette.textTertiary,
-                                            fontSize = if (spec.isNarrow) 27.sp else 31.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                    innerTextField()
-                                }
-                            }
+                                onValueChange = { draftTitle = it }
+                            )
                         } else {
                             Text(
                                 text = titleText,
@@ -754,8 +968,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             }
                             RecordMetaLine(
                                 timeText = createdAtText,
-                                categoryCode = currentRecord.categoryCode,
-                                categoryText = currentRecord.categoryName ?: "小记",
+                                categoryCode = if (editing) draftCategory.categoryCode else currentRecord.categoryCode,
+                                categoryText = if (editing) draftCategory.categoryName else currentRecord.categoryName ?: "小记",
                                 metaColor = metaColor
                             )
                         }
@@ -765,7 +979,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             color = palette.textPrimary,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
-                            modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp)
+                            modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
                         )
 
                         NoMemoDetailSummaryBox(
@@ -774,26 +988,73 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             modifier = Modifier.padding(
                                 start = detailTextStartPadding,
                                 end = detailTextStartPadding,
-                                top = 10.dp
+                                top = sectionCardTopSpacing
                             ),
                             onValueChange = { draftSummary = it }
                         )
 
-                        if (!editing) {
+                        if (editing && activeStructuredPresentation != null) {
+                                Text(
+                                    text = activeStructuredPresentation.sectionTitle,
+                                    color = palette.textPrimary,
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
+                                )
+                            NoMemoEditablePickupCodeCard(
+                                code = draftStructuredFields.code,
+                                primaryLabel = activeStructuredPresentation.primaryLabel,
+                                primaryValue = draftStructuredFields.primaryValue,
+                                secondaryLabel = activeStructuredPresentation.secondaryLabel,
+                                secondaryValue = draftStructuredFields.secondaryValue,
+                                    modifier = Modifier.padding(
+                                        start = detailTextStartPadding,
+                                        end = detailTextStartPadding,
+                                        top = sectionCardTopSpacing
+                                    ),
+                                onCodeChange = {
+                                    draftStructuredFields = draftStructuredFields.copy(code = it)
+                                },
+                                onPrimaryValueChange = {
+                                    draftStructuredFields = draftStructuredFields.copy(primaryValue = it)
+                                },
+                                onSecondaryValueChange = {
+                                    draftStructuredFields = draftStructuredFields.copy(secondaryValue = it)
+                                }
+                            )
+                            Text(
+                                text = "地点",
+                                color = palette.textPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
+                            )
+                            NoMemoEditablePickupLocationCard(
+                                value = draftStructuredFields.locationText,
+                                modifier = Modifier.padding(
+                                    start = detailTextStartPadding,
+                                    end = detailTextStartPadding,
+                                    top = sectionCardTopSpacing
+                                ),
+                                onValueChange = {
+                                    draftStructuredFields = draftStructuredFields.copy(locationText = it)
+                                }
+                            )
+                        } else if (!editing) {
                             pickupInfo?.let { info ->
                                 Text(
                                     text = info.sectionTitle,
                                     color = palette.textPrimary,
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp)
+                                    modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
                                 )
                                 NoMemoPickupCodeCard(
                                     info = info,
                                     modifier = Modifier.padding(
                                         start = detailTextStartPadding,
                                         end = detailTextStartPadding,
-                                        top = 10.dp
+                                        top = sectionCardTopSpacing
                                     )
                                 )
                                 if (!info.locationText.isNullOrBlank()) {
@@ -802,14 +1063,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         color = palette.textPrimary,
                                         fontSize = 16.sp,
                                         fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier.padding(start = detailTextStartPadding, top = 24.dp)
+                                    modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
                                     )
                                     NoMemoPickupLocationCard(
                                         info = info,
                                         modifier = Modifier.padding(
                                             start = detailTextStartPadding,
                                             end = detailTextStartPadding,
-                                            top = 10.dp
+                                            top = sectionCardTopSpacing
                                         ),
                                         onNavigate = { query -> openNavigation(query) }
                                     )
@@ -818,89 +1079,94 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         }
 
                         if (editing) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(
-                                        start = detailTextStartPadding,
-                                        end = detailTextStartPadding,
-                                        top = 24.dp
-                                    ),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                NoMemoDetailActionButton(
-                                    text = "取消",
-                                    primary = false,
-                                    showBorder = false,
-                                    onClick = {
-                                        editing = false
-                                        draftTitle = titleText
-                                        draftSummary = summaryText
-                                        draftImageUri = currentRecord.imageUri.orEmpty()
-                                    }
-                                )
-                                NoMemoDetailActionButton(
-                                    text = "保存",
-                                    primary = true,
-                                    onClick = { commitEdits() }
-                                )
-                            }
-                        } else NoMemoDetailReanalyzeButton(
-                            text = when {
-                                reanalyzing && currentRecord.mode == MemoryRecord.MODE_AI -> "正在重新分析..."
-                                reanalyzing -> "正在AI分析..."
-                                currentRecord.mode == MemoryRecord.MODE_AI -> "重新分析"
-                                else -> "AI分析"
-                            },
-                            enabled = !reanalyzing,
-                            modifier = Modifier.padding(
-                                start = detailTextStartPadding,
-                                end = detailTextStartPadding,
-                                top = 28.dp,
-                            ),
-                            onClick = { onReanalyze(currentRecord) }
-                        )
+                            Text(
+                                text = "分类",
+                                color = palette.textPrimary,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
+                            )
+                            SheetCategorySection(
+                                categories = allCategories,
+                                selectedCategory = draftCategory,
+                                expanded = categoryMenuExpanded,
+                                detailStyle = true,
+                                modifier = Modifier.padding(
+                                    start = detailTextStartPadding,
+                                    end = detailTextStartPadding,
+                                    top = sectionCardTopSpacing
+                                ),
+                                onToggleExpanded = { categoryMenuExpanded = !categoryMenuExpanded },
+                                onSelectCategory = {
+                                    draftCategory = it
+                                    categoryMenuExpanded = false
+                                }
+                            )
+                        } else {
+                            val buttonProcessing = reanalyzing || AiProcessingStateRegistry.isProcessing(currentRecord.recordId)
+                            NoMemoDetailReanalyzeButton(
+                                text = when {
+                                    buttonProcessing && currentRecord.mode == MemoryRecord.MODE_AI -> "正在重新分析"
+                                    buttonProcessing -> "正在AI分析"
+                                    currentRecord.mode == MemoryRecord.MODE_AI -> "重新分析"
+                                    else -> "AI分析"
+                                },
+                                processing = buttonProcessing,
+                                modifier = Modifier.padding(
+                                    start = detailTextStartPadding,
+                                    end = detailTextStartPadding,
+                                    top = 28.dp,
+                                ),
+                                onClick = { onReanalyze(currentRecord) }
+                            )
+                        }
                         Spacer(modifier = Modifier.height(28.dp))
                     }
+                        }
 
-                        NoMemoMenuPopup(
+                        NoMemoAnchoredMenu(
                             expanded = moreMenuExpanded,
                             onDismissRequest = { moreMenuExpanded = false },
                             anchorBounds = moreMenuAnchorBounds,
-                            anchorBoundsInRoot = true,
-                            anchorAdjustment = IntOffset(
-                                x = -with(density) { spec.pageHorizontalPadding.roundToPx() },
-                                y = -with(density) {
-                                    (statusBarHeightDp + (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp)).roundToPx()
-                                }
-                            )
-                        ) {
-                            DetailMoreMenuPanel(
-                                archived = currentRecord.isArchived,
-                                editing = editing,
-                                onEditToggle = {
-                                    moreMenuExpanded = false
-                                    editing = !editing
-                                    if (!editing) {
-                                        draftTitle = titleText
-                                        draftSummary = summaryText
-                                        draftImageUri = currentRecord.imageUri.orEmpty()
+                            actions = listOf(
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_edit,
+                                    label = if (editing) "结束编辑" else "编辑内容",
+                                    onClick = {
+                                        moreMenuExpanded = false
+                                        editing = !editing
+                                        if (!editing) {
+                                            resetEditDrafts()
+                                        }
                                     }
-                                },
-                                onArchiveToggle = {
-                                    moreMenuExpanded = false
-                                    onToggleArchive(currentRecord)
-                                },
-                                onAddToReminder = {
-                                    moreMenuExpanded = false
-                                    showReminderSetupSheet = true
-                                },
-                                onDelete = {
-                                    moreMenuExpanded = false
-                                    showDeleteConfirm = true
-                                }
+                                ),
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_sheet_calendar,
+                                    label = if (currentRecord.isArchived) getString(R.string.action_unarchive) else getString(R.string.action_archive),
+                                    onClick = {
+                                        moreMenuExpanded = false
+                                        onToggleArchive(currentRecord)
+                                    }
+                                ),
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_reminder,
+                                    label = "添加到提醒事项",
+                                    onClick = {
+                                        moreMenuExpanded = false
+                                        showReminderSetupSheet = true
+                                    }
+                                ),
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_delete,
+                                    label = getString(R.string.action_delete),
+                                    destructive = true,
+                                    onClick = {
+                                        moreMenuExpanded = false
+                                        showDeleteConfirm = true
+                                    }
+                                )
                             )
-                        }
+                        )
 
                         if (showDeleteConfirm) {
                             NoMemoDeleteConfirmDialog(
@@ -1145,27 +1411,33 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 .padding(top = statusBarHeightDp)
                                 .alpha(buttonAlpha)
                                 .padding(
-                                    top = (adaptive.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
+                                    top = (adaptive.pageTopPadding - 2.dp).coerceAtLeast(0.dp),
                                     end = adaptive.pageHorizontalPadding
                                 )
-                                .offset(y = (-4).dp)
                         )
-                        NoMemoMenuPopup(
+                        NoMemoAnchoredMenu(
                             expanded = showPreviewActionMenu,
                             onDismissRequest = { showPreviewActionMenu = false },
-                            anchorBounds = previewActionMenuAnchorBounds
-                        ) {
-                            PreviewImageActionMenuPanel(
-                                onSaveImage = {
-                                    showPreviewActionMenu = false
-                                    savePreviewImage(previewRecord.imageUri.orEmpty())
-                                },
-                                onShareImage = {
-                                    showPreviewActionMenu = false
-                                    sharePreviewImage(previewRecord.imageUri.orEmpty())
-                                }
+                            anchorBounds = previewActionMenuAnchorBounds,
+                            actions = listOf(
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_download,
+                                    label = "保存图片",
+                                    onClick = {
+                                        showPreviewActionMenu = false
+                                        savePreviewImage(previewRecord.imageUri.orEmpty())
+                                    }
+                                ),
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_share,
+                                    label = "分享图片",
+                                    onClick = {
+                                        showPreviewActionMenu = false
+                                        sharePreviewImage(previewRecord.imageUri.orEmpty())
+                                    }
+                                )
                             )
-                        }
+                        )
                         MemoryDetailPreviewCloseButton(
                             iconRes = R.drawable.ic_sheet_close,
                             contentDescription = getString(R.string.cancel),
@@ -1598,29 +1870,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }
     }
 
-    @Composable
-    private fun PreviewImageActionMenuPanel(
-        onSaveImage: () -> Unit,
-        onShareImage: () -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        NoMemoActionMenuPanel(
-            actions = listOf(
-                NoMemoMenuActionItem(
-                    iconRes = R.drawable.ic_nm_download,
-                    label = "保存图片",
-                    onClick = onSaveImage
-                ),
-                NoMemoMenuActionItem(
-                    iconRes = R.drawable.ic_nm_share,
-                    label = "分享图片",
-                    onClick = onShareImage
-                )
-            ),
-            modifier = modifier
-        )
-    }
-
     private data class ReminderLeadOption(
         val label: String,
         val minutes: Int
@@ -1639,17 +1888,23 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val now = remember { Calendar.getInstance() }
         val initialTime = if (initialReminderAt > 0L) initialReminderAt else defaultDetailReminderTime()
         val initialCalendar = remember(initialTime, visible) { Calendar.getInstance().apply { timeInMillis = initialTime } }
+        val defaultLeadMinutes = 5
+        val customLeadCapMinutes = 23 * 60 + 59
 
         var year by remember(initialTime, visible) { mutableStateOf(initialCalendar.get(Calendar.YEAR)) }
         var month by remember(initialTime, visible) { mutableStateOf(initialCalendar.get(Calendar.MONTH) + 1) }
         var day by remember(initialTime, visible) { mutableStateOf(initialCalendar.get(Calendar.DAY_OF_MONTH)) }
         var hour by remember(initialTime, visible) { mutableStateOf(initialCalendar.get(Calendar.HOUR_OF_DAY)) }
         var minute by remember(initialTime, visible) { mutableStateOf(initialCalendar.get(Calendar.MINUTE)) }
-        var leadMinutes by remember(initialTime, visible) { mutableStateOf(5) }
+        var leadMinutes by remember(initialTime, visible) { mutableStateOf(defaultLeadMinutes) }
+        var customLeadHours by remember(initialTime, visible) { mutableStateOf(0) }
+        var customLeadPartMinutes by remember(initialTime, visible) { mutableStateOf(defaultLeadMinutes) }
 
         val maxDay = remember(year, month) { detailDaysInMonth(year, month) }
-        if (day > maxDay) {
-            day = maxDay
+        LaunchedEffect(maxDay) {
+            if (day > maxDay) {
+                day = maxDay
+            }
         }
 
         val leadOptions = remember {
@@ -1661,6 +1916,21 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 ReminderLeadOption("1天前", 24 * 60)
             )
         }
+        val usingCustomLead = leadOptions.none { it.minutes == leadMinutes }
+
+        LaunchedEffect(visible, initialTime) {
+            if (!visible) {
+                val resetCalendar = Calendar.getInstance().apply { timeInMillis = initialTime }
+                year = resetCalendar.get(Calendar.YEAR)
+                month = resetCalendar.get(Calendar.MONTH) + 1
+                day = resetCalendar.get(Calendar.DAY_OF_MONTH)
+                hour = resetCalendar.get(Calendar.HOUR_OF_DAY)
+                minute = resetCalendar.get(Calendar.MINUTE)
+                leadMinutes = defaultLeadMinutes
+                customLeadHours = 0
+                customLeadPartMinutes = defaultLeadMinutes
+            }
+        }
 
         val eventAt = remember(year, month, day, hour, minute) {
             buildReminderDateTime(year, month, day, hour, minute)
@@ -1669,20 +1939,49 @@ class MemoryDetailActivity : BaseComposeActivity() {
             (eventAt - leadMinutes * 60L * 1000L).coerceAtLeast(0L)
         }
 
-        val sheetSurface = palette.memoBgStart
-        val cardSurface = if (isDark) noMemoCardSurfaceColor(true) else Color.White
-        val sectionSurface = cardSurface
+        val sheetSurface = if (isDark) Color(0xFF121316) else palette.memoBgStart
+        val cardSurface = if (isDark) Color(0xFF1A1A1C) else Color.White
+        val timeCardSurface = cardSurface
         val optionCardColor = cardSurface
-        val optionSelectedColor = if (isDark) palette.accent.copy(alpha = 0.18f) else palette.accent.copy(alpha = 0.13f)
+        val optionSelectedColor = if (isDark) {
+            Color(0xFF273247)
+        } else {
+            Color(0xFFEFF4FF)
+        }
+        val optionSelectedStroke = if (isDark) {
+            Color(0xFF4D6BAA)
+        } else {
+            Color(0xFFC9D8FF)
+        }
         val dragHandleColor = if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000)
         val wheelHighlightColor = if (isDark) {
-            palette.accent.copy(alpha = 0.32f)
+            Color.White.copy(alpha = 0.13f)
         } else {
-            Color(0xFFEAF2FF)
+            Color(0xFFE1ECFF)
+        }
+        val wheelHighlightSheenColor = if (isDark) {
+            Color.White.copy(alpha = 0.08f)
+        } else {
+            Color.White.copy(alpha = 0.72f)
         }
         val wheelSelectedTextColor = if (isDark) Color.White else Color(0xFF1344C4)
         val wheelNormalTextColor = if (isDark) Color.White.copy(alpha = 0.70f) else Color(0xFF1E2230).copy(alpha = 0.58f)
-        val sheetBodyHeight = if (adaptive.isNarrow) 700.dp else 760.dp
+        val infoCardSurface = cardSurface
+        val timePanelBrush = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Transparent
+            )
+        )
+        val infoCardBrush = Brush.verticalGradient(
+            colors = listOf(
+                Color.Transparent,
+                Color.Transparent
+            )
+        )
+        val sheetBodyHeight = if (adaptive.isNarrow) 664.dp else 720.dp
+        val eventTimeLabel = remember(eventAt) { formatReminderSheetDateTime(eventAt) }
+        val finalReminderLabel = remember(finalReminderAt) { formatReminderSheetDateTime(finalReminderAt) }
 
         Box(
             modifier = Modifier
@@ -1782,92 +2081,146 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 .weight(1f)
                                 .verticalScroll(rememberScrollState())
                         ) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 2.dp, vertical = 2.dp)
-                            ) {
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    DetailReminderWheelCard(
-                                        label = "年",
-                                        values = ((now.get(Calendar.YEAR) - 1)..(now.get(Calendar.YEAR) + 5)).toList(),
-                                        selectedValue = year,
-                                        formatter = { it.toString() },
-                                        cardColor = sectionSurface,
-                                        highlightColor = wheelHighlightColor,
-                                        selectedTextColor = wheelSelectedTextColor,
-                                        normalTextColor = wheelNormalTextColor,
-                                        onSelected = { year = it },
-                                        modifier = Modifier.weight(1.2f)
-                                    )
-                                    DetailReminderWheelCard(
-                                        label = "月",
-                                        values = (1..12).toList(),
-                                        selectedValue = month,
-                                        formatter = { it.toString().padStart(2, '0') },
-                                        cardColor = sectionSurface,
-                                        highlightColor = wheelHighlightColor,
-                                        selectedTextColor = wheelSelectedTextColor,
-                                        normalTextColor = wheelNormalTextColor,
-                                        onSelected = { month = it },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                    DetailReminderWheelCard(
-                                        label = "日",
-                                        values = (1..maxDay).toList(),
-                                        selectedValue = day,
-                                        formatter = { it.toString().padStart(2, '0') },
-                                        cardColor = sectionSurface,
-                                        highlightColor = wheelHighlightColor,
-                                        selectedTextColor = wheelSelectedTextColor,
-                                        normalTextColor = wheelNormalTextColor,
-                                        onSelected = { day = it },
-                                        modifier = Modifier.weight(1f)
-                                    )
-                                }
+                            Text(
+                                text = "提醒时间",
+                                color = palette.textSecondary,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 2.dp, bottom = 10.dp)
+                            )
 
-                                Row(
+                            Card(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(24.dp),
+                                colors = CardDefaults.cardColors(containerColor = timeCardSurface)
+                            ) {
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(top = 8.dp),
-                                    horizontalArrangement = Arrangement.Center,
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .background(timePanelBrush)
                                 ) {
-                                    DetailReminderWheelCard(
-                                        label = "",
-                                        values = (0..23).toList(),
-                                        selectedValue = hour,
-                                        formatter = { it.toString().padStart(2, '0') },
-                                        cardColor = sectionSurface,
-                                        highlightColor = wheelHighlightColor,
-                                        selectedTextColor = wheelSelectedTextColor,
-                                        normalTextColor = wheelNormalTextColor,
-                                        onSelected = { hour = it },
-                                        modifier = Modifier.width(108.dp)
-                                    )
-                                    Text(
-                                        text = ":",
-                                        color = palette.textPrimary,
-                                        fontSize = 28.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 12.dp)
-                                    )
-                                    DetailReminderWheelCard(
-                                        label = "",
-                                        values = (0..59).toList(),
-                                        selectedValue = minute,
-                                        formatter = { it.toString().padStart(2, '0') },
-                                        cardColor = sectionSurface,
-                                        highlightColor = wheelHighlightColor,
-                                        selectedTextColor = wheelSelectedTextColor,
-                                        normalTextColor = wheelNormalTextColor,
-                                        onSelected = { minute = it },
-                                        modifier = Modifier.width(108.dp)
-                                    )
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 14.dp)
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 2.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            DetailReminderWheelCard(
+                                                label = "年",
+                                                values = ((now.get(Calendar.YEAR) - 1)..(now.get(Calendar.YEAR) + 5)).toList(),
+                                                selectedValue = year,
+                                                formatter = { it.toString() },
+                                                cardColor = Color.Transparent,
+                                                highlightColor = wheelHighlightColor,
+                                                highlightSheenColor = wheelHighlightSheenColor,
+                                                selectedTextColor = wheelSelectedTextColor,
+                                                normalTextColor = wheelNormalTextColor,
+                                                onSelected = { year = it },
+                                                modifier = Modifier.weight(1.2f),
+                                                showContainer = false
+                                            )
+                                            DetailReminderWheelCard(
+                                                label = "月",
+                                                values = (1..12).toList(),
+                                                selectedValue = month,
+                                                formatter = { it.toString().padStart(2, '0') },
+                                                cardColor = Color.Transparent,
+                                                highlightColor = wheelHighlightColor,
+                                                highlightSheenColor = wheelHighlightSheenColor,
+                                                selectedTextColor = wheelSelectedTextColor,
+                                                normalTextColor = wheelNormalTextColor,
+                                                onSelected = { month = it },
+                                                modifier = Modifier.weight(1f),
+                                                showContainer = false
+                                            )
+                                            DetailReminderWheelCard(
+                                                label = "日",
+                                                values = (1..maxDay).toList(),
+                                                selectedValue = day,
+                                                formatter = { it.toString().padStart(2, '0') },
+                                                cardColor = Color.Transparent,
+                                                highlightColor = wheelHighlightColor,
+                                                highlightSheenColor = wheelHighlightSheenColor,
+                                                selectedTextColor = wheelSelectedTextColor,
+                                                normalTextColor = wheelNormalTextColor,
+                                                onSelected = { day = it },
+                                                modifier = Modifier.weight(1f),
+                                                showContainer = false
+                                            )
+                                        }
+
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(top = 10.dp),
+                                            horizontalArrangement = Arrangement.Center,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            DetailReminderWheelCard(
+                                                label = "时",
+                                                values = (0..23).toList(),
+                                                selectedValue = hour,
+                                                formatter = { it.toString().padStart(2, '0') },
+                                                cardColor = Color.Transparent,
+                                                highlightColor = wheelHighlightColor,
+                                                highlightSheenColor = wheelHighlightSheenColor,
+                                                selectedTextColor = wheelSelectedTextColor,
+                                                normalTextColor = wheelNormalTextColor,
+                                                onSelected = { hour = it },
+                                                modifier = Modifier.width(100.dp),
+                                                showContainer = false
+                                            )
+                                            Text(
+                                                text = ":",
+                                                color = palette.textSecondary.copy(alpha = 0.58f),
+                                                fontSize = 21.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 16.dp)
+                                            )
+                                            DetailReminderWheelCard(
+                                                label = "分",
+                                                values = (0..59).toList(),
+                                                selectedValue = minute,
+                                                formatter = { it.toString().padStart(2, '0') },
+                                                cardColor = Color.Transparent,
+                                                highlightColor = wheelHighlightColor,
+                                                highlightSheenColor = wheelHighlightSheenColor,
+                                                selectedTextColor = wheelSelectedTextColor,
+                                                normalTextColor = wheelNormalTextColor,
+                                                onSelected = { minute = it },
+                                                modifier = Modifier.width(100.dp),
+                                                showContainer = false
+                                            )
+                                        }
+                                    }
                                 }
+                            }
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 12.dp),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                DetailReminderInfoCard(
+                                    title = "事件时间",
+                                    value = eventTimeLabel,
+                                    surface = infoCardSurface,
+                                    brush = infoCardBrush,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                DetailReminderInfoCard(
+                                    title = "实际提醒",
+                                    value = finalReminderLabel,
+                                    surface = infoCardSurface,
+                                    brush = infoCardBrush,
+                                    modifier = Modifier.weight(1f)
+                                )
                             }
 
                             Text(
@@ -1875,73 +2228,80 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 color = palette.textSecondary,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(top = 14.dp, start = 2.dp, bottom = 8.dp)
+                                modifier = Modifier.padding(top = 16.dp, start = 2.dp, bottom = 10.dp)
                             )
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(22.dp),
-                                colors = CardDefaults.cardColors(containerColor = optionCardColor),
-                                border = BorderStroke(
-                                    1.dp,
-                                    if (isDark) Color.White.copy(alpha = 0.08f) else Color.Black.copy(alpha = 0.06f)
-                                )
+                                colors = CardDefaults.cardColors(containerColor = optionCardColor)
                             ) {
-                                Column(modifier = Modifier.fillMaxWidth()) {
-                                    leadOptions.forEachIndexed { index, option ->
-                                        val selected = leadMinutes == option.minutes
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 12.dp, vertical = 12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                                ) {
+                                    (leadOptions + ReminderLeadOption("自定义", -1)).chunked(3).forEach { rowOptions ->
                                         Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .clickable(
-                                                    interactionSource = remember { MutableInteractionSource() },
-                                                    indication = null
-                                                ) { leadMinutes = option.minutes }
-                                                .background(
-                                                    if (selected) optionSelectedColor else Color.Transparent
-                                                )
-                                                .padding(horizontal = 12.dp, vertical = 12.dp),
-                                            verticalAlignment = Alignment.CenterVertically
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
                                         ) {
-                                            Text(
-                                                text = option.label,
-                                                color = palette.textPrimary,
-                                                fontSize = 17.sp,
-                                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                                                modifier = Modifier.weight(1f)
-                                            )
-                                            if (selected) {
-                                                Icon(
-                                                    painter = painterResource(id = R.drawable.ic_sheet_check),
-                                                    contentDescription = null,
-                                                    tint = palette.accent,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
+                                            rowOptions.forEach { option ->
+                                                val isCustomOption = option.minutes < 0
+                                                val selected = if (isCustomOption) usingCustomLead else leadMinutes == option.minutes
+                                                DetailReminderLeadChip(
+                                                    text = option.label,
+                                                    selected = selected,
+                                                    selectedColor = optionSelectedColor,
+                                                    selectedStroke = optionSelectedStroke,
+                                                    idleColor = timeCardSurface,
+                                                    modifier = Modifier.weight(1f)
+                                                ) {
+                                                    if (isCustomOption) {
+                                                        if (!usingCustomLead) {
+                                                            val seedMinutes = leadMinutes.coerceIn(1, customLeadCapMinutes)
+                                                            customLeadHours = seedMinutes / 60
+                                                            customLeadPartMinutes = seedMinutes % 60
+                                                        }
+                                                        leadMinutes = buildCustomLeadMinutes(
+                                                            customLeadHours,
+                                                            customLeadPartMinutes,
+                                                            customLeadCapMinutes
+                                                        )
+                                                    } else {
+                                                        leadMinutes = option.minutes
+                                                    }
+                                                }
+                                            }
+                                            repeat(3 - rowOptions.size) {
+                                                Spacer(modifier = Modifier.weight(1f))
                                             }
                                         }
-                                        if (index < leadOptions.lastIndex) {
-                                            Box(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .height(1.dp)
-                                                    .background(
-                                                        if (isDark) Color.White.copy(alpha = 0.10f)
-                                                        else Color.Black.copy(alpha = 0.08f)
-                                                    )
-                                            )
-                                        }
                                     }
-                                    Text(
-                                        text = "自定义... (0/5)",
-                                        color = palette.accent,
-                                        fontSize = 16.sp,
-                                        fontWeight = FontWeight.SemiBold,
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .padding(horizontal = 14.dp, vertical = 11.dp)
-                                    )
+                                    if (usingCustomLead) {
+                                        DetailReminderCustomLeadEditor(
+                                            hours = customLeadHours,
+                                            minutes = customLeadPartMinutes,
+                                            surface = timeCardSurface,
+                                            onHoursChange = { nextHours ->
+                                                customLeadHours = nextHours
+                                                leadMinutes = buildCustomLeadMinutes(
+                                                    customLeadHours,
+                                                    customLeadPartMinutes,
+                                                    customLeadCapMinutes
+                                                )
+                                            },
+                                            onMinutesChange = { nextMinutes ->
+                                                customLeadPartMinutes = nextMinutes
+                                                leadMinutes = buildCustomLeadMinutes(
+                                                    customLeadHours,
+                                                    customLeadPartMinutes,
+                                                    customLeadCapMinutes
+                                                )
+                                            }
+                                        )
+                                    }
                                 }
                             }
                             Spacer(modifier = Modifier.height(18.dp))
@@ -1961,10 +2321,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
         formatter: (Int) -> String,
         cardColor: Color,
         highlightColor: Color,
+        highlightSheenColor: Color,
         selectedTextColor: Color,
         normalTextColor: Color,
         onSelected: (Int) -> Unit,
-        modifier: Modifier = Modifier
+        modifier: Modifier = Modifier,
+        showContainer: Boolean = true
     ) {
         Column(
             modifier = modifier,
@@ -1979,76 +2341,398 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         clip = true
                         compositingStrategy = CompositingStrategy.Offscreen
                     }
-                    .background(cardColor)
+                    .then(
+                        if (showContainer) Modifier.background(cardColor) else Modifier
+                    )
             ) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
-                        .height(50.dp)
-                        .padding(horizontal = 10.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .height(48.dp)
+                        .padding(horizontal = 8.dp)
+                        .clip(RoundedCornerShape(15.dp))
                         .background(highlightColor)
                 )
-                AndroidView(
-                    factory = { context ->
-                        DetailAnimatedNumberPicker(context).apply {
-                            descendantFocusability = NumberPicker.FOCUS_BLOCK_DESCENDANTS
-                            wrapSelectorWheel = true
-                            background = ColorDrawable(android.graphics.Color.TRANSPARENT)
-                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                            isVerticalFadingEdgeEnabled = false
-                            isHorizontalFadingEdgeEnabled = false
-                            overScrollMode = android.view.View.OVER_SCROLL_NEVER
-                            setFadingEdgeLength(0)
-                            minValue = 0
-                            maxValue = 0
-                            displayedValues = arrayOf("")
-                            setOnValueChangedListener { _, _, newVal ->
-                                if (newVal in values.indices) {
-                                    onSelected(values[newVal])
-                                }
-                            }
-                        }
-                    },
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .padding(horizontal = 8.dp)
+                        .clip(RoundedCornerShape(15.dp))
+                        .background(
+                            Brush.verticalGradient(
+                                colors = listOf(
+                                    highlightSheenColor,
+                                    Color.Transparent
+                                )
+                            )
+                        )
+                )
+                DetailReminderWheel(
+                    values = values,
+                    selectedValue = selectedValue,
+                    formatter = formatter,
+                    selectedTextColor = selectedTextColor,
+                    normalTextColor = normalTextColor,
+                    onSelected = onSelected,
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(138.dp)
-                        .clip(RoundedCornerShape(18.dp)),
-                    update = { picker ->
-                        val displayValues = values.map(formatter).toTypedArray()
-                        val maxValue = (values.size - 1).coerceAtLeast(0)
-                        val shouldResetDisplayedValues =
-                            picker.minValue != 0 ||
-                                picker.maxValue != maxValue ||
-                                picker.displayedValues == null ||
-                                picker.displayedValues.size != displayValues.size ||
-                                !picker.displayedValues.contentEquals(displayValues)
-                        if (shouldResetDisplayedValues) {
-                            picker.displayedValues = null
-                            picker.minValue = 0
-                            picker.maxValue = maxValue
-                            picker.displayedValues = displayValues
-                        }
-                        picker.wrapSelectorWheel = values.size > 1
-                        val targetIndex = values.indexOf(selectedValue).coerceAtLeast(0)
-                        if (picker.value != targetIndex) {
-                            picker.value = targetIndex
-                        }
-                        styleDetailNumberPicker(
-                            picker = picker,
-                            selectedTextColor = selectedTextColor,
-                            normalTextColor = normalTextColor
-                        )
-                    }
+                        .clip(RoundedCornerShape(18.dp))
                 )
             }
             if (label.isNotBlank()) {
                 Text(
                     text = label,
-                    color = rememberNoMemoPalette().textSecondary,
+                    color = rememberNoMemoPalette().textSecondary.copy(alpha = 0.82f),
+                    fontSize = 11.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun DetailReminderWheel(
+        values: List<Int>,
+        selectedValue: Int,
+        formatter: (Int) -> String,
+        selectedTextColor: Color,
+        normalTextColor: Color,
+        onSelected: (Int) -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        if (values.isEmpty()) return
+
+        val wheelVisibleCount = 3
+        val itemHeight = 46.dp
+        val wheelHeight = itemHeight * wheelVisibleCount
+        val repetitionCount = maxOf(values.size * 240, 2400)
+        val baseIndex = remember(values.size) {
+            val middle = repetitionCount / 2
+            middle - positiveMod(middle, values.size)
+        }
+        val selectedValueIndex = values.indexOf(selectedValue).coerceAtLeast(0)
+        val initialIndex = remember(baseIndex, selectedValueIndex) { baseIndex + selectedValueIndex }
+        val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+        val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+        val scope = rememberCoroutineScope()
+        var centeredVirtualIndex by remember(values.size) { mutableStateOf(initialIndex) }
+
+        LaunchedEffect(listState, values) {
+            snapshotFlow { centeredItemIndex(listState) to listState.isScrollInProgress }
+                .distinctUntilChanged()
+                .collect { (centeredIndex, isScrolling) ->
+                    centeredIndex ?: return@collect
+                    centeredVirtualIndex = centeredIndex
+                    if (!isScrolling) {
+                        val resolvedIndex = positiveMod(centeredIndex, values.size)
+                        val resolvedValue = values[resolvedIndex]
+                        if (resolvedValue != selectedValue) {
+                            onSelected(resolvedValue)
+                        }
+                    }
+                }
+        }
+
+        LaunchedEffect(selectedValue, values) {
+            val targetActualIndex = values.indexOf(selectedValue).coerceAtLeast(0)
+            val currentAnchor = centeredItemIndex(listState) ?: centeredVirtualIndex
+            val targetVirtualIndex = nearestVirtualIndexForActual(
+                anchorIndex = currentAnchor,
+                actualIndex = targetActualIndex,
+                size = values.size,
+                minIndex = 0,
+                maxIndex = repetitionCount - 1
+            )
+            centeredVirtualIndex = targetVirtualIndex
+            if (listState.firstVisibleItemIndex != targetVirtualIndex || listState.firstVisibleItemScrollOffset != 0) {
+                listState.scrollToItem(targetVirtualIndex)
+            }
+        }
+
+        LazyColumn(
+            state = listState,
+            modifier = modifier.height(wheelHeight),
+            flingBehavior = flingBehavior,
+            userScrollEnabled = values.size > 1,
+            contentPadding = PaddingValues(vertical = (wheelHeight - itemHeight) / 2),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            items(count = repetitionCount) { virtualIndex ->
+                val actualIndex = positiveMod(virtualIndex, values.size)
+                val itemValue = values[actualIndex]
+                val distance = abs(virtualIndex - centeredVirtualIndex)
+                DetailReminderWheelItem(
+                    text = formatter(itemValue),
+                    distanceFromCenter = distance,
+                    selectedTextColor = selectedTextColor,
+                    normalTextColor = normalTextColor,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(itemHeight)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            scope.launch {
+                                listState.animateScrollToItem(virtualIndex)
+                            }
+                        }
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun DetailReminderWheelItem(
+        text: String,
+        distanceFromCenter: Int,
+        selectedTextColor: Color,
+        normalTextColor: Color,
+        modifier: Modifier = Modifier
+    ) {
+        val style = when {
+            distanceFromCenter == 0 -> Triple(28.sp, FontWeight.Bold, selectedTextColor)
+            distanceFromCenter == 1 -> Triple(19.sp, FontWeight.SemiBold, normalTextColor.copy(alpha = 0.74f))
+            else -> Triple(15.sp, FontWeight.Medium, normalTextColor.copy(alpha = 0.38f))
+        }
+        Box(
+            modifier = modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            Text(
+                text = text,
+                color = style.third,
+                fontSize = style.first,
+                lineHeight = style.first,
+                fontWeight = style.second
+            )
+        }
+    }
+
+    @Composable
+    private fun DetailReminderInfoCard(
+        title: String,
+        value: String,
+        surface: Color,
+        brush: Brush,
+        modifier: Modifier = Modifier
+    ) {
+        val palette = rememberNoMemoPalette()
+        Card(
+            modifier = modifier,
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = surface)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(brush)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 13.dp)
+                ) {
+                    Text(
+                        text = title,
+                        color = palette.textSecondary,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Text(
+                        text = value,
+                        color = palette.textPrimary,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.padding(top = 6.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun DetailReminderLeadChip(
+        text: String,
+        selected: Boolean,
+        selectedColor: Color,
+        selectedStroke: Color,
+        idleColor: Color,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        PressScaleBox(
+            onClick = onClick,
+            modifier = modifier
+                .height(46.dp)
+                .clip(RoundedCornerShape(16.dp))
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(if (selected) selectedColor else idleColor)
+                    .border(
+                        width = 1.dp,
+                        color = if (selected) selectedStroke else Color.Transparent,
+                        shape = RoundedCornerShape(16.dp)
+                    )
+            )
+            Text(
+                text = text,
+                color = palette.textPrimary,
+                fontSize = 15.sp,
+                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+    }
+
+    @Composable
+    private fun DetailReminderCustomLeadEditor(
+        hours: Int,
+        minutes: Int,
+        surface: Color,
+        onHoursChange: (Int) -> Unit,
+        onMinutesChange: (Int) -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = surface)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 12.dp)
+            ) {
+                Text(
+                    text = "自定义提前时间",
+                    color = palette.textSecondary,
                     fontSize = 12.sp,
-                    modifier = Modifier.padding(top = 6.dp)
+                    fontWeight = FontWeight.Medium
+                )
+                Text(
+                    text = formatLeadDuration(hours * 60 + minutes),
+                    color = palette.textPrimary,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    DetailReminderStepperField(
+                        label = "小时",
+                        value = hours,
+                        range = 0..23,
+                        onValueChange = onHoursChange,
+                        modifier = Modifier.weight(1f)
+                    )
+                    DetailReminderStepperField(
+                        label = "分钟",
+                        value = minutes,
+                        range = 0..59,
+                        onValueChange = onMinutesChange,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun DetailReminderStepperField(
+        label: String,
+        value: Int,
+        range: IntRange,
+        onValueChange: (Int) -> Unit,
+        modifier: Modifier = Modifier
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        Column(modifier = modifier) {
+            Text(
+                text = label,
+                color = palette.textSecondary,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                modifier = Modifier.padding(start = 2.dp, bottom = 8.dp)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                DetailReminderStepButton(
+                    text = "−",
+                    enabled = value > range.first,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    onValueChange((value - 1).coerceAtLeast(range.first))
+                }
+                Box(
+                    modifier = Modifier
+                        .weight(1.3f)
+                        .height(42.dp)
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(if (isDark) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.88f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = value.toString().padStart(2, '0'),
+                        color = palette.textPrimary,
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                DetailReminderStepButton(
+                    text = "+",
+                    enabled = value < range.last,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    onValueChange((value + 1).coerceAtMost(range.last))
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun DetailReminderStepButton(
+        text: String,
+        enabled: Boolean,
+        modifier: Modifier = Modifier,
+        onClick: () -> Unit
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val palette = rememberNoMemoPalette()
+        PressScaleBox(
+            onClick = if (enabled) onClick else ({ }),
+            modifier = modifier
+                .height(42.dp)
+                .clip(RoundedCornerShape(14.dp))
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(
+                        if (isDark) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.84f)
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = text,
+                    color = if (enabled) palette.textPrimary else palette.textTertiary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.SemiBold
                 )
             }
         }
@@ -2056,17 +2740,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun defaultDetailReminderTime(): Long {
         val calendar = Calendar.getInstance().apply {
-            add(Calendar.HOUR_OF_DAY, 1)
+            add(Calendar.MINUTE, 1)
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
-        }
-        val minute = calendar.get(Calendar.MINUTE)
-        val normalizedMinute = ((minute + 4) / 5) * 5
-        if (normalizedMinute >= 60) {
-            calendar.add(Calendar.HOUR_OF_DAY, 1)
-            calendar.set(Calendar.MINUTE, 0)
-        } else {
-            calendar.set(Calendar.MINUTE, normalizedMinute)
         }
         return calendar.timeInMillis
     }
@@ -2098,250 +2774,69 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }.getActualMaximum(Calendar.DAY_OF_MONTH)
     }
 
-    private fun styleDetailNumberPicker(
-        picker: NumberPicker,
-        selectedTextColor: Color,
-        normalTextColor: Color
-    ) {
-        val scaledDensity = picker.resources.displayMetrics.scaledDensity
-        val candidateTextPx = 38f * scaledDensity
-        val selectedTextPx = 44f * scaledDensity
-        picker.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-        runCatching {
-            val setDividerHeight = NumberPicker::class.java.getMethod("setSelectionDividerHeight", Int::class.javaPrimitiveType)
-            setDividerHeight.invoke(picker, 0)
-        }
-        runCatching {
-            val selectionDividerField = NumberPicker::class.java.getDeclaredField("mSelectionDivider")
-            selectionDividerField.isAccessible = true
-            selectionDividerField.set(picker, ColorDrawable(android.graphics.Color.TRANSPARENT))
-        }
-        runCatching {
-            val selectionDividerHeightField = NumberPicker::class.java.getDeclaredField("mSelectionDividerHeight")
-            selectionDividerHeightField.isAccessible = true
-            selectionDividerHeightField.setInt(picker, 0)
-        }
-        runCatching {
-            val selectorWheelPaintField = NumberPicker::class.java.getDeclaredField("mSelectorWheelPaint")
-            selectorWheelPaintField.isAccessible = true
-            val paint = selectorWheelPaintField.get(picker) as android.graphics.Paint
-            paint.color = android.graphics.Color.TRANSPARENT
-            paint.textSize = candidateTextPx
-            paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            paint.isFakeBoldText = true
-        }
-        runCatching {
-            val textColorField = NumberPicker::class.java.getDeclaredField("mTextColor")
-            textColorField.isAccessible = true
-            textColorField.setInt(picker, normalTextColor.toArgb())
-        }
-        runCatching {
-            val inputTextField = NumberPicker::class.java.getDeclaredField("mInputText")
-            inputTextField.isAccessible = true
-            val input = inputTextField.get(picker) as? EditText
-            input?.apply {
-                setTextColor(android.graphics.Color.TRANSPARENT)
-                setTextSize(TypedValue.COMPLEX_UNIT_PX, selectedTextPx)
-                typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                isFocusable = false
-                isFocusableInTouchMode = false
-                setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                gravity = android.view.Gravity.CENTER
-                includeFontPadding = false
-                isCursorVisible = false
-                alpha = 0f
-                visibility = android.view.View.INVISIBLE
-            }
-        }
-        for (index in 0 until picker.childCount) {
-            val child = picker.getChildAt(index)
-            if (child is EditText) {
-                child.setTextColor(android.graphics.Color.TRANSPARENT)
-                child.setTextSize(TypedValue.COMPLEX_UNIT_PX, selectedTextPx)
-                child.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                child.isFocusable = false
-                child.isFocusableInTouchMode = false
-                child.setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                child.gravity = android.view.Gravity.CENTER
-                child.includeFontPadding = false
-                child.isCursorVisible = false
-                child.alpha = 0f
-                child.visibility = android.view.View.INVISIBLE
-            }
-        }
-        if (picker is DetailAnimatedNumberPicker) {
-            picker.updateTextStyle(
-                normalColor = normalTextColor.toArgb(),
-                selectedColor = selectedTextColor.toArgb(),
-                normalTextPx = candidateTextPx,
-                selectedTextPx = selectedTextPx
-            )
-        }
-        picker.invalidate()
-    }
-
-    private class DetailAnimatedNumberPicker(
-        context: Context
-    ) : NumberPicker(context) {
-
-        private val drawPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            textAlign = Paint.Align.CENTER
-            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-            isFakeBoldText = true
-        }
-
-        private var normalColor: Int = android.graphics.Color.GRAY
-        private var selectedColor: Int = android.graphics.Color.BLACK
-        private var normalTextPx: Float = 0f
-        private var selectedTextPx: Float = 0f
-
-        fun updateTextStyle(
-            normalColor: Int,
-            selectedColor: Int,
-            normalTextPx: Float,
-            selectedTextPx: Float
-        ) {
-            this.normalColor = normalColor
-            this.selectedColor = selectedColor
-            this.normalTextPx = normalTextPx
-            this.selectedTextPx = selectedTextPx
-            invalidate()
-        }
-
-        override fun dispatchDraw(canvas: Canvas) {
-            super.dispatchDraw(canvas)
-            val selectorIndices = getSelectorIndices() ?: return
-            val selectorElementHeight = getSelectorElementHeight()
-            if (selectorElementHeight <= 0) {
-                return
-            }
-            val currentScrollOffset = getCurrentScrollOffset().toFloat()
-            val min = minValue
-            val max = maxValue
-            val displayed = displayedValues
-            val middleIndex = selectorIndices.size / 2
-            val selectedBaseline = currentScrollOffset + (middleIndex * selectorElementHeight)
-
-            selectorIndices.forEachIndexed { index, rawSelectorValue ->
-                val resolvedValue = resolveSelectorValue(rawSelectorValue, min, max, wrapSelectorWheel)
-                val displayIndex = (resolvedValue - min).coerceIn(0, (max - min).coerceAtLeast(0))
-                val label = displayed?.getOrNull(displayIndex) ?: resolvedValue.toString()
-
-                val itemBaseline = currentScrollOffset + (index * selectorElementHeight)
-                val distance = abs(selectedBaseline - itemBaseline)
-                val focus = (1f - (distance / selectorElementHeight.toFloat())).coerceIn(0f, 1f)
-                val easedFocus = focus * focus * (3f - 2f * focus)
-                val textSize = lerpFloat(normalTextPx, selectedTextPx, easedFocus)
-
-                drawPaint.textSize = textSize
-                drawPaint.color = blendArgb(normalColor, selectedColor, easedFocus)
-                canvas.drawText(label, width / 2f, itemBaseline, drawPaint)
-            }
-        }
-
-        private fun getSelectorIndices(): IntArray? {
-            return runCatching {
-                val field = NumberPicker::class.java.getDeclaredField("mSelectorIndices")
-                field.isAccessible = true
-                field.get(this) as? IntArray
-            }.getOrNull()
-        }
-
-        private fun getCurrentScrollOffset(): Int {
-            return runCatching {
-                val field = NumberPicker::class.java.getDeclaredField("mCurrentScrollOffset")
-                field.isAccessible = true
-                field.getInt(this)
-            }.getOrDefault(0)
-        }
-
-        private fun getSelectorElementHeight(): Int {
-            return runCatching {
-                val field = NumberPicker::class.java.getDeclaredField("mSelectorElementHeight")
-                field.isAccessible = true
-                field.getInt(this)
-            }.getOrDefault(0)
-        }
-
-        private fun resolveSelectorValue(
-            value: Int,
-            min: Int,
-            max: Int,
-            wrap: Boolean
-        ): Int {
-            if (value in min..max) {
-                return value
-            }
-            if (!wrap || max <= min) {
-                return value.coerceIn(min, max)
-            }
-            val range = max - min + 1
-            var normalized = (value - min) % range
-            if (normalized < 0) {
-                normalized += range
-            }
-            return min + normalized
-        }
-
-        private fun lerpFloat(start: Float, stop: Float, fraction: Float): Float {
-            return start + (stop - start) * fraction
-        }
-
-        private fun blendArgb(start: Int, end: Int, fraction: Float): Int {
-            val clamped = fraction.coerceIn(0f, 1f)
-            val startA = android.graphics.Color.alpha(start)
-            val startR = android.graphics.Color.red(start)
-            val startG = android.graphics.Color.green(start)
-            val startB = android.graphics.Color.blue(start)
-            val endA = android.graphics.Color.alpha(end)
-            val endR = android.graphics.Color.red(end)
-            val endG = android.graphics.Color.green(end)
-            val endB = android.graphics.Color.blue(end)
-            return android.graphics.Color.argb(
-                (startA + ((endA - startA) * clamped)).roundToInt(),
-                (startR + ((endR - startR) * clamped)).roundToInt(),
-                (startG + ((endG - startG) * clamped)).roundToInt(),
-                (startB + ((endB - startB) * clamped)).roundToInt()
-            )
-        }
-    }
-
-
-    @Composable
-    private fun DetailMoreMenuPanel(
-        archived: Boolean,
-        editing: Boolean,
-        onEditToggle: () -> Unit,
-        onArchiveToggle: () -> Unit,
-        onAddToReminder: () -> Unit,
-        onDelete: () -> Unit,
-        modifier: Modifier = Modifier
-    ) {
-        NoMemoActionMenuPanel(
-            actions = listOf(
-                NoMemoMenuActionItem(
-                    iconRes = R.drawable.ic_nm_edit,
-                    label = if (editing) "结束编辑" else "编辑内容",
-                    onClick = onEditToggle
-                ),
-                NoMemoMenuActionItem(
-                    iconRes = R.drawable.ic_sheet_calendar,
-                    label = if (archived) getString(R.string.action_unarchive) else getString(R.string.action_archive),
-                    onClick = onArchiveToggle
-                ),
-                NoMemoMenuActionItem(
-                    iconRes = R.drawable.ic_nm_reminder,
-                    label = "添加到提醒事项",
-                    onClick = onAddToReminder
-                ),
-                NoMemoMenuActionItem(
-                    iconRes = R.drawable.ic_nm_delete,
-                    label = getString(R.string.action_delete),
-                    onClick = onDelete,
-                    destructive = true
-                )
-            ),
-            modifier = modifier
+    private fun formatReminderSheetDateTime(time: Long): String {
+        if (time <= 0L) return "未设置"
+        val calendar = Calendar.getInstance().apply { timeInMillis = time }
+        return String.format(
+            "%04d.%02d.%02d %02d:%02d",
+            calendar.get(Calendar.YEAR),
+            calendar.get(Calendar.MONTH) + 1,
+            calendar.get(Calendar.DAY_OF_MONTH),
+            calendar.get(Calendar.HOUR_OF_DAY),
+            calendar.get(Calendar.MINUTE)
         )
+    }
+
+    private fun buildCustomLeadMinutes(
+        hours: Int,
+        minutes: Int,
+        maxMinutes: Int
+    ): Int {
+        val total = hours.coerceAtLeast(0) * 60 + minutes.coerceIn(0, 59)
+        return total.coerceIn(1, maxMinutes)
+    }
+
+    private fun formatLeadDuration(totalMinutes: Int): String {
+        val safeMinutes = totalMinutes.coerceAtLeast(1)
+        val hours = safeMinutes / 60
+        val minutes = safeMinutes % 60
+        return when {
+            hours > 0 && minutes > 0 -> "${hours}小时${minutes}分钟前"
+            hours > 0 -> "${hours}小时前"
+            else -> "${minutes}分钟前"
+        }
+    }
+
+    private fun centeredItemIndex(listState: LazyListState): Int? {
+        val layoutInfo = listState.layoutInfo
+        val center = (layoutInfo.viewportStartOffset + layoutInfo.viewportEndOffset) / 2f
+        return layoutInfo.visibleItemsInfo.minByOrNull { item ->
+            abs((item.offset + item.size / 2f) - center)
+        }?.index
+    }
+
+    private fun nearestVirtualIndexForActual(
+        anchorIndex: Int,
+        actualIndex: Int,
+        size: Int,
+        minIndex: Int,
+        maxIndex: Int
+    ): Int {
+        if (size <= 0) return 0
+        val lower = anchorIndex - positiveMod(anchorIndex - actualIndex, size)
+        val upper = lower + size
+        val lowerClamped = lower.coerceIn(minIndex, maxIndex)
+        val upperClamped = upper.coerceIn(minIndex, maxIndex)
+        return if (abs(lowerClamped - anchorIndex) <= abs(upperClamped - anchorIndex)) {
+            lowerClamped
+        } else {
+            upperClamped
+        }
+    }
+
+    private fun positiveMod(value: Int, mod: Int): Int {
+        if (mod <= 0) return 0
+        val remainder = value % mod
+        return if (remainder < 0) remainder + mod else remainder
     }
 }

@@ -639,22 +639,33 @@ private fun SheetModeChip(
 }
 
 @Composable
-private fun SheetCategorySection(
+fun SheetCategorySection(
     categories: List<CategoryCatalog.CategoryOption>,
     selectedCategory: CategoryCatalog.CategoryOption,
     expanded: Boolean,
     modifier: Modifier = Modifier,
+    detailStyle: Boolean = false,
     onToggleExpanded: () -> Unit,
     onSelectCategory: (CategoryCatalog.CategoryOption) -> Unit
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val selectorShape = RoundedCornerShape(24.dp)
-    val selectorSurface = addSheetCategorySelectorSurface(isDark)
-    val menuSurface = addSheetCategoryMenuSurface(isDark)
+    val selectorShape = RoundedCornerShape(if (detailStyle) 22.dp else 24.dp)
+    val selectorSurface = if (detailStyle) noMemoCardSurfaceColor(isDark) else addSheetCategorySelectorSurface(isDark)
+    val menuSurface = if (detailStyle) noMemoCardSurfaceColor(isDark) else addSheetCategoryMenuSurface(isDark)
     val primaryTextColor = palette.textPrimary
     val chevronColor = if (expanded) palette.textPrimary else palette.textSecondary
     val selectedSummary = selectedCategory.categoryName
+    val selectorHeight = if (detailStyle) 54.dp else 56.dp
+    val selectorTextSize = if (detailStyle) 16.sp else 17.sp
+    val selectorTextWeight = if (detailStyle) FontWeight.Medium else FontWeight.SemiBold
+    val selectorDotStart = if (detailStyle) 18.dp else 16.dp
+    val selectorTextStart = if (detailStyle) 34.dp else 32.dp
+    val selectorChevronEnd = if (detailStyle) 18.dp else 16.dp
+    val selectorChevronSize = if (detailStyle) 18.dp else 20.dp
+    val menuTopPadding = if (detailStyle) 10.dp else 12.dp
+    val menuContentHorizontalPadding = if (detailStyle) 16.dp else 14.dp
+    val menuContentVerticalPadding = if (detailStyle) 14.dp else 12.dp
     val groupedByParent = remember(categories) { categories.groupBy { it.groupCode } }
     val orderedParents = remember(groupedByParent) {
         listOf(CategoryCatalog.GROUP_LIFE, CategoryCatalog.GROUP_WORK, CategoryCatalog.GROUP_QUICK)
@@ -674,7 +685,7 @@ private fun SheetCategorySection(
             onClick = onToggleExpanded,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp)
+                .height(selectorHeight)
                 .clip(selectorShape)
         ) {
             Box(
@@ -687,7 +698,7 @@ private fun SheetCategorySection(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .padding(start = 16.dp)
+                        .padding(start = selectorDotStart)
                         .size(8.dp)
                         .clip(CircleShape)
                         .background(addSheetCategoryDotColor(selectedCategory.categoryCode))
@@ -695,14 +706,14 @@ private fun SheetCategorySection(
                 Text(
                     text = "分类  $selectedSummary",
                     color = primaryTextColor,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    fontSize = selectorTextSize,
+                    fontWeight = selectorTextWeight,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .fillMaxWidth()
-                        .padding(start = 32.dp, end = 46.dp)
+                        .padding(start = selectorTextStart, end = 46.dp)
                 )
                 Icon(
                     painter = painterResource(R.drawable.ic_sheet_chevron_down),
@@ -710,8 +721,8 @@ private fun SheetCategorySection(
                     tint = chevronColor,
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
-                        .padding(end = 16.dp)
-                        .size(20.dp)
+                        .padding(end = selectorChevronEnd)
+                        .size(selectorChevronSize)
                         .rotate(chevronRotation)
                 )
             }
@@ -724,14 +735,17 @@ private fun SheetCategorySection(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 12.dp),
+                    .padding(top = menuTopPadding),
                 shape = RoundedCornerShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = menuSurface)
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 12.dp)
+                        .padding(
+                            horizontal = menuContentHorizontalPadding,
+                            vertical = menuContentVerticalPadding
+                        )
                 ) {
                     orderedParents.forEachIndexed { parentIndex, parentCode ->
                         if (parentIndex > 0) {
@@ -759,6 +773,7 @@ private fun SheetCategorySection(
                                 item = item,
                                 selected = item.categoryCode == selectedCategory.categoryCode,
                                 showDivider = childIndex != children.lastIndex,
+                                compact = detailStyle,
                                 onClick = { onSelectCategory(item) }
                             )
                         }
@@ -774,12 +789,18 @@ private fun SheetCategoryListItem(
     item: CategoryCatalog.CategoryOption,
     selected: Boolean,
     showDivider: Boolean,
+    compact: Boolean = false,
     onClick: () -> Unit
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val rowShape = RoundedCornerShape(12.dp)
     val textColor = palette.textPrimary
+    val rowHeight = if (compact) 46.dp else 48.dp
+    val textSize = if (compact) 16.sp else 17.sp
+    val rowHorizontalPadding = if (compact) 12.dp else 10.dp
+    val textStartPadding = if (compact) 10.dp else 12.dp
+    val checkSize = if (compact) 17.dp else 18.dp
     PressScaleBox(
         onClick = onClick,
         modifier = Modifier
@@ -790,9 +811,9 @@ private fun SheetCategoryListItem(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(48.dp)
+                    .height(rowHeight)
                     .clip(rowShape)
-                    .padding(horizontal = 10.dp),
+                    .padding(horizontal = rowHorizontalPadding),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
@@ -804,20 +825,20 @@ private fun SheetCategoryListItem(
                 Text(
                     text = item.categoryName,
                     color = textColor,
-                    fontSize = 17.sp,
+                    fontSize = textSize,
                     fontWeight = FontWeight.Medium,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     modifier = Modifier
                         .weight(1f)
-                        .padding(start = 12.dp)
+                        .padding(start = textStartPadding)
                 )
                 AnimatedVisibility(visible = selected) {
                     Icon(
                         painter = painterResource(R.drawable.ic_sheet_check),
                         contentDescription = null,
                         tint = palette.accent,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(checkSize)
                     )
                 }
             }

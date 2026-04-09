@@ -648,75 +648,69 @@ class GroupActivity : BaseComposeActivity() {
                         )
                     }
 
-                    NoMemoMenuPopup(
+                    NoMemoAnchoredMenu(
                         expanded = openedAlbum == null && groupListMoreExpanded,
                         onDismissRequest = { groupListMoreExpanded = false },
-                        anchorBounds = groupListMoreAnchorBounds
-                    ) {
-                        NoMemoActionMenuPanel(
-                            actions = listOf(
-                                NoMemoMenuActionItem(
-                                    iconRes = R.drawable.ic_nm_add,
-                                    label = "新增分组",
-                                    onClick = {
-                                        groupListMoreExpanded = false
-                                        showCreateAlbumDialog = true
-                                    }
-                                ),
-                                NoMemoMenuActionItem(
-                                    iconRes = R.drawable.ic_nm_settings,
-                                    label = stringResource(R.string.action_settings),
-                                    onClick = {
-                                        groupListMoreExpanded = false
-                                        onOpenSettings()
-                                    }
-                                )
+                        anchorBounds = groupListMoreAnchorBounds,
+                        actions = listOf(
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_add,
+                                label = "新增分组",
+                                onClick = {
+                                    groupListMoreExpanded = false
+                                    showCreateAlbumDialog = true
+                                }
+                            ),
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_settings,
+                                label = stringResource(R.string.action_settings),
+                                onClick = {
+                                    groupListMoreExpanded = false
+                                    onOpenSettings()
+                                }
                             )
                         )
-                    }
+                    )
 
-                    NoMemoMenuPopup(
+                    NoMemoAnchoredMenu(
                         expanded = openedAlbum != null && detailMoreExpanded,
                         onDismissRequest = { detailMoreExpanded = false },
-                        anchorBounds = detailMoreAnchorBounds
-                    ) {
-                        NoMemoActionMenuPanel(
-                            actions = listOf(
-                                NoMemoMenuActionItem(
-                                    iconRes = R.drawable.ic_nm_edit,
-                                    label = "编辑分组",
-                                    onClick = {
-                                        detailMoreExpanded = false
-                                        openedAlbum?.let { album ->
-                                            editingAlbumId = album.albumId
-                                            albumNameInput = album.name
-                                            albumDescriptionInput = album.description
-                                            showEditAlbumDialog = true
-                                        }
+                        anchorBounds = detailMoreAnchorBounds,
+                        actions = listOf(
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_edit,
+                                label = "编辑分组",
+                                onClick = {
+                                    detailMoreExpanded = false
+                                    openedAlbum?.let { album ->
+                                        editingAlbumId = album.albumId
+                                        albumNameInput = album.name
+                                        albumDescriptionInput = album.description
+                                        showEditAlbumDialog = true
                                     }
-                                ),
-                                NoMemoMenuActionItem(
-                                    iconRes = R.drawable.ic_nm_add,
-                                    label = "新增记忆",
-                                    onClick = {
-                                        detailMoreExpanded = false
-                                        selectedExistingRecordIds = emptySet()
-                                        addExistingSearchQuery = ""
-                                        showAddExistingSheet = true
-                                    }
-                                ),
-                                NoMemoMenuActionItem(
-                                    iconRes = R.drawable.ic_nm_delete,
-                                    label = "删除分组",
-                                    destructive = true,
-                                    onClick = {
-                                        detailMoreExpanded = false
-                                        showDeleteAlbumConfirm = true
-                                    }
-                                )
+                                }
+                            ),
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_add,
+                                label = "新增记忆",
+                                onClick = {
+                                    detailMoreExpanded = false
+                                    selectedExistingRecordIds = emptySet()
+                                    addExistingSearchQuery = ""
+                                    showAddExistingSheet = true
+                                }
+                            ),
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_delete,
+                                label = "删除分组",
+                                destructive = true,
+                                onClick = {
+                                    detailMoreExpanded = false
+                                    showDeleteAlbumConfirm = true
+                                }
                             )
                         )
-                    }
+                    )
 
                     if (showCreateAlbumDialog) {
                         GroupEditAlbumSheet(

@@ -2,6 +2,8 @@
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.PathMeasure
+import android.graphics.RectF
 import android.net.Uri
 import android.os.Build
 import android.util.LruCache
@@ -9,7 +11,6 @@ import android.util.Size
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -22,6 +23,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.BorderStroke
@@ -73,6 +75,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -83,13 +86,17 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -112,21 +119,45 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 private val DockEaseOut = androidx.compose.animation.core.CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+
+object AiProcessingStateRegistry {
+    private val processingState = mutableStateMapOf<String, Boolean>()
+
+    fun markProcessing(recordId: String) {
+        if (recordId.isNotBlank()) {
+            processingState[recordId] = true
+        }
+    }
+
+    fun clearProcessing(recordId: String) {
+        if (recordId.isNotBlank()) {
+            processingState.remove(recordId)
+        }
+    }
+
+    fun isProcessing(recordId: String): Boolean {
+        return processingState[recordId] == true
+    }
+}
 
 private object MemoryThumbnailCache {
     private val exactCache = object : LruCache<String, Bitmap>(24 * 1024) {
@@ -585,8 +616,6 @@ fun NoMemoTopActionButtons(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .padding(top = 0.dp)
-            .offset(y = (-4).dp)
             .zIndex(6f),
         horizontalArrangement = Arrangement.End,
         verticalAlignment = Alignment.CenterVertically
@@ -823,71 +852,37 @@ private fun NoMemoDialogActionButton(
     }
 }
 
-@Composable
-fun NoMemoMoreMenuPanel(
-    modifier: Modifier = Modifier,
-    onOpenSettings: (() -> Unit)? = null,
-    onSelectAll: (() -> Unit)? = null
-) {
-    val actions = buildList {
-        if (onSelectAll != null) {
-            add(NoMemoMenuActionItem(R.drawable.ic_sheet_check, stringResource(R.string.action_select_all), onSelectAll))
-        }
-        if (onOpenSettings != null) {
-            add(NoMemoMenuActionItem(R.drawable.ic_nm_settings, stringResource(R.string.action_settings), onOpenSettings))
-        }
-    }
-    NoMemoActionMenuPanel(
-        actions = actions,
-        modifier = modifier
-    )
-}
+private class NoMemoAnchoredMenuPositionProvider(
+    private val anchorBounds: IntRect,
+    private val verticalGapPx: Int,
+    private val horizontalInsetPx: Int,
+    private val topInsetPx: Int,
+    private val bottomInsetPx: Int
+) : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize
+    ): IntOffset {
+        val maxX = (windowSize.width - horizontalInsetPx - popupContentSize.width)
+            .coerceAtLeast(horizontalInsetPx)
+        val x = (this.anchorBounds.right - popupContentSize.width)
+            .coerceIn(horizontalInsetPx, maxX)
 
-@Composable
-fun NoMemoActionMenuPanel(
-    actions: List<NoMemoMenuActionItem>,
-    modifier: Modifier = Modifier
-) {
-    val isDark = isSystemInDarkTheme()
-    val menuSurface = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))
-    val menuShadowColor = if (isDark) {
-        Color.Black.copy(alpha = 0.20f)
-    } else {
-        Color.Black.copy(alpha = 0.08f)
-    }
-    Card(
-        modifier = modifier
-            .fillMaxWidth()
-            .shadow(
-                elevation = if (isDark) 10.dp else 12.dp,
-                shape = RoundedCornerShape(22.dp),
-                ambientColor = menuShadowColor,
-                spotColor = menuShadowColor
-            ),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(containerColor = menuSurface)
-    ) {
-        Column(
-            modifier = Modifier.padding(vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
-        ) {
-            actions.forEach { item ->
-                NoMemoActionMenuRow(
-                    iconRes = item.iconRes,
-                    label = item.label,
-                    destructive = item.destructive,
-                    onClick = item.onClick,
-                    modifier = Modifier
-                )
-            }
-        }
+        val preferredY = this.anchorBounds.bottom + verticalGapPx
+        val maxY = (windowSize.height - bottomInsetPx - popupContentSize.height)
+            .coerceAtLeast(topInsetPx)
+        val y = if (preferredY <= maxY) preferredY else maxY
+
+        return IntOffset(x, y)
     }
 }
 
 @Composable
-fun NoMemoMenuAnimatedLayer(
+private fun NoMemoAnchoredMenuAnimatedLayer(
     progress: Float,
-    menuWidth: Dp = 164.dp,
+    menuWidth: Dp,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
@@ -910,54 +905,139 @@ fun NoMemoMenuAnimatedLayer(
 }
 
 @Composable
-fun NoMemoMenuPopup(
+fun NoMemoMenuList(
+    actions: List<NoMemoMenuActionItem>,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val panelShape = RoundedCornerShape(20.dp)
+    val panelBase = if (isDark) {
+        noMemoCardSurfaceColor(true, Color.White.copy(alpha = 0.995f))
+    } else {
+        Color.White
+    }
+    val panelBrush = if (isDark) {
+        Brush.verticalGradient(
+            listOf(
+                panelBase.copy(alpha = 0.985f),
+                palette.glassFill.copy(alpha = 0.82f)
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            listOf(
+                Color.White.copy(alpha = 0.995f),
+                Color(0xFFF7F8FB).copy(alpha = 0.995f)
+            )
+        )
+    }
+    val panelStroke = if (isDark) {
+        palette.glassStroke.copy(alpha = 0.42f)
+    } else {
+        Color(0x14000000)
+    }
+    val panelShadow = if (isDark) {
+        Color.Black.copy(alpha = 0.18f)
+    } else {
+        Color(0xFF2A3442).copy(alpha = 0.045f)
+    }
+    val topSheen = if (isDark) {
+        Color.White.copy(alpha = 0.06f)
+    } else {
+        Color.White.copy(alpha = 0.92f)
+    }
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = if (isDark) 10.dp else 12.dp,
+                shape = panelShape,
+                ambientColor = panelShadow,
+                spotColor = panelShadow
+            )
+            .clip(panelShape)
+            .background(panelBrush)
+            .border(1.dp, panelStroke, panelShape)
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(1.dp)
+                .background(topSheen)
+                .alpha(0.55f)
+        )
+        Column(
+            modifier = Modifier.padding(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            actions.forEach { item ->
+                NoMemoAnchoredMenuRow(
+                    iconRes = item.iconRes,
+                    label = item.label,
+                    destructive = item.destructive,
+                    onClick = item.onClick
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun NoMemoAnchoredMenu(
     expanded: Boolean,
     onDismissRequest: () -> Unit,
     anchorBounds: IntRect?,
-    anchorBoundsInRoot: Boolean = false,
-    anchorAdjustment: IntOffset = IntOffset.Zero,
-    menuWidth: Dp = 164.dp,
-    verticalGap: Dp = 8.dp,
-    content: @Composable () -> Unit
+    actions: List<NoMemoMenuActionItem>,
+    menuWidth: Dp = 156.dp,
+    verticalGap: Dp = 8.dp
 ) {
-    val transitionState = remember { MutableTransitionState(false) }
-    transitionState.targetState = expanded
+    if (actions.isEmpty()) return
+
+    var keepMounted by remember { mutableStateOf(expanded) }
     val density = LocalDensity.current
-    val configuration = LocalConfiguration.current
-    val view = LocalView.current
-    val menuWidthPx = with(density) { menuWidth.roundToPx() }
     val verticalGapPx = with(density) { verticalGap.roundToPx() }
-    val screenWidthPx = view.width.takeIf { it > 0 } ?: with(density) { configuration.screenWidthDp.dp.roundToPx() }
     val horizontalInsetPx = with(density) { 12.dp.roundToPx() }
+    val topInsetPx = with(density) { 12.dp.roundToPx() }
+    val bottomInsetPx = with(density) { 12.dp.roundToPx() }
     val popupProgress by animateFloatAsState(
         targetValue = if (expanded) 1f else 0f,
         animationSpec = tween(
             durationMillis = if (expanded) 170 else 120,
             easing = FastOutSlowInEasing
         ),
-        label = "menuPopupProgress"
+        label = "anchoredMenuProgress"
     )
-
-    if ((transitionState.currentState || transitionState.targetState) && anchorBounds != null) {
-        val composeRootLocation = remember(view) {
-            IntArray(2).also(view::getLocationInWindow)
+    LaunchedEffect(expanded) {
+        if (expanded) {
+            keepMounted = true
+        } else {
+            delay(120L)
+            keepMounted = false
         }
-        val anchorRightInRoot = if (anchorBoundsInRoot) {
-            anchorBounds.right
-        } else {
-            anchorBounds.right - composeRootLocation[0]
-        } + anchorAdjustment.x
-        val anchorBottomInRoot = if (anchorBoundsInRoot) {
-            anchorBounds.bottom
-        } else {
-            anchorBounds.bottom - composeRootLocation[1]
-        } + anchorAdjustment.y
-        val popupX = (anchorRightInRoot - menuWidthPx)
-            .coerceIn(horizontalInsetPx, screenWidthPx - horizontalInsetPx - menuWidthPx)
-        val popupY = anchorBottomInRoot + verticalGapPx
+    }
+    val positionProvider = remember(
+        anchorBounds,
+        verticalGapPx,
+        horizontalInsetPx,
+        topInsetPx,
+        bottomInsetPx
+    ) {
+        anchorBounds?.let {
+            NoMemoAnchoredMenuPositionProvider(
+                anchorBounds = it,
+                verticalGapPx = verticalGapPx,
+                horizontalInsetPx = horizontalInsetPx,
+                topInsetPx = topInsetPx,
+                bottomInsetPx = bottomInsetPx
+            )
+        }
+    }
+
+    if (keepMounted && positionProvider != null) {
         Popup(
-            alignment = Alignment.TopStart,
-            offset = IntOffset(popupX, popupY),
+            popupPositionProvider = positionProvider,
             onDismissRequest = onDismissRequest,
             properties = PopupProperties(
                 focusable = true,
@@ -966,49 +1046,61 @@ fun NoMemoMenuPopup(
                 clippingEnabled = false
             )
         ) {
-            NoMemoMenuAnimatedLayer(
+            NoMemoAnchoredMenuAnimatedLayer(
                 progress = popupProgress,
                 menuWidth = menuWidth
             ) {
-                content()
+                NoMemoMenuList(
+                    actions = actions,
+                    modifier = Modifier.width(menuWidth)
+                )
             }
         }
     }
 }
 
 @Composable
-fun NoMemoActionMenuRow(
+private fun NoMemoAnchoredMenuRow(
     iconRes: Int,
     label: String,
     destructive: Boolean = false,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
-    val contentColor = if (destructive) Color(0xFFB42318) else palette.textPrimary
+    val isDark = isSystemInDarkTheme()
+    val contentColor = if (destructive) {
+        if (isDark) Color(0xFFE17B70) else Color(0xFFC55B4F)
+    } else {
+        palette.textPrimary
+    }
     PressScaleBox(
         onClick = onClick,
-        modifier = modifier
+        modifier = Modifier
             .fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 13.dp, vertical = 11.dp),
+                .height(42.dp)
+                .padding(horizontal = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 painter = painterResource(iconRes),
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(17.dp)
             )
             Text(
                 text = label,
                 color = contentColor,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 10.dp)
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier
+                    .padding(start = 10.dp)
+                    .weight(1f)
             )
         }
     }
@@ -1879,6 +1971,17 @@ fun RecordCard(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val isDark = isSystemInDarkTheme()
+    val transientAiProcessing = AiProcessingStateRegistry.isProcessing(record.recordId)
+    val aiProcessing = transientAiProcessing || remember(
+        record.recordId,
+        record.mode,
+        record.engine,
+        record.analysis,
+        record.title,
+        record.summary
+    ) {
+        isAiProcessingRecord(record)
+    }
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val titleText = remember(record.recordId, record.title, record.memory) {
         record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
@@ -1911,7 +2014,8 @@ fun RecordCard(
         NoMemoWidthClass.COMPACT -> if (adaptive.isNarrow) 94.dp else 108.dp
     }
     val previewCornerRadius = if (adaptive.isNarrow) 15.dp else 17.dp
-    val cardShape = RoundedCornerShape(if (adaptive.isNarrow) 28.dp else 30.dp)
+    val cardCornerRadius = if (adaptive.isNarrow) 28.dp else 30.dp
+    val cardShape = RoundedCornerShape(cardCornerRadius)
     val darkCardColor = darkCardBackgroundOverride ?: noMemoCardSurfaceColor(true)
     val lightCardTop = Color.White.copy(alpha = 0.995f)
     val lightCardBottom = Color(0xFFFCFCFD).copy(alpha = 0.995f)
@@ -1980,6 +2084,10 @@ fun RecordCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
+                    if (aiProcessing) {
+                        AiProcessingStatusChip(isDark = isDark)
+                        Spacer(modifier = Modifier.height(10.dp))
+                    }
                     Text(
                         text = titleText,
                         color = palette.textPrimary,
@@ -2039,7 +2147,263 @@ fun RecordCard(
                 }
             }
         }
+        if (aiProcessing) {
+            AiProcessingBorderOverlay(
+                modifier = Modifier.matchParentSize(),
+                cornerRadius = cardCornerRadius,
+                isDark = isDark
+            )
+        }
     }
+}
+
+private fun isAiProcessingRecord(record: MemoryRecord): Boolean {
+    if (record.mode != MemoryRecord.MODE_AI) {
+        return false
+    }
+    val analysisPending = isAiProcessingPlaceholderText(record.analysis)
+    val titlePending = isAiProcessingPlaceholderText(record.title)
+    val summaryPending = isAiProcessingPlaceholderText(record.summary)
+    return analysisPending || titlePending || summaryPending
+}
+
+private fun isAiProcessingPlaceholderText(value: String?): Boolean {
+    val normalized = value?.trim().orEmpty()
+    if (normalized.isEmpty()) return false
+    return normalized == "AI 分析中"
+        || normalized == "AI分析中"
+        || normalized == "AI 分析中..."
+        || normalized == "AI分析中..."
+        || normalized == "分析中"
+        || normalized == "分析中..."
+}
+
+@Composable
+private fun AiProcessingStatusChip(
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val chipBackground = if (isDark) {
+        Color.Black.copy(alpha = 0.78f)
+    } else {
+        Color(0xFF111111).copy(alpha = 0.92f)
+    }
+    val chipBorder = if (isDark) {
+        Color.White.copy(alpha = 0.12f)
+    } else {
+        Color.White.copy(alpha = 0.18f)
+    }
+    val dotBrush = Brush.linearGradient(
+        listOf(
+            Color(0xFFFFBC79),
+            Color(0xFFFFA0B3),
+            Color(0xFFFFE3EC)
+        )
+    )
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(999.dp))
+            .background(chipBackground)
+            .border(
+                width = 1.dp,
+                color = chipBorder,
+                shape = RoundedCornerShape(999.dp)
+            )
+            .padding(horizontal = 9.dp, vertical = 5.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(7.dp)
+                .background(dotBrush, CircleShape)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = "正在分析",
+            color = Color.White.copy(alpha = 0.98f),
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+fun AiProcessingBorderOverlay(
+    cornerRadius: Dp,
+    isDark: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val transition = rememberInfiniteTransition(label = "aiProcessingBorder")
+    val progress by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 2400, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "aiProcessingBorderProgress"
+    )
+    val baseBorder = if (isDark) {
+        Color.White.copy(alpha = 0.22f)
+    } else {
+        Color(0xFFE5ECF8)
+    }
+    val activeBorder = if (isDark) {
+        Color(0xFFFFE5D1).copy(alpha = 0.28f)
+    } else {
+        Color(0xFFF5DDE6).copy(alpha = 0.98f)
+    }
+    val warm = if (isDark) {
+        Color(0xFFFFBC79).copy(alpha = 0.84f)
+    } else {
+        Color(0xFFFFBE86).copy(alpha = 0.96f)
+    }
+    val softPink = if (isDark) {
+        Color(0xFFFFA3B8).copy(alpha = 0.80f)
+    } else {
+        Color(0xFFFFADC1).copy(alpha = 0.90f)
+    }
+    val coolPink = if (isDark) {
+        Color(0xFFFFE1EB).copy(alpha = 0.62f)
+    } else {
+        Color(0xFFFFE4ED).copy(alpha = 0.80f)
+    }
+    Box(
+        modifier = modifier.drawWithCache {
+            val strokeWidth = 1.55.dp.toPx()
+            val inset = strokeWidth / 2f
+            val radiusPx = cornerRadius.toPx()
+            val drawSize = androidx.compose.ui.geometry.Size(
+                width = size.width - strokeWidth,
+                height = size.height - strokeWidth
+            )
+            val topLeft = Offset(inset, inset)
+            val stroke = Stroke(width = strokeWidth)
+
+            val androidPath = android.graphics.Path().apply {
+                addRoundRect(
+                    RectF(
+                        topLeft.x,
+                        topLeft.y,
+                        topLeft.x + drawSize.width,
+                        topLeft.y + drawSize.height
+                    ),
+                    radiusPx,
+                    radiusPx,
+                    android.graphics.Path.Direction.CW
+                )
+            }
+            val pathMeasure = PathMeasure(androidPath, true)
+            val pathLength = pathMeasure.length
+            val tailPath = android.graphics.Path()
+            val midPath = android.graphics.Path()
+            val headPath = android.graphics.Path()
+
+            fun normalizeDistance(distance: Float): Float {
+                if (pathLength <= 0f) return 0f
+                var normalized = distance % pathLength
+                if (normalized < 0f) {
+                    normalized += pathLength
+                }
+                return normalized
+            }
+
+            fun buildSegmentPath(
+                reusablePath: android.graphics.Path,
+                rawStart: Float,
+                rawEnd: Float
+            ) {
+                reusablePath.rewind()
+                if (pathLength <= 0f) return
+                var remaining = rawEnd - rawStart
+                if (remaining <= 0f) return
+                var cursor = rawStart
+                while (remaining > 0.5f) {
+                    val segmentStart = normalizeDistance(cursor)
+                    val available = pathLength - segmentStart
+                    if (available <= 0.5f) {
+                        cursor += 0.5f
+                        remaining -= 0.5f
+                        continue
+                    }
+                    val segmentLength = minOf(remaining, available)
+                    pathMeasure.getSegment(
+                        segmentStart,
+                        segmentStart + segmentLength,
+                        reusablePath,
+                        true
+                    )
+                    cursor += segmentLength
+                    remaining -= segmentLength
+                }
+            }
+
+            onDrawBehind {
+                drawRoundRect(
+                    color = baseBorder,
+                    topLeft = topLeft,
+                    size = drawSize,
+                    cornerRadius = CornerRadius(radiusPx, radiusPx),
+                    style = stroke
+                )
+                drawRoundRect(
+                    color = activeBorder,
+                    topLeft = topLeft,
+                    size = drawSize,
+                    cornerRadius = CornerRadius(radiusPx, radiusPx),
+                    style = Stroke(width = strokeWidth * 0.92f)
+                )
+
+                if (pathLength <= 0f) return@onDrawBehind
+
+                val tailLength = pathLength * 0.20f
+                val midLength = pathLength * 0.13f
+                val headLength = pathLength * 0.07f
+                val headEnd = progress * pathLength
+
+                buildSegmentPath(
+                    reusablePath = tailPath,
+                    rawStart = headEnd - headLength - midLength - tailLength,
+                    rawEnd = headEnd - headLength - midLength
+                )
+                buildSegmentPath(
+                    reusablePath = midPath,
+                    rawStart = headEnd - headLength - midLength,
+                    rawEnd = headEnd - headLength
+                )
+                buildSegmentPath(
+                    reusablePath = headPath,
+                    rawStart = headEnd - headLength,
+                    rawEnd = headEnd
+                )
+
+                drawPath(
+                    path = tailPath.asComposePath(),
+                    color = warm,
+                    style = Stroke(
+                        width = strokeWidth * 0.98f,
+                        cap = StrokeCap.Round
+                    )
+                )
+                drawPath(
+                    path = midPath.asComposePath(),
+                    color = softPink,
+                    style = Stroke(
+                        width = strokeWidth * 1.02f,
+                        cap = StrokeCap.Round
+                    )
+                )
+                drawPath(
+                    path = headPath.asComposePath(),
+                    color = coolPink,
+                    style = Stroke(
+                        width = strokeWidth * 1.08f,
+                        cap = StrokeCap.Round
+                    )
+                )
+            }
+        }
+    )
 }
 
 @Composable

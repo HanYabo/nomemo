@@ -830,29 +830,36 @@ class MainActivity : BaseComposeActivity() {
                             onDismiss = { showDeleteConfirm = false }
                         )
                     }
-                    NoMemoMenuPopup(
+                    NoMemoAnchoredMenu(
                         expanded = moreMenuExpanded,
                         onDismissRequest = { moreMenuExpanded = false },
-                        anchorBounds = moreMenuAnchorBounds
-                    ) {
-                        NoMemoMoreMenuPanel(
-                            onSelectAll = {
-                                moreMenuExpanded = false
-                                showDeleteConfirm = false
-                                if (filteredRecords.isNotEmpty()) {
-                                    selectionModeActive = true
-                                    selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
-                                } else {
-                                    selectionModeActive = false
-                                    selectedRecordIds = emptySet()
+                        anchorBounds = moreMenuAnchorBounds,
+                        actions = listOf(
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_sheet_check,
+                                label = stringResource(R.string.action_select_all),
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    showDeleteConfirm = false
+                                    if (filteredRecords.isNotEmpty()) {
+                                        selectionModeActive = true
+                                        selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
+                                    } else {
+                                        selectionModeActive = false
+                                        selectedRecordIds = emptySet()
+                                    }
                                 }
-                            },
-                            onOpenSettings = {
-                                moreMenuExpanded = false
-                                onOpenSettings()
-                            }
+                            ),
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_settings,
+                                label = stringResource(R.string.action_settings),
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onOpenSettings()
+                                }
+                            )
                         )
-                    }
+                    )
 
                     if (showAddSheet) {
                         AddMemorySheet(

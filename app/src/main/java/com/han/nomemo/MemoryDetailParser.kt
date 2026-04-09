@@ -30,10 +30,15 @@ object MemoryDetailParser {
     )
 
     fun parseStructuredPickupInfo(record: MemoryRecord): StructuredPickupInfo? {
+        val isDelivery = record.categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY
+        val isPickup = record.categoryCode == CategoryCatalog.CODE_LIFE_PICKUP
+        if (!isDelivery && !isPickup) {
+            return null
+        }
         val sourceParts = listOfNotNull(
-            record.sourceText,
             record.note,
             record.memory,
+            record.sourceText,
             record.summary,
             record.title,
             record.analysis
@@ -43,18 +48,9 @@ object MemoryDetailParser {
             return null
         }
 
-        val isDelivery = record.categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY ||
-            containsAnyKeyword(source, "快递", "取件", "驿站", "包裹", "菜鸟", "丰巢")
-        val isPickup = record.categoryCode == CategoryCatalog.CODE_LIFE_PICKUP ||
-            containsAnyKeyword(source, "取餐", "外卖", "奶茶", "美团", "饿了么", "餐柜", "餐品")
-        if (!isDelivery && !isPickup) {
-            return null
-        }
-
         val lines = source.lines()
             .map { it.trim() }
             .filter { it.isNotBlank() }
-
         val code = extractPickupCode(source, lines) ?: return null
         val trackingNumber = extractTrackingNumber(source)
         val company = extractCompanyName(source, isDelivery, trackingNumber)
@@ -376,6 +372,7 @@ object MemoryDetailParser {
                 result = result.substring(0, index).trim()
             }
         }
+        result = trimAfterBusinessNoise(result)
         return result.trim('，', '。', '；', ';', ' ')
     }
 
@@ -386,6 +383,7 @@ object MemoryDetailParser {
         if (containsAnyKeyword(candidate, "校区", "驿站", "快递柜", "自提点", "门店")) score += 6
         if (looksLikeLocationText(candidate)) score += 4
         if (containsAnyKeyword(candidate, "请于", "请在", "前往", "出示", "凭码", "今日", "今天")) score -= 8
+        if (containsAnyKeyword(candidate, "收件人", "联系人", "商品", "物品", "订单号", "单号")) score -= 12
         if (candidate.length > 28) score -= 3
         return score
     }
@@ -606,7 +604,36 @@ object MemoryDetailParser {
         val withoutStatus = text
             .replace(Regex("""状态\s*[:：]?\s*[^\n，。]*"""), "")
             .replace(Regex("""[（(]\s*(今天|今日|现在)?\s*\d{1,2}[:：]\d{2}\s*[)）]"""), "")
-        return sanitizeLocationText(withoutStatus).trim('，', '。', ' ', '\n')
+        return trimAfterBusinessNoise(sanitizeLocationText(withoutStatus))
+            .trim('，', '。', ' ', '\n')
+    }
+
+    private fun trimAfterBusinessNoise(value: String): String {
+        var result = value
+        val stopTokens = listOf(
+            "收件人",
+            "联系人",
+            "联系电话",
+            "手机号",
+            "电话",
+            "商品名",
+            "商品",
+            "物品",
+            "餐品",
+            "订单号",
+            "单号",
+            "运单号",
+            "快递单号",
+            "配送员"
+        )
+        stopTokens.forEach { token ->
+            val index = result.indexOf(token)
+            if (index > 0) {
+                result = result.substring(0, index).trim()
+            }
+        }
+        result = result.removeSuffix("，").removeSuffix(",").trim()
+        return result
     }
 
     private fun isLikelyCodeOrLogisticsText(text: String): Boolean {

@@ -519,18 +519,21 @@ class ReminderActivity : BaseComposeActivity() {
                         )
                     }
 
-                    NoMemoMenuPopup(
+                    NoMemoAnchoredMenu(
                         expanded = moreMenuExpanded,
                         onDismissRequest = { moreMenuExpanded = false },
-                        anchorBounds = moreMenuAnchorBounds
-                    ) {
-                        NoMemoMoreMenuPanel(
-                            onOpenSettings = {
-                                moreMenuExpanded = false
-                                onOpenSettings()
-                            }
+                        anchorBounds = moreMenuAnchorBounds,
+                        actions = listOf(
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_settings,
+                                label = stringResource(R.string.action_settings),
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onOpenSettings()
+                                }
+                            )
                         )
-                    }
+                    )
 
                     if (showAddSheet) {
                         AddMemorySheet(
