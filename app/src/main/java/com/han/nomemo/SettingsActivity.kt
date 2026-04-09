@@ -6,7 +6,9 @@ import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -41,8 +43,6 @@ import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -51,9 +51,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +70,15 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+
+private enum class AiTestTarget {
+    IMAGE,
+    TEXT,
+    MULTIMODAL
+}
+
+private const val API_TEST_IMAGE_DATA_URI =
+    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sX6lz0AAAAASUVORK5CYII="
 
 class SettingsActivity : BaseComposeActivity() {
     companion object {
@@ -129,14 +140,15 @@ class SettingsActivity : BaseComposeActivity() {
                     setResult(RESULT_OK)
                     Toast.makeText(this, "本地数据已清空", Toast.LENGTH_SHORT).show()
                 },
-                onTestApi = { baseUrl, apiKey, model, title, onResult ->
-                    testApiConnection(baseUrl, apiKey, model, title, onResult)
+                onTestApi = { target, baseUrl, apiKey, model, title, onResult ->
+                    testApiConnection(target, baseUrl, apiKey, model, title, onResult)
                 }
             )
         }
     }
 
     private fun testApiConnection(
+        target: AiTestTarget,
         baseUrl: String,
         apiKey: String,
         model: String,
@@ -154,7 +166,7 @@ class SettingsActivity : BaseComposeActivity() {
 
         Thread {
             val result = runCatching {
-                performApiConnectionTest(resolvedBaseUrl, resolvedApiKey, resolvedModel)
+                performApiConnectionTest(target, resolvedBaseUrl, resolvedApiKey, resolvedModel)
             }
             runOnUiThread {
                 result.fold(
@@ -168,6 +180,7 @@ class SettingsActivity : BaseComposeActivity() {
     }
 
     private fun performApiConnectionTest(
+        target: AiTestTarget,
         baseUrl: String,
         apiKey: String,
         model: String
@@ -183,22 +196,7 @@ class SettingsActivity : BaseComposeActivity() {
         }
 
         return try {
-            val payload = JSONObject().apply {
-                put("model", model)
-                put("temperature", 0)
-                put(
-                    "messages",
-                    JSONArray().apply {
-                        put(
-                            JSONObject().apply {
-                                put("role", "user")
-                                put("content", "Reply with OK only.")
-                            }
-                        )
-                    }
-                )
-                put("max_tokens", 8)
-            }
+            val payload = buildApiTestPayload(target, model)
 
             val body = payload.toString().toByteArray(StandardCharsets.UTF_8)
             connection.outputStream.use { output ->
@@ -221,6 +219,76 @@ class SettingsActivity : BaseComposeActivity() {
             "OK"
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun buildApiTestPayload(
+        target: AiTestTarget,
+        model: String
+    ): JSONObject {
+        return JSONObject().apply {
+            put("model", model)
+            put("temperature", 0)
+            put("max_tokens", 8)
+            put(
+                "messages",
+                JSONArray().apply {
+                    put(
+                        when (target) {
+                            AiTestTarget.TEXT -> JSONObject().apply {
+                                put("role", "user")
+                                put("content", "Reply with OK only.")
+                            }
+                            AiTestTarget.IMAGE -> JSONObject().apply {
+                                put("role", "user")
+                                put(
+                                    "content",
+                                    JSONArray().apply {
+                                        put(
+                                            JSONObject().apply {
+                                                put("type", "text")
+                                                put("text", "Inspect the image and reply with OK only.")
+                                            }
+                                        )
+                                        put(
+                                            JSONObject().apply {
+                                                put("type", "image_url")
+                                                put(
+                                                    "image_url",
+                                                    JSONObject().put("url", API_TEST_IMAGE_DATA_URI)
+                                                )
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                            AiTestTarget.MULTIMODAL -> JSONObject().apply {
+                                put("role", "user")
+                                put(
+                                    "content",
+                                    JSONArray().apply {
+                                        put(
+                                            JSONObject().apply {
+                                                put("type", "text")
+                                                put("text", "Text: hello. Read the image and reply with OK only.")
+                                            }
+                                        )
+                                        put(
+                                            JSONObject().apply {
+                                                put("type", "image_url")
+                                                put(
+                                                    "image_url",
+                                                    JSONObject().put("url", API_TEST_IMAGE_DATA_URI)
+                                                )
+                                            }
+                                        )
+                                    }
+                                )
+                            }
+                        }
+                    )
+                }
+            )
         }
     }
 
@@ -284,19 +352,34 @@ class SettingsActivity : BaseComposeActivity() {
         onMultimodalModelPresetChange: (String) -> Unit,
         onThemeModeChange: (String) -> Unit,
         onClearData: () -> Unit,
-        onTestApi: (String, String, String, String, (Boolean, String) -> Unit) -> Unit
+        onTestApi: (AiTestTarget, String, String, String, String, (Boolean, String) -> Unit) -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
         val pageBackground = palette.memoBgStart
-        val cardSurface = if (isDark) noMemoCardSurfaceColor(true, Color(0xFF151717)) else noMemoCardSurfaceColor(false, Color.White)
-        val softSurface = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF6F7FB)
-        val titleColor = if (isDark) Color(0xFFF7F8FA) else Color(0xFF111111)
-        val subtitleColor = if (isDark) Color.White.copy(alpha = 0.58f) else Color(0xFF8E8E93)
-        val sectionLabelColor = if (isDark) Color.White.copy(alpha = 0.48f) else Color(0xFF8F939B)
-        val dividerColor = if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFE8E8EE)
-        val borderColor = if (isDark) Color.White.copy(alpha = 0.03f) else Color(0x14000000)
+        val cardSurface = if (isDark) {
+            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.92f))
+        } else {
+            noMemoCardSurfaceColor(false, Color.White.copy(alpha = 0.985f))
+        }
+        val actionSurface = if (isDark) {
+            Color(0xFF1D2026)
+        } else {
+            Color.White.copy(alpha = 0.985f)
+        }
+        val softSurface = if (isDark) {
+            noMemoCardSurfaceColor(true, Color(0xFF1D2026))
+        } else {
+            Color(0xFFF1F3F6)
+        }
+        val titleColor = palette.textPrimary
+        val subtitleColor = palette.textSecondary
+        val sectionLabelColor = palette.textTertiary
+        val dividerColor = if (isDark) palette.glassStroke.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.055f)
+        val borderColor = Color.Transparent
+        val aiToggleColor = if (isDark) Color(0xFF3BD166) else Color(0xFF30C85A)
+        val aiActionColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
         var aiEnabled by remember { mutableStateOf(settingsStore.aiEnabled) }
         var baseUrl by remember { mutableStateOf(settingsStore.apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }) }
         var apiKey by remember { mutableStateOf(settingsStore.apiKey) }
@@ -306,10 +389,11 @@ class SettingsActivity : BaseComposeActivity() {
         var multimodalModelPreset by remember { mutableStateOf(settingsStore.multimodalModelPreset) }
         var themeMode by remember { mutableStateOf(settingsStore.themeMode) }
         var showClearConfirm by remember { mutableStateOf(false) }
-        var testingApi by remember { mutableStateOf(false) }
+        var testingTarget by remember { mutableStateOf<AiTestTarget?>(null) }
         var showTestResult by remember { mutableStateOf(false) }
         var testResultSuccess by remember { mutableStateOf(false) }
         var testResultMessage by remember { mutableStateOf("") }
+        val scrollState = rememberScrollState()
 
         Box(
             modifier = Modifier
@@ -321,14 +405,12 @@ class SettingsActivity : BaseComposeActivity() {
                     modifier = Modifier
                         .fillMaxSize()
                         .statusBarsPadding()
-                        .navigationBarsPadding()
                         .padding(
                             start = spec.pageHorizontalPadding,
-                            top = 10.dp,
+                            top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
                             end = spec.pageHorizontalPadding,
-                            bottom = 24.dp
+                            bottom = 0.dp
                         )
-                        .verticalScroll(rememberScrollState())
                 ) {
                     SettingsHeader(
                         spec = spec,
@@ -343,71 +425,84 @@ class SettingsActivity : BaseComposeActivity() {
                         onBack = onClose,
                         titleColor = titleColor,
                     )
-                    SettingsRouteBody(
-                        currentRoute = currentRoute,
-                        sectionLabelColor = sectionLabelColor,
-                        titleColor = titleColor,
-                        subtitleColor = subtitleColor,
-                        cardSurface = cardSurface,
-                        softSurface = softSurface,
-                        dividerColor = dividerColor,
-                        borderColor = borderColor,
-                        palette = palette,
-                        aiEnabled = aiEnabled,
-                        baseUrl = baseUrl,
-                        apiKey = apiKey,
-                        customModel = customModel,
-                        imageModelPreset = imageModelPreset,
-                        textModelPreset = textModelPreset,
-                        multimodalModelPreset = multimodalModelPreset,
-                        themeMode = themeMode,
-                        testingApi = testingApi,
-                        onNavigate = onNavigate,
-                        onAiEnabledChange = {
-                            aiEnabled = it
-                            onAiEnabledChange(it)
-                        },
-                        onBaseUrlChange = {
-                            baseUrl = it
-                            onBaseUrlChange(it)
-                        },
-                        onApiKeyChange = {
-                            apiKey = it
-                            onApiKeyChange(it)
-                        },
-                        onCustomModelChange = {
-                            customModel = it
-                            onCustomModelChange(it)
-                        },
-                        onImageModelPresetChange = {
-                            imageModelPreset = it
-                            onImageModelPresetChange(it)
-                        },
-                        onTextModelPresetChange = {
-                            textModelPreset = it
-                            onTextModelPresetChange(it)
-                        },
-                        onMultimodalModelPresetChange = {
-                            multimodalModelPreset = it
-                            onMultimodalModelPresetChange(it)
-                        },
-                        onThemeModeChange = {
-                            themeMode = it
-                            onThemeModeChange(it)
-                        },
-                        onShowClearConfirm = { showClearConfirm = true },
-                        onRunApiTest = { modelName, title ->
-                            if (!testingApi) {
-                                testingApi = true
-                                onTestApi(baseUrl, apiKey, modelName, title) { success, message ->
-                                    testingApi = false
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .weight(1f)
+                            .padding(top = 14.dp)
+                            .verticalScroll(scrollState)
+                            .padding(bottom = 24.dp)
+                    ) {
+                        SettingsRouteBody(
+                            currentRoute = currentRoute,
+                            sectionLabelColor = sectionLabelColor,
+                            titleColor = titleColor,
+                            subtitleColor = subtitleColor,
+                            cardSurface = cardSurface,
+                            softSurface = softSurface,
+                            actionSurface = actionSurface,
+                            dividerColor = dividerColor,
+                            borderColor = borderColor,
+                            aiToggleColor = aiToggleColor,
+                            aiActionColor = aiActionColor,
+                            palette = palette,
+                            aiEnabled = aiEnabled,
+                            baseUrl = baseUrl,
+                            apiKey = apiKey,
+                            customModel = customModel,
+                            imageModelPreset = imageModelPreset,
+                            textModelPreset = textModelPreset,
+                            multimodalModelPreset = multimodalModelPreset,
+                            themeMode = themeMode,
+                            testingTarget = testingTarget,
+                            onNavigate = onNavigate,
+                            onAiEnabledChange = {
+                                aiEnabled = it
+                                onAiEnabledChange(it)
+                            },
+                            onBaseUrlChange = {
+                                baseUrl = it
+                                onBaseUrlChange(it)
+                            },
+                            onApiKeyChange = {
+                                apiKey = it
+                                onApiKeyChange(it)
+                            },
+                            onCustomModelChange = {
+                                customModel = it
+                                onCustomModelChange(it)
+                            },
+                            onImageModelPresetChange = {
+                                imageModelPreset = it
+                                onImageModelPresetChange(it)
+                            },
+                            onTextModelPresetChange = {
+                                textModelPreset = it
+                                onTextModelPresetChange(it)
+                            },
+                            onMultimodalModelPresetChange = {
+                                multimodalModelPreset = it
+                                onMultimodalModelPresetChange(it)
+                            },
+                            onThemeModeChange = {
+                                themeMode = it
+                                onThemeModeChange(it)
+                            },
+                            onShowClearConfirm = { showClearConfirm = true },
+                            onRunApiTest = { target, modelName, title ->
+                                if (testingTarget != null) {
+                                    return@SettingsRouteBody
+                                }
+                                testingTarget = target
+                                onTestApi(target, baseUrl, apiKey, modelName, title) { success, message ->
+                                    testingTarget = null
                                     testResultSuccess = success
                                     testResultMessage = message
                                     showTestResult = true
                                 }
                             }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }
@@ -445,8 +540,11 @@ class SettingsActivity : BaseComposeActivity() {
         subtitleColor: Color,
         cardSurface: Color,
         softSurface: Color,
+        actionSurface: Color,
         dividerColor: Color,
         borderColor: Color,
+        aiToggleColor: Color,
+        aiActionColor: Color,
         palette: NoMemoPalette,
         aiEnabled: Boolean,
         baseUrl: String,
@@ -456,7 +554,7 @@ class SettingsActivity : BaseComposeActivity() {
         textModelPreset: String,
         multimodalModelPreset: String,
         themeMode: String,
-        testingApi: Boolean,
+        testingTarget: AiTestTarget?,
         onNavigate: (SettingsRoute) -> Unit,
         onAiEnabledChange: (Boolean) -> Unit,
         onBaseUrlChange: (String) -> Unit,
@@ -467,7 +565,7 @@ class SettingsActivity : BaseComposeActivity() {
         onMultimodalModelPresetChange: (String) -> Unit,
         onThemeModeChange: (String) -> Unit,
         onShowClearConfirm: () -> Unit,
-        onRunApiTest: (String, String) -> Unit
+        onRunApiTest: (AiTestTarget, String, String) -> Unit
     ) {
         when (currentRoute) {
             SettingsRoute.Home -> {
@@ -502,7 +600,9 @@ class SettingsActivity : BaseComposeActivity() {
                                 onCheckedChange = onAiEnabledChange,
                                 enabled = true,
                                 titleColor = titleColor,
-                                accentColor = palette.accent
+                                subtitleColor = subtitleColor,
+                                accentColor = aiToggleColor,
+                                surface = softSurface
                             )
                             SettingsInfoDivider(dividerColor, modifier = Modifier.padding(vertical = 18.dp))
                             SettingsInlineConfigField(
@@ -522,14 +622,14 @@ class SettingsActivity : BaseComposeActivity() {
                                 isSecret = true,
                                 titleColor = titleColor,
                                 subtitleColor = subtitleColor,
-                                accentColor = palette.accent
+                                accentColor = aiActionColor
                             )
                         }
                     }
 
                     SettingsHelpLinkRow(
                         text = "如何配置 AI 服务？",
-                        color = palette.accent,
+                        color = aiActionColor,
                         modifier = Modifier.padding(top = 14.dp),
                         onClick = { onNavigate(SettingsRoute.AiGuide) }
                     )
@@ -561,7 +661,9 @@ class SettingsActivity : BaseComposeActivity() {
                         dividerColor = dividerColor,
                         titleColor = titleColor,
                         subtitleColor = subtitleColor,
+                        accentColor = aiActionColor,
                         selectedPreset = imageModelPreset,
+                        customModel = customModel,
                         options = listOf(
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_IMAGE_FLASH,
@@ -579,7 +681,8 @@ class SettingsActivity : BaseComposeActivity() {
                                 subtitle = "当前自定义模型：${customModel.ifBlank { BuildConfig.OPENAI_MODEL }}"
                             )
                         ),
-                        onSelect = onImageModelPresetChange
+                        onSelect = onImageModelPresetChange,
+                        onCustomModelChange = onCustomModelChange
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -590,7 +693,9 @@ class SettingsActivity : BaseComposeActivity() {
                         dividerColor = dividerColor,
                         titleColor = titleColor,
                         subtitleColor = subtitleColor,
+                        accentColor = aiActionColor,
                         selectedPreset = textModelPreset,
+                        customModel = customModel,
                         options = listOf(
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_TEXT_FLASH,
@@ -608,7 +713,8 @@ class SettingsActivity : BaseComposeActivity() {
                                 subtitle = "当前自定义模型：${customModel.ifBlank { BuildConfig.OPENAI_MODEL }}"
                             )
                         ),
-                        onSelect = onTextModelPresetChange
+                        onSelect = onTextModelPresetChange,
+                        onCustomModelChange = onCustomModelChange
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -619,7 +725,9 @@ class SettingsActivity : BaseComposeActivity() {
                         dividerColor = dividerColor,
                         titleColor = titleColor,
                         subtitleColor = subtitleColor,
+                        accentColor = aiActionColor,
                         selectedPreset = multimodalModelPreset,
+                        customModel = customModel,
                         options = listOf(
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_MULTIMODAL_FLASH,
@@ -632,34 +740,18 @@ class SettingsActivity : BaseComposeActivity() {
                                 subtitle = "当前自定义模型：${customModel.ifBlank { BuildConfig.OPENAI_MODEL }}"
                             )
                         ),
-                        onSelect = onMultimodalModelPresetChange
+                        onSelect = onMultimodalModelPresetChange,
+                        onCustomModelChange = onCustomModelChange
                     )
 
-                    Spacer(modifier = Modifier.height(16.dp))
-                    SettingsSectionLabel("自定义模型", sectionLabelColor)
-                    SettingsSurfaceCard(
-                        surface = cardSurface,
-                        borderColor = borderColor,
-                        modifier = Modifier.padding(top = 10.dp)
-                    ) {
-                        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
-                            SettingsInlineConfigField(
-                                label = "模型名称",
-                                value = customModel,
-                                onValueChange = onCustomModelChange,
-                                placeholder = BuildConfig.OPENAI_MODEL,
-                                titleColor = titleColor,
-                                subtitleColor = subtitleColor
-                            )
-                        }
-                    }
-
                     SettingsPrimaryAction(
-                        title = if (testingApi) "正在测试..." else "测试图像 API",
+                        title = if (testingTarget == AiTestTarget.IMAGE) "正在测试..." else "测试图像 API",
                         modifier = Modifier.padding(top = 18.dp),
-                        accentColor = palette.accent,
+                        accentColor = aiActionColor,
+                        surface = actionSurface,
                         onClick = {
                             onRunApiTest(
+                                AiTestTarget.IMAGE,
                                 resolveModelPresetValue(
                                     imageModelPreset,
                                     customModel,
@@ -670,11 +762,13 @@ class SettingsActivity : BaseComposeActivity() {
                         }
                     )
                     SettingsPrimaryAction(
-                        title = if (testingApi) "正在测试..." else "测试文本 API",
+                        title = if (testingTarget == AiTestTarget.TEXT) "正在测试..." else "测试文本 API",
                         modifier = Modifier.padding(top = 10.dp),
-                        accentColor = palette.accent,
+                        accentColor = aiActionColor,
+                        surface = actionSurface,
                         onClick = {
                             onRunApiTest(
+                                AiTestTarget.TEXT,
                                 resolveModelPresetValue(
                                     textModelPreset,
                                     customModel,
@@ -685,11 +779,13 @@ class SettingsActivity : BaseComposeActivity() {
                         }
                     )
                     SettingsPrimaryAction(
-                        title = if (testingApi) "正在测试..." else "测试多模态 API",
+                        title = if (testingTarget == AiTestTarget.MULTIMODAL) "正在测试..." else "测试多模态 API",
                         modifier = Modifier.padding(top = 10.dp),
-                        accentColor = palette.accent,
+                        accentColor = aiActionColor,
+                        surface = actionSurface,
                         onClick = {
                             onRunApiTest(
+                                AiTestTarget.MULTIMODAL,
                                 resolveModelPresetValue(
                                     multimodalModelPreset,
                                     customModel,
@@ -900,7 +996,7 @@ class SettingsActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp)
+                .height(spec.topActionButtonSize)
         ) {
             GlassIconCircleButton(
                 iconRes = R.drawable.ic_sheet_back,
@@ -941,7 +1037,7 @@ class SettingsActivity : BaseComposeActivity() {
             modifier = modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = surface),
             shape = RoundedCornerShape(26.dp),
-            border = BorderStroke(1.dp, borderColor)
+            border = null
         ) {
             content()
         }
@@ -1022,33 +1118,35 @@ class SettingsActivity : BaseComposeActivity() {
         onCheckedChange: (Boolean) -> Unit,
         enabled: Boolean,
         titleColor: Color,
-        accentColor: Color
+        subtitleColor: Color,
+        accentColor: Color,
+        surface: Color
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = title,
-                color = titleColor,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.weight(1f)
-            )
-            Switch(
-                checked = checked,
-                onCheckedChange = onCheckedChange,
-                enabled = enabled,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = Color.White,
-                    checkedTrackColor = accentColor,
-                    uncheckedThumbColor = Color.White,
-                    uncheckedTrackColor = Color.White.copy(alpha = 0.18f),
-                    disabledCheckedThumbColor = Color.White,
-                    disabledCheckedTrackColor = accentColor.copy(alpha = 0.92f),
-                    disabledUncheckedThumbColor = Color.White.copy(alpha = 0.72f),
-                    disabledUncheckedTrackColor = Color.White.copy(alpha = 0.12f)
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    color = titleColor,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold
                 )
+                Text(
+                    text = if (checked) "已启用，支持创建与分析流程" else "已关闭，页面内 AI 入口将隐藏",
+                    color = subtitleColor,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            SettingsToggleSwitch(
+                checked = checked,
+                enabled = enabled,
+                accentColor = accentColor,
+                surface = surface,
+                onCheckedChange = onCheckedChange
             )
         }
     }
@@ -1083,8 +1181,8 @@ class SettingsActivity : BaseComposeActivity() {
                 },
                 textStyle = TextStyle(
                     color = titleColor,
-                    fontSize = 14.sp,
-                    lineHeight = 20.sp,
+                    fontSize = 16.sp,
+                    lineHeight = 23.sp,
                     fontWeight = FontWeight.Medium
                 ),
                 modifier = Modifier
@@ -1100,7 +1198,7 @@ class SettingsActivity : BaseComposeActivity() {
                             Text(
                                 text = placeholder,
                                 color = subtitleColor,
-                                fontSize = 14.sp,
+                                fontSize = 16.sp,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -1201,10 +1299,14 @@ class SettingsActivity : BaseComposeActivity() {
         dividerColor: Color,
         titleColor: Color,
         subtitleColor: Color,
+        accentColor: Color,
         selectedPreset: String,
+        customModel: String,
         options: List<SettingsModelOption>,
-        onSelect: (String) -> Unit
+        onSelect: (String) -> Unit,
+        onCustomModelChange: (String) -> Unit
     ) {
+        var customEditorExpanded by remember { mutableStateOf(false) }
         SettingsSurfaceCard(
             surface = surface,
             borderColor = borderColor,
@@ -1212,37 +1314,58 @@ class SettingsActivity : BaseComposeActivity() {
         ) {
             Column {
                 options.forEachIndexed { index, option ->
+                    val customExpanded =
+                        option.preset == SettingsStore.MODEL_PRESET_CUSTOM &&
+                            selectedPreset == SettingsStore.MODEL_PRESET_CUSTOM &&
+                            customEditorExpanded
                     PressScaleBox(
-                        onClick = { onSelect(option.preset) },
+                        onClick = {
+                            if (option.preset == SettingsStore.MODEL_PRESET_CUSTOM) {
+                                if (selectedPreset == SettingsStore.MODEL_PRESET_CUSTOM) {
+                                    customEditorExpanded = !customEditorExpanded
+                                } else {
+                                    customEditorExpanded = false
+                                    onSelect(option.preset)
+                                }
+                            } else {
+                                customEditorExpanded = false
+                                onSelect(option.preset)
+                            }
+                        },
                         modifier = Modifier.fillMaxWidth(),
                         pressedScale = 0.985f
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 20.dp, vertical = 18.dp),
+                                .padding(
+                                    start = 20.dp,
+                                    top = 18.dp,
+                                    end = 20.dp,
+                                    bottom = if (customExpanded) 10.dp else 18.dp
+                                ),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
                                     text = option.title,
                                     color = titleColor,
-                                    fontSize = 15.sp,
+                                    fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold
                                 )
-                                Text(
-                                    text = option.subtitle,
-                                    color = subtitleColor,
-                                    fontSize = 12.sp,
-                                    lineHeight = 18.sp,
-                                    modifier = Modifier.padding(top = 4.dp)
-                                )
-                            }
-                            if (selectedPreset == option.preset) {
-                                Icon(
-                                    painter = painterResource(id = R.drawable.ic_sheet_check),
-                                    contentDescription = null,
-                                    tint = Color(0xFF2E8BFF),
+                            Text(
+                                text = option.subtitle,
+                                color = subtitleColor,
+                                fontSize = 13.sp,
+                                lineHeight = 19.sp,
+                                modifier = Modifier.padding(top = 4.dp)
+                            )
+                        }
+                        if (selectedPreset == option.preset) {
+                            Icon(
+                                painter = painterResource(id = R.drawable.ic_sheet_check),
+                                contentDescription = null,
+                                    tint = accentColor,
                                     modifier = Modifier
                                         .padding(start = 12.dp)
                                         .size(18.dp)
@@ -1251,7 +1374,42 @@ class SettingsActivity : BaseComposeActivity() {
                         }
                     }
                     if (index != options.lastIndex) {
-                        SettingsInfoDivider(dividerColor, modifier = Modifier.padding(horizontal = 20.dp))
+                        SettingsInfoDivider(
+                            color = dividerColor,
+                            startInset = 20.dp,
+                            endInset = 20.dp,
+                            thickness = 0.65.dp
+                        )
+                    }
+                }
+                AnimatedVisibility(
+                    visible = selectedPreset == SettingsStore.MODEL_PRESET_CUSTOM && customEditorExpanded,
+                    enter = fadeIn(
+                        animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                    ) + expandVertically(
+                        animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing),
+                        expandFrom = Alignment.Top
+                    ),
+                    exit = fadeOut(
+                        animationSpec = tween(durationMillis = 110)
+                    ) + shrinkVertically(
+                        animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing),
+                        shrinkTowards = Alignment.Top
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 20.dp, top = 4.dp, end = 20.dp, bottom = 18.dp)
+                    ) {
+                        SettingsInlineModelInputBar(
+                            value = customModel,
+                            onValueChange = onCustomModelChange,
+                            placeholder = BuildConfig.OPENAI_MODEL,
+                            titleColor = titleColor,
+                            subtitleColor = subtitleColor,
+                            onDone = { customEditorExpanded = false }
+                        )
                     }
                 }
             }
@@ -1404,19 +1562,102 @@ class SettingsActivity : BaseComposeActivity() {
     private fun SettingsPrimaryAction(
         title: String,
         accentColor: Color,
+        surface: Color,
         modifier: Modifier = Modifier,
         onClick: () -> Unit
     ) {
-        val palette = rememberNoMemoPalette()
-        NoMemoWideActionButton(
-            text = title,
-            iconRes = R.drawable.ic_sheet_check,
+        PressScaleBox(
             onClick = onClick,
             modifier = modifier.fillMaxWidth(),
-            containerColor = accentColor,
-            contentColor = palette.onAccent,
-            borderColor = accentColor
-        )
+            pressedScale = 0.985f
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(surface)
+                    .padding(horizontal = 20.dp, vertical = 17.dp)
+            ) {
+                Text(
+                    text = title,
+                    color = accentColor,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsInlineModelInputBar(
+        value: String,
+        onValueChange: (String) -> Unit,
+        placeholder: String,
+        titleColor: Color,
+        subtitleColor: Color,
+        onDone: () -> Unit
+    ) {
+        val actionBlue = if (isSystemInDarkTheme()) Color(0xFF2E8BFF) else Color(0xFF1677FF)
+        val focusManager = LocalFocusManager.current
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .weight(1f)
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f))
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = titleColor,
+                        fontSize = 16.sp,
+                        lineHeight = 23.sp,
+                        fontWeight = FontWeight.Medium
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) { innerTextField ->
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        if (value.isBlank()) {
+                            Text(
+                                text = placeholder,
+                                color = subtitleColor,
+                                fontSize = 16.sp
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            }
+            Spacer(modifier = Modifier.size(12.dp))
+            PressScaleBox(
+                onClick = {
+                    focusManager.clearFocus(force = true)
+                    onDone()
+                },
+                pressedScale = 0.985f
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(999.dp))
+                        .background(actionBlue)
+                        .padding(horizontal = 22.dp, vertical = 14.dp)
+                ) {
+                    Text(
+                        text = "完成",
+                        color = Color.White,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
     }
 
     @Composable
@@ -1425,16 +1666,82 @@ class SettingsActivity : BaseComposeActivity() {
         modifier: Modifier = Modifier,
         onClick: () -> Unit
     ) {
-        val dangerColor = Color(0xFFB42318)
-        NoMemoWideActionButton(
-            text = title,
-            iconRes = R.drawable.ic_nm_delete,
+        val isDark = isSystemInDarkTheme()
+        val dangerColor = Color(0xFFFF5A52)
+        val surface = if (isDark) {
+            dangerColor.copy(alpha = 0.18f)
+        } else {
+            dangerColor.copy(alpha = 0.12f)
+        }
+        PressScaleBox(
             onClick = onClick,
             modifier = modifier.fillMaxWidth(),
-            containerColor = dangerColor,
-            contentColor = Color.White,
-            borderColor = dangerColor
+            pressedScale = 0.985f
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(surface)
+                    .padding(horizontal = 20.dp, vertical = 17.dp)
+            ) {
+                Text(
+                    text = title,
+                    color = dangerColor,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.align(Alignment.Center)
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsToggleSwitch(
+        checked: Boolean,
+        enabled: Boolean,
+        accentColor: Color,
+        surface: Color,
+        onCheckedChange: (Boolean) -> Unit
+    ) {
+        val trackColor by animateColorAsState(
+            targetValue = if (checked) accentColor else surface,
+            animationSpec = tween(durationMillis = 180),
+            label = "settingsToggleTrack"
         )
+        val thumbOffsetProgress by animateFloatAsState(
+            targetValue = if (checked) 1f else 0f,
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            label = "settingsToggleThumb"
+        )
+        val travelPx = 24.dp.value * androidx.compose.ui.platform.LocalDensity.current.density
+
+        PressScaleBox(
+            onClick = {
+                if (enabled) {
+                    onCheckedChange(!checked)
+                }
+            },
+            modifier = Modifier.alpha(if (enabled) 1f else 0.52f),
+            pressedScale = 0.985f
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(width = 60.dp, height = 36.dp)
+                    .clip(RoundedCornerShape(999.dp))
+                    .background(trackColor)
+                    .padding(4.dp)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .graphicsLayer { translationX = thumbOffsetProgress * travelPx }
+                        .clip(CircleShape)
+                        .background(Color.White)
+                        .align(Alignment.CenterStart)
+                )
+            }
+        }
     }
 
     @Composable
@@ -1484,11 +1791,18 @@ class SettingsActivity : BaseComposeActivity() {
     }
 
     @Composable
-    private fun SettingsInfoDivider(color: Color, modifier: Modifier = Modifier) {
+    private fun SettingsInfoDivider(
+        color: Color,
+        modifier: Modifier = Modifier,
+        startInset: androidx.compose.ui.unit.Dp = 0.dp,
+        endInset: androidx.compose.ui.unit.Dp = 0.dp,
+        thickness: androidx.compose.ui.unit.Dp = 0.65.dp
+    ) {
         Box(
             modifier = modifier
                 .fillMaxWidth()
-                .height(1.dp)
+                .padding(start = startInset, end = endInset)
+                .height(thickness)
                 .background(color)
         )
     }

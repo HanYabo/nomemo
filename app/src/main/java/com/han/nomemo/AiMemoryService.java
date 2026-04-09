@@ -33,6 +33,12 @@ public class AiMemoryService {
     private final Context context;
     private final SettingsStore settingsStore;
 
+    private enum CloudRequestMode {
+        TEXT,
+        IMAGE,
+        MULTIMODAL
+    }
+
     public AiMemoryService(Context context) {
         this.context = context.getApplicationContext();
         this.settingsStore = new SettingsStore(this.context);
@@ -83,10 +89,11 @@ public class AiMemoryService {
             boolean enhanced,
             @Nullable String detailContext
     ) throws Exception {
+        CloudRequestMode requestMode = resolveRequestMode(userText, imageUri);
         JSONObject payload = new JSONObject();
-        payload.put("model", resolveModelForRequest(userText, imageUri));
+        payload.put("model", resolveModelForMode(requestMode));
         payload.put("temperature", 0.35);
-        payload.put("messages", buildMessages(userText, imageUri, enhanced, detailContext));
+        payload.put("messages", buildMessages(requestMode, userText, imageUri, enhanced, detailContext));
 
         Exception firstError = null;
         try {
@@ -185,16 +192,28 @@ public class AiMemoryService {
         return baseUrl + "/chat/completions";
     }
 
-    private String resolveModelForRequest(String userText, @Nullable Uri imageUri) {
+    private CloudRequestMode resolveRequestMode(String userText, @Nullable Uri imageUri) {
         boolean hasImage = imageUri != null;
         boolean hasText = !TextUtils.isEmpty(userText);
         if (hasImage && hasText) {
-            return settingsStore.resolvedMultimodalModel();
+            return CloudRequestMode.MULTIMODAL;
         }
         if (hasImage) {
-            return settingsStore.resolvedImageModel();
+            return CloudRequestMode.IMAGE;
         }
-        return settingsStore.resolvedTextModel();
+        return CloudRequestMode.TEXT;
+    }
+
+    private String resolveModelForMode(CloudRequestMode requestMode) {
+        switch (requestMode) {
+            case IMAGE:
+                return settingsStore.resolvedImageModel();
+            case MULTIMODAL:
+                return settingsStore.resolvedMultimodalModel();
+            case TEXT:
+            default:
+                return settingsStore.resolvedTextModel();
+        }
     }
 
     String SYSTEM_PROMPT = "# Role\n" +
@@ -224,6 +243,63 @@ public class AiMemoryService {
             "}";
 
     private JSONArray buildMessages(
+            CloudRequestMode requestMode,
+            String userText,
+            @Nullable Uri imageUri,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) throws Exception {
+        switch (requestMode) {
+            case IMAGE:
+                return buildImageMessages(imageUri, enhanced, detailContext);
+            case MULTIMODAL:
+                return buildMultimodalMessages(userText, imageUri, enhanced, detailContext);
+            case TEXT:
+            default:
+                return buildTextMessages(userText, enhanced, detailContext);
+        }
+    }
+
+    private JSONArray buildTextMessages(
+            String userText,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) throws Exception {
+        JSONArray messages = new JSONArray();
+        messages.put(new JSONObject()
+                .put("role", "system")
+                .put("content", buildSystemPrompt(enhanced)));
+        messages.put(new JSONObject()
+                .put("role", "user")
+                .put("content", buildUserPrompt(userText, enhanced, detailContext)));
+        return messages;
+    }
+
+    private JSONArray buildImageMessages(
+            @Nullable Uri imageUri,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) throws Exception {
+        JSONArray messages = new JSONArray();
+        messages.put(new JSONObject()
+                .put("role", "system")
+                .put("content", buildSystemPrompt(enhanced)));
+
+        JSONArray userContent = new JSONArray();
+        userContent.put(new JSONObject()
+                .put("type", "text")
+                .put("text", buildImageOnlyPrompt(enhanced, detailContext)));
+        userContent.put(new JSONObject()
+                .put("type", "image_url")
+                .put("image_url", new JSONObject().put("url", requireImageDataUri(imageUri))));
+
+        messages.put(new JSONObject()
+                .put("role", "user")
+                .put("content", userContent));
+        return messages;
+    }
+
+    private JSONArray buildMultimodalMessages(
             String userText,
             @Nullable Uri imageUri,
             boolean enhanced,
@@ -235,19 +311,12 @@ public class AiMemoryService {
                 .put("content", buildSystemPrompt(enhanced)));
 
         JSONArray userContent = new JSONArray();
-        String textForModel = buildUserPrompt(userText, enhanced, detailContext);
         userContent.put(new JSONObject()
                 .put("type", "text")
-                .put("text", textForModel));
-
-        if (imageUri != null) {
-            String dataUri = buildImageDataUri(imageUri);
-            if (!TextUtils.isEmpty(dataUri)) {
-                userContent.put(new JSONObject()
-                        .put("type", "image_url")
-                        .put("image_url", new JSONObject().put("url", dataUri)));
-            }
-        }
+                .put("text", buildUserPrompt(userText, enhanced, detailContext)));
+        userContent.put(new JSONObject()
+                .put("type", "image_url")
+                .put("image_url", new JSONObject().put("url", requireImageDataUri(imageUri))));
 
         messages.put(new JSONObject()
                 .put("role", "user")
@@ -294,6 +363,35 @@ public class AiMemoryService {
                 .append("3. Make title more focused, summary more readable, analysis more insightful, and memory body more complete.\n")
                 .append("4. If screenshot exists, use visual cues to补充 missing details without inventing facts.\n");
         return builder.toString();
+    }
+    private String buildImageOnlyPrompt(
+            boolean enhanced,
+            @Nullable String detailContext
+    ) {
+        if (!enhanced) {
+            return "Analyze the screenshot only. Extract visible text, codes, dates, times, addresses, pickup numbers and other hard facts. Return a short title and a short summary suitable for a memory card.";
+        }
+
+        StringBuilder builder = new StringBuilder();
+        builder.append("Task: Reanalyze an existing memory entry using the screenshot only.\n\n");
+        if (!TextUtils.isEmpty(detailContext)) {
+            builder.append("Existing memory context:\n")
+                    .append(detailContext)
+                    .append("\n\n");
+        }
+        builder.append("Requirements:\n")
+                .append("1. Extract visible text and preserve all hard facts such as codes, dates, times and addresses.\n")
+                .append("2. Fix OCR noise conservatively and infer structure only when confidence is high.\n")
+                .append("3. Produce a better title, summary, analysis and memory body than the existing version.\n");
+        return builder.toString();
+    }
+
+    private String requireImageDataUri(@Nullable Uri uri) {
+        String dataUri = uri == null ? null : buildImageDataUri(uri);
+        if (TextUtils.isEmpty(dataUri)) {
+            throw new IllegalStateException("Image content is unavailable for the selected AI route.");
+        }
+        return dataUri;
     }
 
     @Nullable
