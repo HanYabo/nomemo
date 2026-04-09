@@ -136,6 +136,7 @@ class GroupActivity : BaseComposeActivity() {
                 selectedCategoryCode = selectedCategoryCode,
                 onSelectCategory = { selectedCategoryCode = it },
                 onDeleteRecord = { record -> deleteRecord(record) },
+                onDeleteRecords = { recordIds -> deleteRecords(recordIds) },
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onOpenMemory = { openMemoryPage() },
                 onOpenReminder = { openReminderPage() },
@@ -243,6 +244,20 @@ class GroupActivity : BaseComposeActivity() {
         }
     }
 
+    private fun deleteRecords(recordIds: Set<String>) {
+        if (recordIds.isEmpty()) return
+        var deletedCount = 0
+        recordIds.forEach { recordId ->
+            if (memoryStore.deleteRecord(recordId)) {
+                deletedCount += 1
+            }
+        }
+        if (deletedCount > 0) {
+            refreshContent()
+            Toast.makeText(this, getString(R.string.delete_selected_success, deletedCount), Toast.LENGTH_SHORT).show()
+        }
+    }
+
     @Composable
     private fun GroupContent(
         allRecords: List<MemoryRecord>,
@@ -250,6 +265,7 @@ class GroupActivity : BaseComposeActivity() {
         selectedCategoryCode: String?,
         onSelectCategory: (String?) -> Unit,
         onDeleteRecord: (MemoryRecord) -> Unit,
+        onDeleteRecords: (Set<String>) -> Unit,
         onOpenDetail: (MemoryRecord) -> Unit,
         onOpenMemory: () -> Unit,
         onOpenReminder: () -> Unit,
@@ -284,6 +300,10 @@ class GroupActivity : BaseComposeActivity() {
         var detailMoreExpanded by remember { mutableStateOf(false) }
         var groupListMoreAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
         var detailMoreAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
+        var selectedAlbumRecordIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+        var albumSelectionModeActive by remember { mutableStateOf(false) }
+        var showRemoveFromAlbumConfirm by remember { mutableStateOf(false) }
+        var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
         var showEditAlbumDialog by remember { mutableStateOf(false) }
         var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
         var editingAlbumId by remember { mutableStateOf<String?>(null) }
@@ -320,6 +340,11 @@ class GroupActivity : BaseComposeActivity() {
             val byId = allRecords.associateBy { it.recordId }
             current.recordIds.mapNotNull { byId[it] }
         }
+        val selectedAlbumRecords = remember(openedRecords, selectedAlbumRecordIds) {
+            openedRecords.filter { selectedAlbumRecordIds.contains(it.recordId) }
+        }
+        val allOpenedRecordsSelected = openedRecords.isNotEmpty() &&
+            openedRecords.all { selectedAlbumRecordIds.contains(it.recordId) }
         val availableExistingRecords = remember(allRecords, currentAlbumRecordIds) {
             // A memory can belong to multiple albums.
             // Only exclude items that are already in the currently opened album.
@@ -395,13 +420,32 @@ class GroupActivity : BaseComposeActivity() {
                 albumList = albumStore.loadAlbums()
             }
         }
+        LaunchedEffect(openedAlbumId) {
+            selectedAlbumRecordIds = emptySet()
+            albumSelectionModeActive = false
+            showRemoveFromAlbumConfirm = false
+            showDeleteSelectedConfirm = false
+        }
+        LaunchedEffect(openedRecords, selectedAlbumRecordIds) {
+            val validIds = openedRecords.map { it.recordId }.toSet()
+            val sanitized = selectedAlbumRecordIds.filterTo(linkedSetOf()) { validIds.contains(it) }.toSet()
+            if (sanitized != selectedAlbumRecordIds) {
+                selectedAlbumRecordIds = sanitized
+            }
+            if (sanitized.isEmpty()) {
+                albumSelectionModeActive = false
+                showRemoveFromAlbumConfirm = false
+                showDeleteSelectedConfirm = false
+            }
+        }
         BackHandler(
             enabled = openedAlbum != null &&
                 !showAddSheet &&
                 !showCreateAlbumDialog &&
                 !showAddExistingSheet &&
                 !showEditAlbumDialog &&
-                !detailMoreExpanded
+                !detailMoreExpanded &&
+                !albumSelectionModeActive
         ) {
             if (openedAsStandaloneDetail) {
                 onCloseAlbumDetail()
@@ -409,6 +453,12 @@ class GroupActivity : BaseComposeActivity() {
                 openedAlbumId = null
             }
             resetDoubleBackExitState()
+        }
+        BackHandler(enabled = albumSelectionModeActive) {
+            albumSelectionModeActive = false
+            selectedAlbumRecordIds = emptySet()
+            showRemoveFromAlbumConfirm = false
+            showDeleteSelectedConfirm = false
         }
         LaunchedEffect(openedAsStandaloneDetail, openedAlbumId, openedAlbum) {
             if (openedAsStandaloneDetail && openedAlbumId != null && openedAlbum == null) {
@@ -539,51 +589,98 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             }
                         } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(bottom = 12.dp)
-                            ) {
-                                Text(
-                                    text = openedAlbum.name,
-                                    color = albumPalette.textPrimary,
-                                    fontSize = if (spec.isNarrow) 20.sp else 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                            if (albumSelectionModeActive) {
+                                Box(
                                     modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .padding(
-                                            start = spec.topActionButtonSize + 24.dp,
-                                            end = spec.topActionButtonSize + 24.dp
-                                        )
-                                )
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
+                                        .fillMaxWidth()
+                                        .padding(bottom = 12.dp)
                                 ) {
                                     GlassIconCircleButton(
-                                        iconRes = R.drawable.ic_sheet_back,
-                                        contentDescription = stringResource(R.string.back),
+                                        iconRes = R.drawable.ic_sheet_close,
+                                        contentDescription = stringResource(R.string.cancel),
                                         onClick = {
-                                            if (openedAsStandaloneDetail) {
-                                                onCloseAlbumDetail()
-                                            } else {
-                                                openedAlbumId = null
-                                            }
-                                        },
-                                        size = spec.topActionButtonSize
-                                    )
-                                    GlassIconCircleButton(
-                                        iconRes = R.drawable.ic_nm_more,
-                                        contentDescription = stringResource(R.string.action_more),
-                                        onClick = {
-                                            detailMoreExpanded = !detailMoreExpanded
+                                            albumSelectionModeActive = false
+                                            selectedAlbumRecordIds = emptySet()
+                                            showRemoveFromAlbumConfirm = false
+                                            showDeleteSelectedConfirm = false
                                         },
                                         size = spec.topActionButtonSize,
-                                        onBoundsChanged = { detailMoreAnchorBounds = it }
+                                        modifier = Modifier.align(Alignment.CenterStart)
                                     )
+                                    Text(
+                                        text = getString(R.string.selected_count_format, selectedAlbumRecords.size),
+                                        color = albumPalette.textPrimary,
+                                        fontSize = if (spec.isNarrow) 20.sp else 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.align(Alignment.Center)
+                                    )
+                                    GlassIconCircleButton(
+                                        iconRes = if (allOpenedRecordsSelected) {
+                                            R.drawable.ic_sheet_deselect_all
+                                        } else {
+                                            R.drawable.ic_sheet_select_all
+                                        },
+                                        contentDescription = if (allOpenedRecordsSelected) "取消全选" else "全选",
+                                        onClick = {
+                                            selectedAlbumRecordIds = if (allOpenedRecordsSelected) {
+                                                emptySet()
+                                            } else {
+                                                openedRecords.map { it.recordId }.toSet()
+                                            }
+                                            showRemoveFromAlbumConfirm = false
+                                            showDeleteSelectedConfirm = false
+                                        },
+                                        size = spec.topActionButtonSize,
+                                        modifier = Modifier.align(Alignment.CenterEnd)
+                                    )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 12.dp)
+                                ) {
+                                    Text(
+                                        text = openedAlbum.name,
+                                        color = albumPalette.textPrimary,
+                                        fontSize = if (spec.isNarrow) 20.sp else 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier
+                                            .align(Alignment.Center)
+                                            .padding(
+                                                start = spec.topActionButtonSize + 24.dp,
+                                                end = spec.topActionButtonSize + 24.dp
+                                            )
+                                    )
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        GlassIconCircleButton(
+                                            iconRes = R.drawable.ic_sheet_back,
+                                            contentDescription = stringResource(R.string.back),
+                                            onClick = {
+                                                if (openedAsStandaloneDetail) {
+                                                    onCloseAlbumDetail()
+                                                } else {
+                                                    openedAlbumId = null
+                                                }
+                                            },
+                                            size = spec.topActionButtonSize
+                                        )
+                                        GlassIconCircleButton(
+                                            iconRes = R.drawable.ic_nm_more,
+                                            contentDescription = stringResource(R.string.action_more),
+                                            onClick = {
+                                                detailMoreExpanded = !detailMoreExpanded
+                                            },
+                                            size = spec.topActionButtonSize,
+                                            onBoundsChanged = { detailMoreAnchorBounds = it }
+                                        )
+                                    }
                                 }
                             }
 
@@ -593,19 +690,48 @@ class GroupActivity : BaseComposeActivity() {
                                     state = albumDetailListState,
                                     contentPadding = PaddingValues(
                                         top = 12.dp,
-                                        bottom = spec.pageBottomPadding + 24.dp
+                                        bottom = if (albumSelectionModeActive && selectedAlbumRecords.isNotEmpty()) {
+                                            spec.pageBottomPadding + if (spec.isNarrow) 18.dp else 22.dp
+                                        } else {
+                                            spec.pageBottomPadding + 24.dp
+                                        }
                                     ),
                                     verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
                                     items(items = openedRecords, key = { it.recordId }) { record ->
+                                        val selected = selectedAlbumRecordIds.contains(record.recordId)
                                         RecordCard(
                                             record = record,
                                             palette = albumPalette,
                                             adaptive = albumAdaptive,
+                                            selected = selected,
                                             allowImageLoading = true,
                                             showShadow = false,
                                             darkCardBackgroundOverride = Color(0xFF1A1A1C),
-                                            onClick = { onOpenDetail(record) }
+                                            onClick = {
+                                                if (albumSelectionModeActive) {
+                                                    selectedAlbumRecordIds = if (selected) {
+                                                        selectedAlbumRecordIds - record.recordId
+                                                    } else {
+                                                        selectedAlbumRecordIds + record.recordId
+                                                    }
+                                                    showRemoveFromAlbumConfirm = false
+                                                    showDeleteSelectedConfirm = false
+                                                } else {
+                                                    onOpenDetail(record)
+                                                }
+                                            },
+                                            onLongPress = {
+                                                detailMoreExpanded = false
+                                                albumSelectionModeActive = true
+                                                selectedAlbumRecordIds = if (selected) {
+                                                    selectedAlbumRecordIds - record.recordId
+                                                } else {
+                                                    selectedAlbumRecordIds + record.recordId
+                                                }
+                                                showRemoveFromAlbumConfirm = false
+                                                showDeleteSelectedConfirm = false
+                                            }
                                         )
                                     }
                                 }
@@ -644,6 +770,21 @@ class GroupActivity : BaseComposeActivity() {
                                     start = spec.pageHorizontalPadding,
                                     end = spec.pageHorizontalPadding,
                                     bottom = if (spec.isNarrow) 10.dp else 14.dp
+                                )
+                        )
+                    } else if (albumSelectionModeActive && selectedAlbumRecords.isNotEmpty()) {
+                        NoMemoSelectionActionDock(
+                            selectedRecords = selectedAlbumRecords,
+                            archiveTextOverride = if (allOpenedRecordsSelected) "全部移出" else "移出",
+                            onArchiveClick = { showRemoveFromAlbumConfirm = true },
+                            onDeleteClick = { showDeleteSelectedConfirm = true },
+                            modifier = Modifier
+                                .align(Alignment.BottomCenter)
+                                .navigationBarsPadding()
+                                .padding(
+                                    start = spec.pageHorizontalPadding,
+                                    end = spec.pageHorizontalPadding,
+                                    bottom = if (spec.isNarrow) 18.dp else 22.dp
                                 )
                         )
                     }
@@ -698,6 +839,22 @@ class GroupActivity : BaseComposeActivity() {
                                     selectedExistingRecordIds = emptySet()
                                     addExistingSearchQuery = ""
                                     showAddExistingSheet = true
+                                }
+                            ),
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_sheet_check,
+                                label = "全选",
+                                onClick = {
+                                    detailMoreExpanded = false
+                                    if (openedRecords.isNotEmpty()) {
+                                        albumSelectionModeActive = true
+                                        selectedAlbumRecordIds = openedRecords.map { it.recordId }.toSet()
+                                        showRemoveFromAlbumConfirm = false
+                                        showDeleteSelectedConfirm = false
+                                    } else {
+                                        albumSelectionModeActive = false
+                                        selectedAlbumRecordIds = emptySet()
+                                    }
                                 }
                             ),
                             NoMemoMenuActionItem(
@@ -827,6 +984,52 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             },
                             onDismiss = { showDeleteAlbumConfirm = false }
+                        )
+                    }
+
+                    if (showRemoveFromAlbumConfirm && openedAlbum != null && selectedAlbumRecords.isNotEmpty()) {
+                        val removingAll = allOpenedRecordsSelected
+                        NoMemoConfirmDialog(
+                            title = if (removingAll) "全部移出" else "移出记忆",
+                            message = if (removingAll) {
+                                "确定将该分组中的全部记忆移出吗？"
+                            } else {
+                                "确定将选中的 ${selectedAlbumRecordIds.size} 条记忆移出这个分组吗？"
+                            },
+                            confirmText = if (removingAll) "全部移出" else "移出",
+                            dismissText = "取消",
+                            destructive = true,
+                            onConfirm = {
+                                val removed = albumStore.removeRecordIds(openedAlbum.albumId, selectedAlbumRecordIds)
+                                showRemoveFromAlbumConfirm = false
+                                if (removed) {
+                                    albumList = albumStore.loadAlbums()
+                                    albumSelectionModeActive = false
+                                    selectedAlbumRecordIds = emptySet()
+                                    Toast.makeText(
+                                        albumContext,
+                                        if (removingAll) "已全部移出" else "已移出分组",
+                                        Toast.LENGTH_SHORT
+                                    ).show()
+                                } else {
+                                    Toast.makeText(albumContext, "移出失败，请重试", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            onDismiss = { showRemoveFromAlbumConfirm = false }
+                        )
+                    }
+
+                    if (showDeleteSelectedConfirm && selectedAlbumRecords.isNotEmpty()) {
+                        NoMemoDeleteConfirmDialog(
+                            title = stringResource(R.string.delete_selected_title),
+                            message = getString(R.string.delete_selected_batch_message, selectedAlbumRecordIds.size),
+                            onConfirm = {
+                                onDeleteRecords(selectedAlbumRecordIds)
+                                showDeleteSelectedConfirm = false
+                                albumSelectionModeActive = false
+                                selectedAlbumRecordIds = emptySet()
+                            },
+                            onDismiss = { showDeleteSelectedConfirm = false }
                         )
                     }
 
@@ -1745,7 +1948,7 @@ class GroupActivity : BaseComposeActivity() {
                             }
 
                             Text(
-                                text = "分组描述（可选）",
+                                text = "分组描述",
                                 color = palette.textSecondary,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,

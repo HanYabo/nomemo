@@ -78,6 +78,29 @@ class GroupAlbumStore(context: Context) {
         return true
     }
 
+    fun removeRecordIds(albumId: String, recordIds: Collection<String>): Boolean {
+        if (recordIds.isEmpty()) {
+            return false
+        }
+        val removing = recordIds.map { it.trim() }.filter { it.isNotEmpty() }.toSet()
+        if (removing.isEmpty()) {
+            return false
+        }
+        val albums = loadAlbums().toMutableList()
+        val index = albums.indexOfFirst { it.albumId == albumId }
+        if (index < 0) {
+            return false
+        }
+        val current = albums[index]
+        val nextIds = current.recordIds.filterNot { removing.contains(it) }
+        if (nextIds == current.recordIds) {
+            return false
+        }
+        albums[index] = current.copy(recordIds = nextIds)
+        saveAlbums(albums)
+        return true
+    }
+
     fun updateAlbum(albumId: String, name: String, description: String): Boolean {
         val trimmedId = albumId.trim()
         val trimmedName = name.trim()

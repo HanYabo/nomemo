@@ -1,5 +1,13 @@
 ﻿package com.han.nomemo
 
+import android.text.Selection
+import android.text.Spannable
+import android.util.TypedValue
+import android.view.ActionMode
+import android.view.Menu
+import android.view.MenuItem
+import android.widget.TextView
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -39,6 +47,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.viewinterop.AndroidView
 
 data class StructuredPickupInfo(
     val sectionTitle: String,
@@ -282,19 +292,58 @@ fun NoMemoDetailSummaryBox(
                 }
             }
         } else {
-            Text(
-                text = value,
-                color = palette.textPrimary,
-                fontSize = memoryDetailBodyFontSize,
-                lineHeight = memoryDetailBodyLineHeight,
-                fontWeight = FontWeight.Normal,
-                modifier = Modifier.padding(
-                    horizontal = memoryDetailContentHorizontalPadding,
-                    vertical = memoryDetailContentVerticalPadding
-                )
+            AndroidView(
+                factory = { context ->
+                    TextView(context).apply {
+                        setTextIsSelectable(true)
+                        setTextColor(palette.textPrimary.toArgb())
+                        setTextSize(TypedValue.COMPLEX_UNIT_SP, memoryDetailBodyFontSize.value)
+                        setLineSpacing(
+                            (memoryDetailBodyLineHeight.value - memoryDetailBodyFontSize.value).coerceAtLeast(0f),
+                            1f
+                        )
+                        typeface = android.graphics.Typeface.DEFAULT
+                        isFocusable = false
+                        isFocusableInTouchMode = false
+                    }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = memoryDetailContentHorizontalPadding,
+                        vertical = memoryDetailContentVerticalPadding
+                    ),
+                update = { textView ->
+                    textView.text = value
+                    textView.setTextColor(palette.textPrimary.toArgb())
+                    textView.setCustomSelectionActionModeCallback(object : ActionMode.Callback {
+                        override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean = true
+                        override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean = false
+                        override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
+                            if (item?.itemId == android.R.id.copy) {
+                                textView.post {
+                                    clearSelectableTextSelection(textView)
+                                    mode?.finish()
+                                }
+                            }
+                            return false
+                        }
+
+                        override fun onDestroyActionMode(mode: ActionMode?) {
+                            clearSelectableTextSelection(textView)
+                        }
+                    })
+                }
             )
         }
     }
+}
+
+private fun clearSelectableTextSelection(textView: TextView) {
+    (textView.text as? Spannable)?.let { spannable ->
+        Selection.removeSelection(spannable)
+    }
+    textView.clearFocus()
 }
 @Composable
 fun NoMemoPickupCodeCard(
@@ -360,9 +409,9 @@ fun NoMemoDetailTitleEditor(
             onValueChange = onValueChange,
             textStyle = TextStyle(
                 color = palette.textPrimary,
-                fontSize = 27.sp,
+                fontSize = 26.sp,
                 fontWeight = FontWeight.Bold,
-                lineHeight = 35.sp
+                lineHeight = 34.sp
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -376,9 +425,9 @@ fun NoMemoDetailTitleEditor(
                     Text(
                         text = "输入标题",
                         color = palette.textTertiary,
-                        fontSize = 27.sp,
+                        fontSize = 26.sp,
                         fontWeight = FontWeight.Bold,
-                        lineHeight = 35.sp
+                        lineHeight = 34.sp
                     )
                 }
                 innerTextField()

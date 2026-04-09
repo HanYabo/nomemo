@@ -20,6 +20,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
@@ -35,6 +36,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -102,6 +104,7 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -593,6 +596,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val density = LocalDensity.current
+        val view = LocalView.current
         val configuration = LocalConfiguration.current
         val statusBarHeightDp = with(density) { statusBarHeightPx.toDp() }
         val previewDecodeMaxSize = remember(configuration.screenWidthDp, configuration.screenHeightDp, density.density) {
@@ -602,6 +606,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var moreMenuAnchorBounds by remember { mutableStateOf<IntRect?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
+        var showEditExitConfirm by remember { mutableStateOf(false) }
+        var hasPendingEditChanges by remember(record?.recordId) { mutableStateOf(false) }
         var showReminderSetupSheet by remember { mutableStateOf(false) }
         var showImagePreview by remember { mutableStateOf(false) }
         var showPreviewActionMenu by remember { mutableStateOf(false) }
@@ -614,6 +620,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         var previewScale by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(1f) }
         var previewOffsetX by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
         var previewOffsetY by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
+        var previewDismissOffsetY by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
+        val previewGestureScope = rememberCoroutineScope()
         val previewTransition = updateTransition(
             targetState = showImagePreview && previewRecord != null,
             label = "memoryDetailPreview"
@@ -643,17 +651,19 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 previewScale = 1f
                 previewOffsetX = 0f
                 previewOffsetY = 0f
+                previewDismissOffsetY = 0f
             }
         }
 
-        BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showReminderSetupSheet || showImagePreview || editing || showPreviewActionMenu) {
+        BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showEditExitConfirm || showReminderSetupSheet || showImagePreview || editing || showPreviewActionMenu) {
             when {
                 showPreviewActionMenu -> showPreviewActionMenu = false
                 showImagePreview -> showImagePreview = false
                 showDeleteConfirm -> showDeleteConfirm = false
+                showEditExitConfirm -> showEditExitConfirm = false
                 showReminderSetupSheet -> showReminderSetupSheet = false
                 moreMenuExpanded -> moreMenuExpanded = false
-                editing -> editing = false
+                editing -> if (hasPendingEditChanges) showEditExitConfirm = true else editing = false
             }
         }
 
@@ -721,15 +731,32 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
                         }
                         val allCategories = remember { CategoryCatalog.getAllCategories() }
+                        val initialCategory = remember(
+                            currentRecord.recordId,
+                            currentRecord.categoryCode,
+                            currentRecord.categoryName
+                        ) {
+                            resolveCategoryOption(currentRecord)
+                        }
                         var draftCategory by remember(
                             currentRecord.recordId,
                             currentRecord.categoryCode,
                             currentRecord.categoryName
                         ) {
-                            mutableStateOf(resolveCategoryOption(currentRecord))
+                            mutableStateOf(initialCategory)
                         }
                         var categoryMenuExpanded by remember(currentRecord.recordId) {
                             mutableStateOf(false)
+                        }
+                        val initialStructuredFields = remember(
+                            currentRecord.recordId,
+                            currentRecord.categoryCode,
+                            pickupInfo?.code,
+                            pickupInfo?.primaryValue,
+                            pickupInfo?.secondaryValue,
+                            pickupInfo?.locationText
+                        ) {
+                            buildEditableStructuredFields(currentRecord.categoryCode, pickupInfo)
                         }
                         var draftStructuredFields by remember(
                             currentRecord.recordId,
@@ -739,7 +766,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             pickupInfo?.secondaryValue,
                             pickupInfo?.locationText
                         ) {
-                            mutableStateOf(buildEditableStructuredFields(currentRecord.categoryCode, pickupInfo))
+                            mutableStateOf(initialStructuredFields)
                         }
                         val activeStructuredPresentation = remember(draftCategory.categoryCode) {
                             structuredPresentation(draftCategory.categoryCode)
@@ -770,14 +797,61 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             }
                         }
                         val displayImageUri = if (editing) draftImageUri else currentRecord.imageUri.orEmpty()
+                        var detailImageAspectRatio by remember(currentRecord.recordId, displayImageUri) {
+                            mutableStateOf<Float?>(null)
+                        }
+                        LaunchedEffect(displayImageUri) {
+                            detailImageAspectRatio = withContext(Dispatchers.IO) {
+                                resolveImageAspectRatio(displayImageUri)
+                            }
+                        }
+                        val detailImageWidthFraction = remember(detailImageAspectRatio) {
+                            detailImageCardWidthFraction(detailImageAspectRatio)
+                        }
                         val collapsedTitleText = if (editing) draftTitle.ifBlank { titleText } else titleText
+                        val hasEditDraftChanges by remember(
+                            draftTitle,
+                            draftSummary,
+                            draftImageUri,
+                            draftCategory,
+                            draftStructuredFields,
+                            titleText,
+                            summaryText,
+                            currentRecord.imageUri,
+                            initialCategory,
+                            initialStructuredFields,
+                            activeStructuredPresentation
+                        ) {
+                            derivedStateOf {
+                                normalizeDetailDraftText(draftTitle) != normalizeDetailDraftText(titleText) ||
+                                    normalizeDetailDraftText(draftSummary) != normalizeDetailDraftText(summaryText) ||
+                                    normalizeDetailDraftText(draftImageUri) != normalizeDetailDraftText(currentRecord.imageUri.orEmpty()) ||
+                                    draftCategory.groupCode != initialCategory.groupCode ||
+                                    draftCategory.categoryCode != initialCategory.categoryCode ||
+                                    draftCategory.categoryName != initialCategory.categoryName ||
+                                    (activeStructuredPresentation != null && hasStructuredDraftChanges(draftStructuredFields, initialStructuredFields))
+                            }
+                        }
+                        LaunchedEffect(hasEditDraftChanges, editing) {
+                            hasPendingEditChanges = editing && hasEditDraftChanges
+                        }
                         val resetEditDrafts = {
                             draftTitle = titleText
                             draftSummary = summaryText
                             draftImageUri = currentRecord.imageUri.orEmpty()
-                            draftCategory = resolveCategoryOption(currentRecord)
-                            draftStructuredFields = buildEditableStructuredFields(currentRecord.categoryCode, pickupInfo)
+                            draftCategory = initialCategory
+                            draftStructuredFields = initialStructuredFields
                             categoryMenuExpanded = false
+                            showEditExitConfirm = false
+                        }
+                        val requestExitEditing = {
+                            categoryMenuExpanded = false
+                            if (hasEditDraftChanges) {
+                                showEditExitConfirm = true
+                            } else {
+                                resetEditDrafts()
+                                editing = false
+                            }
                         }
                         val commitEdits = {
                             val saved = saveEditedRecord(
@@ -791,6 +865,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             if (saved) {
                                 editing = false
                                 categoryMenuExpanded = false
+                                showEditExitConfirm = false
                                 Toast.makeText(this@MemoryDetailActivity, "已保存修改", Toast.LENGTH_SHORT).show()
                             } else {
                                 Toast.makeText(this@MemoryDetailActivity, "保存失败", Toast.LENGTH_SHORT).show()
@@ -817,7 +892,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_sheet_back,
                                     contentDescription = getString(R.string.back),
-                                    onClick = onBack,
+                                    onClick = {
+                                        if (editing) {
+                                            requestExitEditing()
+                                        } else {
+                                            onBack()
+                                        }
+                                    },
                                     size = spec.topActionButtonSize
                                 )
                                 Box(
@@ -865,7 +946,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         if (displayImageUri.isNotBlank()) {
                             Card(
                                 modifier = Modifier
-                                    .fillMaxWidth(0.64f)
+                                    .fillMaxWidth(detailImageWidthFraction)
                                     .align(Alignment.CenterHorizontally)
                                     .onGloballyPositioned { coordinates ->
                                         imageCardBounds = coordinates.boundsInRoot()
@@ -948,9 +1029,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             Text(
                                 text = titleText,
                                 color = palette.textPrimary,
-                                fontSize = if (spec.isNarrow) 27.sp else 31.sp,
+                                fontSize = if (spec.isNarrow) 26.sp else 30.sp,
                                 fontWeight = FontWeight.Bold,
-                                lineHeight = if (spec.isNarrow) 35.sp else 39.sp,
+                                lineHeight = if (spec.isNarrow) 34.sp else 38.sp,
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.padding(start = detailTextStartPadding, top = 20.dp)
@@ -977,7 +1058,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         Text(
                             text = "摘要",
                             color = palette.textPrimary,
-                            fontSize = 16.sp,
+                            fontSize = 17.sp,
                             fontWeight = FontWeight.SemiBold,
                             modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
                         )
@@ -997,7 +1078,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 Text(
                                     text = activeStructuredPresentation.sectionTitle,
                                     color = palette.textPrimary,
-                                    fontSize = 16.sp,
+                                    fontSize = 17.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
                                 )
@@ -1025,7 +1106,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             Text(
                                 text = "地点",
                                 color = palette.textPrimary,
-                                fontSize = 16.sp,
+                                fontSize = 17.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
                             )
@@ -1045,7 +1126,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 Text(
                                     text = info.sectionTitle,
                                     color = palette.textPrimary,
-                                    fontSize = 16.sp,
+                                    fontSize = 17.sp,
                                     fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
                                 )
@@ -1061,7 +1142,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     Text(
                                         text = "地点",
                                         color = palette.textPrimary,
-                                        fontSize = 16.sp,
+                                        fontSize = 17.sp,
                                         fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
                                     )
@@ -1134,9 +1215,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     label = if (editing) "结束编辑" else "编辑内容",
                                     onClick = {
                                         moreMenuExpanded = false
-                                        editing = !editing
-                                        if (!editing) {
-                                            resetEditDrafts()
+                                        if (editing) {
+                                            requestExitEditing()
+                                        } else {
+                                            editing = true
                                         }
                                     }
                                 ),
@@ -1179,11 +1261,25 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 onDismiss = { showDeleteConfirm = false }
                             )
                         }
+
+                        if (showEditExitConfirm) {
+                            NoMemoConfirmDialog(
+                                title = "放弃修改？",
+                                message = "当前编辑内容尚未保存，离开后这些修改会丢失。",
+                                confirmText = "放弃修改",
+                                dismissText = "继续编辑",
+                                destructive = true,
+                                onConfirm = {
+                                    resetEditDrafts()
+                                    editing = false
+                                },
+                                onDismiss = { showEditExitConfirm = false }
+                            )
+                        }
                     }
                 }
 
                 if (previewRecord != null && previewOverlayVisible) {
-                    val previewDismissInteraction = remember { MutableInteractionSource() }
                     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
                     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
                     val previewVerticalInsetPx = with(density) {
@@ -1199,7 +1295,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     } else {
                         imageCardBounds
                     }
-                    val targetRect = remember(
+                    val interactiveRect = remember(
                         screenWidthPx,
                         screenHeightPx,
                         previewImageAspectRatio,
@@ -1216,6 +1312,19 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
                     val previewFillScreen = previewImageAspectRatio != null &&
                         isAspectRatioCloseToScreen(previewImageAspectRatio!!, screenAspectRatio)
+                    val animationTargetRect = remember(
+                        screenWidthPx,
+                        screenHeightPx,
+                        previewImageAspectRatio,
+                        previewFillScreen
+                    ) {
+                        buildPreviewDisplayedImageBounds(
+                            screenWidthPx = screenWidthPx,
+                            screenHeightPx = screenHeightPx,
+                            imageAspectRatio = previewImageAspectRatio,
+                            fillScreen = previewFillScreen
+                        )
+                    }
                     val previewAlpha by previewTransition.animateFloat(
                         transitionSpec = {
                             tween(durationMillis = 280, easing = FastOutSlowInEasing)
@@ -1234,172 +1343,276 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         },
                         label = "previewButtonAlpha"
                     ) { expanded -> if (expanded) 1f else 0f }
-                    val animatedLeft = sourceRect.left + (targetRect.left - sourceRect.left) * previewProgress
-                    val animatedTop = sourceRect.top + (targetRect.top - sourceRect.top) * previewProgress
-                    val animatedWidth = sourceRect.width + (targetRect.width - sourceRect.width) * previewProgress
-                    val animatedHeight = sourceRect.height + (targetRect.height - sourceRect.height) * previewProgress
+                    val animatedLeft = sourceRect.left + (animationTargetRect.left - sourceRect.left) * previewProgress
+                    val animatedTop = sourceRect.top + (animationTargetRect.top - sourceRect.top) * previewProgress
+                    val animatedWidth = sourceRect.width + (animationTargetRect.width - sourceRect.width) * previewProgress
+                    val animatedHeight = sourceRect.height + (animationTargetRect.height - sourceRect.height) * previewProgress
                     val animatedCornerRadius = with(density) {
                         ((1f - previewProgress) * 28.dp.value).dp
                     }
                     val previewInteractive = previewProgress >= 0.98f
+                    val previewInteractionSource = remember(previewRecord?.recordId, previewRecord?.imageUri) {
+                        MutableInteractionSource()
+                    }
                     val clampedPreviewScale = previewScale.coerceIn(1f, 4f)
                     val displayedContentSize = remember(
-                        animatedWidth,
-                        animatedHeight,
+                        interactiveRect.width,
+                        interactiveRect.height,
                         previewImageAspectRatio,
                         previewFillScreen
                     ) {
                         calculatePreviewContentSize(
-                            containerWidthPx = animatedWidth,
-                            containerHeightPx = animatedHeight,
+                            containerWidthPx = interactiveRect.width,
+                            containerHeightPx = interactiveRect.height,
                             imageAspectRatio = previewImageAspectRatio,
                             fillScreen = previewFillScreen
                         )
                     }
+                    val previewMinimumFillScale = remember(
+                        interactiveRect.width,
+                        interactiveRect.height,
+                        displayedContentSize
+                    ) {
+                        calculatePreviewMinimumFillScale(
+                            containerWidthPx = interactiveRect.width,
+                            containerHeightPx = interactiveRect.height,
+                            contentWidthPx = displayedContentSize.first,
+                            contentHeightPx = displayedContentSize.second
+                        )
+                    }
                     val previewButtonSize = adaptive.topActionButtonSize
                     val previewCloseButtonSize = if (adaptive.isNarrow) 68.dp else 76.dp
+                    val dismissThresholdPx = with(density) { 128.dp.toPx() }
+                    val dismissProgress = (abs(previewDismissOffsetY) / dismissThresholdPx).coerceIn(0f, 1f)
+                    val previewBackdropAlpha = previewAlpha * (1f - dismissProgress * 0.45f)
+                    val previewImageContent: @Composable (Modifier) -> Unit = { imageModifier ->
+                        val bitmap = previewBitmap
+                        if (bitmap != null) {
+                            Image(
+                                bitmap = bitmap.asImageBitmap(),
+                                contentDescription = "预览图片",
+                                contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                                modifier = imageModifier
+                            )
+                        } else {
+                            AndroidView(
+                                factory = { ctx ->
+                                    ImageView(ctx).apply {
+                                        adjustViewBounds = false
+                                        scaleType = if (previewFillScreen) {
+                                            ImageView.ScaleType.CENTER_CROP
+                                        } else {
+                                            ImageView.ScaleType.FIT_CENTER
+                                        }
+                                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
+                                    }
+                                },
+                                modifier = imageModifier,
+                                update = { imageView ->
+                                    try {
+                                        imageView.setImageURI(Uri.parse(previewRecord.imageUri))
+                                        imageView.scaleType = if (previewFillScreen) {
+                                            ImageView.ScaleType.CENTER_CROP
+                                        } else {
+                                            ImageView.ScaleType.FIT_CENTER
+                                        }
+                                    } catch (_: Exception) {
+                                        imageView.setImageDrawable(null)
+                                    }
+                                }
+                            )
+                        }
+                    }
 
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
                             .zIndex(20f)
+                            .background(Color.Black.copy(alpha = previewBackdropAlpha))
+                            .clickable(
+                                interactionSource = previewInteractionSource,
+                                indication = null
+                            ) { showImagePreview = false }
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .matchParentSize()
-                                .background(Color.Black.copy(alpha = previewAlpha))
-                                .clickable(
-                                    interactionSource = previewDismissInteraction,
-                                    indication = null,
-                                    onClick = { showImagePreview = false }
-                                )
-                        )
-                        Box(
-                            modifier = Modifier
-                                .offset {
-                                    IntOffset(
-                                        x = animatedLeft.roundToInt(),
-                                        y = animatedTop.roundToInt()
+                        if (!previewInteractive) {
+                            Box(
+                                modifier = Modifier
+                                    .offset {
+                                        IntOffset(
+                                            x = animatedLeft.roundToInt(),
+                                            y = animatedTop.roundToInt()
+                                        )
+                                    }
+                                    .size(
+                                        width = with(density) { animatedWidth.toDp() },
+                                        height = with(density) { animatedHeight.toDp() }
                                     )
-                                }
-                                .size(
-                                    width = with(density) { animatedWidth.toDp() },
-                                    height = with(density) { animatedHeight.toDp() }
-                                )
-                                .clip(RoundedCornerShape(animatedCornerRadius))
-                                .pointerInput(previewInteractive, clampedPreviewScale) {
-                                    if (!previewInteractive) return@pointerInput
-                                    detectTapGestures(
-                                        onDoubleTap = { tapOffset ->
-                                            if (clampedPreviewScale > 1f) {
-                                                previewScale = 1f
-                                                previewOffsetX = 0f
-                                                previewOffsetY = 0f
-                                            } else {
-                                                val targetScale = 2.2f
-                                                val centerX = animatedWidth / 2f
-                                                val centerY = animatedHeight / 2f
-                                                val relativeTapX = tapOffset.x - centerX
-                                                val relativeTapY = tapOffset.y - centerY
-                                                previewScale = targetScale
+                                    .clip(RoundedCornerShape(animatedCornerRadius))
+                            ) {
+                                previewImageContent(Modifier.fillMaxSize())
+                            }
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .offset {
+                                        IntOffset(
+                                            x = interactiveRect.left.roundToInt(),
+                                            y = (interactiveRect.top + previewDismissOffsetY).roundToInt()
+                                        )
+                                    }
+                                    .size(
+                                        width = with(density) { interactiveRect.width.toDp() },
+                                        height = with(density) { interactiveRect.height.toDp() }
+                                    )
+                                    .pointerInput(previewInteractive, clampedPreviewScale, previewMinimumFillScale, displayedContentSize) {
+                                        if (!previewInteractive) return@pointerInput
+                                        detectTapGestures(
+                                            onDoubleTap = { tapOffset ->
+                                                if (clampedPreviewScale > 1f) {
+                                                    previewGestureScope.launch {
+                                                        animatePreviewTransform(
+                                                            startScale = previewScale,
+                                                            endScale = 1f,
+                                                            startOffsetX = previewOffsetX,
+                                                            endOffsetX = 0f,
+                                                            startOffsetY = previewOffsetY,
+                                                            endOffsetY = 0f
+                                                        ) { scale, offsetX, offsetY ->
+                                                            previewScale = scale
+                                                            previewOffsetX = offsetX
+                                                            previewOffsetY = offsetY
+                                                        }
+                                                    }
+                                                } else {
+                                                    val targetScale = maxOf(2.4f, previewMinimumFillScale).coerceIn(1f, 4f)
+                                                    val centerX = interactiveRect.width / 2f
+                                                    val centerY = interactiveRect.height / 2f
+                                                    val relativeTapX = tapOffset.x - centerX
+                                                    val relativeTapY = tapOffset.y - centerY
+                                                    val targetOffsetX = clampPreviewTranslation(
+                                                        containerSizePx = interactiveRect.width,
+                                                        contentSizePx = displayedContentSize.first,
+                                                        scale = targetScale,
+                                                        translation = relativeTapX * (1f - targetScale)
+                                                    )
+                                                    val targetOffsetY = clampPreviewTranslation(
+                                                        containerSizePx = interactiveRect.height,
+                                                        contentSizePx = displayedContentSize.second,
+                                                        scale = targetScale,
+                                                        translation = relativeTapY * (1f - targetScale)
+                                                    )
+                                                    previewGestureScope.launch {
+                                                        animatePreviewTransform(
+                                                            startScale = previewScale,
+                                                            endScale = targetScale,
+                                                            startOffsetX = previewOffsetX,
+                                                            endOffsetX = targetOffsetX,
+                                                            startOffsetY = previewOffsetY,
+                                                            endOffsetY = targetOffsetY
+                                                        ) { scale, offsetX, offsetY ->
+                                                            previewScale = scale
+                                                            previewOffsetX = offsetX
+                                                            previewOffsetY = offsetY
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                                    .pointerInput(previewInteractive, clampedPreviewScale) {
+                                        if (!previewInteractive || clampedPreviewScale > 1.02f) return@pointerInput
+                                        detectVerticalDragGestures(
+                                            onVerticalDrag = { change, dragAmount ->
+                                                change.consume()
+                                                previewDismissOffsetY += dragAmount
+                                            },
+                                            onDragEnd = {
+                                                if (abs(previewDismissOffsetY) >= dismissThresholdPx) {
+                                                    showImagePreview = false
+                                                } else {
+                                                    previewGestureScope.launch {
+                                                        animatePreviewDismissOffset(
+                                                            startOffsetY = previewDismissOffsetY,
+                                                            endOffsetY = 0f
+                                                        ) { offsetY ->
+                                                            previewDismissOffsetY = offsetY
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            onDragCancel = {
+                                                previewGestureScope.launch {
+                                                    animatePreviewDismissOffset(
+                                                        startOffsetY = previewDismissOffsetY,
+                                                        endOffsetY = 0f
+                                                    ) { offsetY ->
+                                                        previewDismissOffsetY = offsetY
+                                                    }
+                                                }
+                                            }
+                                        )
+                                    }
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(Color.Black)
+                                        .pointerInput(previewInteractive, interactiveRect.width, interactiveRect.height, displayedContentSize) {
+                                            if (!previewInteractive) return@pointerInput
+                                            detectTransformGestures { centroid, pan, zoom, _ ->
+                                                val currentScale = previewScale.coerceIn(1f, 4f)
+                                                val nextScale = (currentScale * zoom).coerceIn(1f, 4f)
+                                                val scaleFactor = if (currentScale == 0f) 1f else nextScale / currentScale
+                                                val centroidX = centroid.x - (interactiveRect.width / 2f)
+                                                val centroidY = centroid.y - (interactiveRect.height / 2f)
+                                                val nextOffsetX =
+                                                    (previewOffsetX * scaleFactor) +
+                                                        (centroidX * (1f - scaleFactor)) +
+                                                        pan.x
+                                                val nextOffsetY =
+                                                    (previewOffsetY * scaleFactor) +
+                                                        (centroidY * (1f - scaleFactor)) +
+                                                        pan.y
+                                                previewScale = nextScale
                                                 previewOffsetX = clampPreviewTranslation(
-                                                    containerSizePx = animatedWidth,
+                                                    containerSizePx = interactiveRect.width,
                                                     contentSizePx = displayedContentSize.first,
-                                                    scale = targetScale,
-                                                    translation = relativeTapX * (1f - targetScale)
+                                                    scale = nextScale,
+                                                    translation = nextOffsetX
                                                 )
                                                 previewOffsetY = clampPreviewTranslation(
-                                                    containerSizePx = animatedHeight,
+                                                    containerSizePx = interactiveRect.height,
                                                     contentSizePx = displayedContentSize.second,
-                                                    scale = targetScale,
-                                                    translation = relativeTapY * (1f - targetScale)
+                                                    scale = nextScale,
+                                                    translation = nextOffsetY
                                                 )
                                             }
                                         }
-                                    )
-                                }
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black)
-                                    .pointerInput(previewInteractive, animatedWidth, animatedHeight, displayedContentSize) {
-                                        if (!previewInteractive) return@pointerInput
-                                        detectTransformGestures { centroid, pan, zoom, _ ->
-                                            val currentScale = previewScale.coerceIn(1f, 4f)
-                                            val nextScale = (currentScale * zoom).coerceIn(1f, 4f)
-                                            val scaleFactor = if (currentScale == 0f) 1f else nextScale / currentScale
-                                            val centroidX = centroid.x - (animatedWidth / 2f)
-                                            val centroidY = centroid.y - (animatedHeight / 2f)
-                                            val nextOffsetX = (previewOffsetX * scaleFactor) + (centroidX * (1f - scaleFactor)) + pan.x
-                                            val nextOffsetY = (previewOffsetY * scaleFactor) + (centroidY * (1f - scaleFactor)) + pan.y
-                                            previewScale = nextScale
-                                            previewOffsetX = clampPreviewTranslation(
-                                                containerSizePx = animatedWidth,
-                                                contentSizePx = displayedContentSize.first,
-                                                scale = nextScale,
-                                                translation = nextOffsetX
-                                            )
-                                            previewOffsetY = clampPreviewTranslation(
-                                                containerSizePx = animatedHeight,
-                                                contentSizePx = displayedContentSize.second,
-                                                scale = nextScale,
-                                                translation = nextOffsetY
-                                            )
-                                        }
-                                    }
-                            ) {
-                                val bitmap = previewBitmap
-                                if (bitmap != null) {
-                                    Image(
-                                        bitmap = bitmap.asImageBitmap(),
-                                        contentDescription = "预览图片",
-                                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
-                                        modifier = Modifier
+                                ) {
+                                    previewImageContent(
+                                        Modifier
                                             .fillMaxSize()
                                             .graphicsLayer {
                                                 scaleX = clampedPreviewScale
                                                 scaleY = clampedPreviewScale
                                                 translationX = clampPreviewTranslation(
-                                                    containerSizePx = animatedWidth,
+                                                    containerSizePx = interactiveRect.width,
                                                     contentSizePx = displayedContentSize.first,
                                                     scale = clampedPreviewScale,
                                                     translation = previewOffsetX
                                                 )
                                                 translationY = clampPreviewTranslation(
-                                                    containerSizePx = animatedHeight,
+                                                    containerSizePx = interactiveRect.height,
                                                     contentSizePx = displayedContentSize.second,
                                                     scale = clampedPreviewScale,
                                                     translation = previewOffsetY
                                                 )
                                             }
                                     )
-                                } else {
-                                    AndroidView(
-                                        factory = { ctx ->
-                                            ImageView(ctx).apply {
-                                                adjustViewBounds = false
-                                                scaleType = ImageView.ScaleType.FIT_CENTER
-                                                setBackgroundColor(android.graphics.Color.BLACK)
-                                            }
-                                        },
-                                        modifier = Modifier.fillMaxSize(),
-                                        update = { imageView ->
-                                            try {
-                                                imageView.setImageURI(Uri.parse(previewRecord.imageUri))
-                                                imageView.scaleType = if (previewFillScreen) {
-                                                    ImageView.ScaleType.CENTER_CROP
-                                                } else {
-                                                    ImageView.ScaleType.FIT_CENTER
-                                                }
-                                            } catch (_: Exception) {
-                                                imageView.setImageDrawable(null)
-                                            }
-                                        }
-                                    )
                                 }
                             }
                         }
+
                         MemoryDetailPreviewIconButton(
                             iconRes = R.drawable.ic_nm_more,
                             contentDescription = "更多操作",
@@ -1451,7 +1664,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         )
                     }
                 }
-            }
 
             record?.let { currentRecord ->
                 DetailReminderSetupSheet(
@@ -1469,6 +1681,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
                 )
             }
+        }
         }
     }
 
@@ -1533,28 +1746,29 @@ class MemoryDetailActivity : BaseComposeActivity() {
         screenAspectRatio: Float,
         verticalInsetPx: Float
     ): Rect {
-        val shouldFillScreen = imageAspectRatio != null &&
-            isAspectRatioCloseToScreen(imageAspectRatio, screenAspectRatio)
-        if (shouldFillScreen || imageAspectRatio == null || imageAspectRatio <= 0f) {
-            return Rect(0f, 0f, screenWidthPx, screenHeightPx)
-        }
+        return Rect(0f, 0f, screenWidthPx, screenHeightPx)
+    }
 
-        val availableWidth = screenWidthPx
-        val availableHeight = (screenHeightPx - verticalInsetPx * 2f).coerceAtLeast(1f)
-        val availableAspectRatio = availableWidth / availableHeight
-
-        return if (imageAspectRatio >= availableAspectRatio) {
-            val targetWidth = availableWidth
-            val targetHeight = targetWidth / imageAspectRatio
-            val top = (screenHeightPx - targetHeight) / 2f
-            Rect(0f, top, targetWidth, top + targetHeight)
-        } else {
-            val targetHeight = availableHeight
-            val targetWidth = targetHeight * imageAspectRatio
-            val left = (screenWidthPx - targetWidth) / 2f
-            val top = (screenHeightPx - targetHeight) / 2f
-            Rect(left, top, left + targetWidth, top + targetHeight)
-        }
+    private fun buildPreviewDisplayedImageBounds(
+        screenWidthPx: Float,
+        screenHeightPx: Float,
+        imageAspectRatio: Float?,
+        fillScreen: Boolean
+    ): Rect {
+        val contentSize = calculatePreviewContentSize(
+            containerWidthPx = screenWidthPx,
+            containerHeightPx = screenHeightPx,
+            imageAspectRatio = imageAspectRatio,
+            fillScreen = fillScreen
+        )
+        val left = (screenWidthPx - contentSize.first) / 2f
+        val top = (screenHeightPx - contentSize.second) / 2f
+        return Rect(
+            left = left,
+            top = top,
+            right = left + contentSize.first,
+            bottom = top + contentSize.second
+        )
     }
 
     private fun resolveImageAspectRatio(uriString: String?): Float? {
@@ -1574,6 +1788,16 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 null
             }
         }.getOrNull()
+    }
+
+    private fun detailImageCardWidthFraction(imageAspectRatio: Float?): Float {
+        if (imageAspectRatio == null) return 0.64f
+        return when {
+            imageAspectRatio <= 0.50f -> 0.46f
+            imageAspectRatio <= 0.68f -> 0.52f
+            imageAspectRatio <= 0.82f -> 0.58f
+            else -> 0.64f
+        }
     }
 
     private fun decodePreviewBitmap(uriString: String?, requestedMaxSize: Int): Bitmap? {
@@ -1661,6 +1885,45 @@ class MemoryDetailActivity : BaseComposeActivity() {
             return 0f
         }
         return translation.coerceIn(-maxTranslation, maxTranslation)
+    }
+
+    private suspend fun animatePreviewTransform(
+        startScale: Float,
+        endScale: Float,
+        startOffsetX: Float,
+        endOffsetX: Float,
+        startOffsetY: Float,
+        endOffsetY: Float,
+        onUpdate: (Float, Float, Float) -> Unit
+    ) {
+        animate(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+        ) { progress, _ ->
+            val scale = lerp(startScale, endScale, progress)
+            val offsetX = lerp(startOffsetX, endOffsetX, progress)
+            val offsetY = lerp(startOffsetY, endOffsetY, progress)
+            onUpdate(scale, offsetX, offsetY)
+        }
+    }
+
+    private suspend fun animatePreviewDismissOffset(
+        startOffsetY: Float,
+        endOffsetY: Float,
+        onUpdate: (Float) -> Unit
+    ) {
+        animate(
+            initialValue = 0f,
+            targetValue = 1f,
+            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
+        ) { progress, _ ->
+            onUpdate(lerp(startOffsetY, endOffsetY, progress))
+        }
+    }
+
+    private fun lerp(start: Float, end: Float, progress: Float): Float {
+        return start + (end - start) * progress
     }
 
     private fun openImageInputStream(uriString: String): InputStream? {
@@ -1907,17 +2170,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
         }
 
-        val leadOptions = remember {
-            listOf(
-                ReminderLeadOption("5分钟前", 5),
-                ReminderLeadOption("15分钟前", 15),
-                ReminderLeadOption("30分钟前", 30),
-                ReminderLeadOption("1小时前", 60),
-                ReminderLeadOption("1天前", 24 * 60)
-            )
-        }
-        val usingCustomLead = leadOptions.none { it.minutes == leadMinutes }
-
         LaunchedEffect(visible, initialTime) {
             if (!visible) {
                 val resetCalendar = Calendar.getInstance().apply { timeInMillis = initialTime }
@@ -1935,8 +2187,35 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val eventAt = remember(year, month, day, hour, minute) {
             buildReminderDateTime(year, month, day, hour, minute)
         }
-        val finalReminderAt = remember(eventAt, leadMinutes) {
-            (eventAt - leadMinutes * 60L * 1000L).coerceAtLeast(0L)
+        val effectiveLeadCap = remember(eventAt) { maxValidLeadMinutesFor(eventAt) }
+        val leadOptions = remember {
+            listOf(
+                ReminderLeadOption("准时提醒", 0),
+                ReminderLeadOption("5分钟前", 5),
+                ReminderLeadOption("15分钟前", 15),
+                ReminderLeadOption("30分钟前", 30),
+                ReminderLeadOption("1小时前", 60),
+                ReminderLeadOption("1天前", 24 * 60)
+            )
+        }
+        val safeLeadMinutes = leadMinutes.coerceIn(0, effectiveLeadCap)
+        val usingCustomLead = leadOptions.none { it.minutes == safeLeadMinutes }
+        LaunchedEffect(effectiveLeadCap) {
+            val clampedLeadMinutes = leadMinutes.coerceIn(0, effectiveLeadCap)
+            val clampedLeadHours = clampedLeadMinutes / 60
+            val clampedLeadPartMinutes = clampedLeadMinutes % 60
+            if (
+                clampedLeadMinutes != leadMinutes ||
+                clampedLeadHours != customLeadHours ||
+                clampedLeadPartMinutes != customLeadPartMinutes
+            ) {
+                leadMinutes = clampedLeadMinutes
+                customLeadHours = clampedLeadHours
+                customLeadPartMinutes = clampedLeadPartMinutes
+            }
+        }
+        val finalReminderAt = remember(eventAt, safeLeadMinutes) {
+            (eventAt - safeLeadMinutes * 60L * 1000L).coerceAtLeast(0L)
         }
 
         val sheetSurface = if (isDark) Color(0xFF121316) else palette.memoBgStart
@@ -2070,7 +2349,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             GlassIconCircleButton(
                                 iconRes = R.drawable.ic_sheet_check,
                                 contentDescription = "确认提醒设置",
-                                onClick = { onConfirm(finalReminderAt) },
+                                onClick = {
+                                    val confirmedLeadMinutes = leadMinutes.coerceIn(0, maxValidLeadMinutesFor(eventAt))
+                                    onConfirm((eventAt - confirmedLeadMinutes * 60L * 1000L).coerceAtLeast(0L))
+                                },
                                 size = adaptive.topActionButtonSize
                             )
                         }
@@ -2249,10 +2531,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         ) {
                                             rowOptions.forEach { option ->
                                                 val isCustomOption = option.minutes < 0
-                                                val selected = if (isCustomOption) usingCustomLead else leadMinutes == option.minutes
+                                                val optionEnabled = isCustomOption || option.minutes <= effectiveLeadCap
+                                                val selected = if (isCustomOption) usingCustomLead else safeLeadMinutes == option.minutes
                                                 DetailReminderLeadChip(
                                                     text = option.label,
                                                     selected = selected,
+                                                    enabled = optionEnabled,
                                                     selectedColor = optionSelectedColor,
                                                     selectedStroke = optionSelectedStroke,
                                                     idleColor = timeCardSurface,
@@ -2260,14 +2544,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                                 ) {
                                                     if (isCustomOption) {
                                                         if (!usingCustomLead) {
-                                                            val seedMinutes = leadMinutes.coerceIn(1, customLeadCapMinutes)
+                                                            val seedMinutes = safeLeadMinutes.coerceIn(0, effectiveLeadCap)
                                                             customLeadHours = seedMinutes / 60
                                                             customLeadPartMinutes = seedMinutes % 60
                                                         }
                                                         leadMinutes = buildCustomLeadMinutes(
                                                             customLeadHours,
                                                             customLeadPartMinutes,
-                                                            customLeadCapMinutes
+                                                            minOf(customLeadCapMinutes, effectiveLeadCap)
                                                         )
                                                     } else {
                                                         leadMinutes = option.minutes
@@ -2283,22 +2567,27 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         DetailReminderCustomLeadEditor(
                                             hours = customLeadHours,
                                             minutes = customLeadPartMinutes,
+                                            maxMinutes = effectiveLeadCap,
                                             surface = timeCardSurface,
                                             onHoursChange = { nextHours ->
-                                                customLeadHours = nextHours
-                                                leadMinutes = buildCustomLeadMinutes(
-                                                    customLeadHours,
+                                                val nextLeadMinutes = buildCustomLeadMinutes(
+                                                    nextHours,
                                                     customLeadPartMinutes,
-                                                    customLeadCapMinutes
+                                                    minOf(customLeadCapMinutes, effectiveLeadCap)
                                                 )
+                                                customLeadHours = nextLeadMinutes / 60
+                                                customLeadPartMinutes = nextLeadMinutes % 60
+                                                leadMinutes = nextLeadMinutes
                                             },
                                             onMinutesChange = { nextMinutes ->
-                                                customLeadPartMinutes = nextMinutes
-                                                leadMinutes = buildCustomLeadMinutes(
+                                                val nextLeadMinutes = buildCustomLeadMinutes(
                                                     customLeadHours,
-                                                    customLeadPartMinutes,
-                                                    customLeadCapMinutes
+                                                    nextMinutes,
+                                                    minOf(customLeadCapMinutes, effectiveLeadCap)
                                                 )
+                                                customLeadHours = nextLeadMinutes / 60
+                                                customLeadPartMinutes = nextLeadMinutes % 60
+                                                leadMinutes = nextLeadMinutes
                                             }
                                         )
                                     }
@@ -2560,6 +2849,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     private fun DetailReminderLeadChip(
         text: String,
         selected: Boolean,
+        enabled: Boolean,
         selectedColor: Color,
         selectedStroke: Color,
         idleColor: Color,
@@ -2568,10 +2858,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
     ) {
         val palette = rememberNoMemoPalette()
         PressScaleBox(
-            onClick = onClick,
+            onClick = if (enabled) onClick else ({ }),
             modifier = modifier
                 .height(46.dp)
                 .clip(RoundedCornerShape(16.dp))
+                .alpha(if (enabled) 1f else 0.44f)
         ) {
             Box(
                 modifier = Modifier
@@ -2585,7 +2876,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             )
             Text(
                 text = text,
-                color = palette.textPrimary,
+                color = if (enabled) palette.textPrimary else palette.textTertiary,
                 fontSize = 15.sp,
                 fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
                 modifier = Modifier.align(Alignment.Center)
@@ -2597,6 +2888,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     private fun DetailReminderCustomLeadEditor(
         hours: Int,
         minutes: Int,
+        maxMinutes: Int,
         surface: Color,
         onHoursChange: (Int) -> Unit,
         onMinutesChange: (Int) -> Unit
@@ -2620,7 +2912,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     fontWeight = FontWeight.Medium
                 )
                 Text(
-                    text = formatLeadDuration(hours * 60 + minutes),
+                    text = formatLeadDuration((hours * 60 + minutes).coerceIn(0, maxMinutes)),
                     color = palette.textPrimary,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.SemiBold,
@@ -2634,6 +2926,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         label = "小时",
                         value = hours,
                         range = 0..23,
+                        maxMinutes = maxMinutes,
+                        stepUnitMinutes = 60,
+                        pairedValue = minutes,
                         onValueChange = onHoursChange,
                         modifier = Modifier.weight(1f)
                     )
@@ -2641,6 +2936,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         label = "分钟",
                         value = minutes,
                         range = 0..59,
+                        maxMinutes = maxMinutes,
+                        stepUnitMinutes = 1,
+                        pairedValue = hours,
                         onValueChange = onMinutesChange,
                         modifier = Modifier.weight(1f)
                     )
@@ -2654,6 +2952,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
         label: String,
         value: Int,
         range: IntRange,
+        maxMinutes: Int,
+        stepUnitMinutes: Int,
+        pairedValue: Int = 0,
         onValueChange: (Int) -> Unit,
         modifier: Modifier = Modifier
     ) {
@@ -2696,7 +2997,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
                 DetailReminderStepButton(
                     text = "+",
-                    enabled = value < range.last,
+                    enabled = when (stepUnitMinutes) {
+                        60 -> ((value + 1) * 60 + pairedValue) <= maxMinutes && value < range.last
+                        else -> (pairedValue * 60 + (value + 1)) <= maxMinutes && value < range.last
+                    },
                     modifier = Modifier.weight(1f)
                 ) {
                     onValueChange((value + 1).coerceAtMost(range.last))
@@ -2787,17 +3091,35 @@ class MemoryDetailActivity : BaseComposeActivity() {
         )
     }
 
+    private fun normalizeDetailDraftText(value: String?): String {
+        return value
+            ?.replace("\r\n", "\n")
+            ?.trim()
+            .orEmpty()
+    }
+
+    private fun hasStructuredDraftChanges(
+        draft: EditableStructuredFields,
+        initial: EditableStructuredFields
+    ): Boolean {
+        return normalizeDetailDraftText(draft.code) != normalizeDetailDraftText(initial.code) ||
+            normalizeDetailDraftText(draft.primaryValue) != normalizeDetailDraftText(initial.primaryValue) ||
+            normalizeDetailDraftText(draft.secondaryValue) != normalizeDetailDraftText(initial.secondaryValue) ||
+            normalizeDetailDraftText(draft.locationText) != normalizeDetailDraftText(initial.locationText)
+    }
+
     private fun buildCustomLeadMinutes(
         hours: Int,
         minutes: Int,
         maxMinutes: Int
     ): Int {
         val total = hours.coerceAtLeast(0) * 60 + minutes.coerceIn(0, 59)
-        return total.coerceIn(1, maxMinutes)
+        return total.coerceIn(0, maxMinutes.coerceAtLeast(0))
     }
 
     private fun formatLeadDuration(totalMinutes: Int): String {
-        val safeMinutes = totalMinutes.coerceAtLeast(1)
+        val safeMinutes = totalMinutes.coerceAtLeast(0)
+        if (safeMinutes == 0) return "准时提醒"
         val hours = safeMinutes / 60
         val minutes = safeMinutes % 60
         return when {
@@ -2805,6 +3127,30 @@ class MemoryDetailActivity : BaseComposeActivity() {
             hours > 0 -> "${hours}小时前"
             else -> "${minutes}分钟前"
         }
+    }
+
+    private fun calculatePreviewMinimumFillScale(
+        containerWidthPx: Float,
+        containerHeightPx: Float,
+        contentWidthPx: Float,
+        contentHeightPx: Float
+    ): Float {
+        if (
+            containerWidthPx <= 0f ||
+            containerHeightPx <= 0f ||
+            contentWidthPx <= 0f ||
+            contentHeightPx <= 0f
+        ) {
+            return 1f
+        }
+        val widthScale = containerWidthPx / contentWidthPx
+        val heightScale = containerHeightPx / contentHeightPx
+        return maxOf(widthScale, heightScale).coerceAtLeast(1f)
+    }
+
+    private fun maxValidLeadMinutesFor(eventAt: Long, nowMillis: Long = System.currentTimeMillis()): Int {
+        if (eventAt <= nowMillis) return 0
+        return ((eventAt - nowMillis) / 60_000L).toInt().coerceAtLeast(0)
     }
 
     private fun centeredItemIndex(listState: LazyListState): Int? {
@@ -2840,3 +3186,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         return if (remainder < 0) remainder + mod else remainder
     }
 }
+
+
+
+

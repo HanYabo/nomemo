@@ -35,28 +35,32 @@ fun NoMemoSelectionActionDock(
     selectedRecords: List<MemoryRecord>,
     onArchiveClick: () -> Unit,
     onDeleteClick: () -> Unit,
+    showArchiveAction: Boolean = true,
+    archiveTextOverride: String? = null,
     modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
     val adaptive = rememberNoMemoAdaptiveSpec()
     val actionWidth = if (adaptive.isNarrow) 116.dp else 128.dp
-    val archiveLabel = if (selectedRecords.all { it.isArchived }) {
+    val archiveLabel = archiveTextOverride ?: if (selectedRecords.all { it.isArchived }) {
         stringResource(R.string.action_unarchive)
     } else {
         stringResource(R.string.action_archive)
     }
     Row(
         modifier = modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.SpaceBetween
+        horizontalArrangement = if (showArchiveAction) Arrangement.SpaceBetween else Arrangement.End
     ) {
-        NoMemoSelectionTextActionButton(
-            text = archiveLabel,
-            onClick = onArchiveClick,
-            modifier = Modifier.width(actionWidth),
-            containerColor = palette.glassFill,
-            contentColor = palette.textPrimary,
-            borderColor = palette.glassStroke
-        )
+        if (showArchiveAction) {
+            NoMemoSelectionTextActionButton(
+                text = archiveLabel,
+                onClick = onArchiveClick,
+                modifier = Modifier.width(actionWidth),
+                containerColor = palette.glassFill,
+                contentColor = palette.textPrimary,
+                borderColor = palette.glassStroke
+            )
+        }
         NoMemoSelectionTextActionButton(
             text = stringResource(R.string.action_delete),
             onClick = onDeleteClick,

@@ -1,0 +1,19 @@
+{
+    "java.configuration.updateBuildConfiguration": "automatic",
+    "java.import.gradle.java.home": "D:\\JDK17",
+    "java.jdt.ls.java.home": "C:\\Program Files\\Microsoft\\jdk-21.0.10.7-hotspot",
+    "java.configuration.runtimes": [
+        {
+            "name": "JavaSE-17",
+            "path": "D:\\JDK17"
+        },
+        {
+            "name": "JavaSE-21",
+            "path": "C:\\Program Files\\Microsoft\\jdk-21.0.10.7-hotspot",
+            "default": true
+        }
+    ],
+    "cSpell.words": [
+        "MIUI"
+    ]
+}

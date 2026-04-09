@@ -45,12 +45,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -443,7 +441,7 @@ fun AddMemorySheet(
                                 )
                             } else {
                                 SheetActionCard(
-                                    title = "添加截图",
+                                    title = "添加图片",
                                     surfaceColor = actionSurface,
                                     onClick = { pickImageLauncher.launch(arrayOf("image/*")) }
                                 )
@@ -486,34 +484,21 @@ fun AddMemorySheet(
             }
         }
         if (showExitConfirm) {
-            AlertDialog(
-                onDismissRequest = { showExitConfirm = false },
-                title = { Text(text = "退出编辑？") },
-                text = { Text(text = "当前有未保存内容，是否保存后退出？") },
-                confirmButton = {
-                    TextButton(
-                        onClick = {
-                            showExitConfirm = false
-                            performSaveAndDismiss()
-                        }
-                    ) {
-                        Text("保存并退出")
-                    }
+            NoMemoTernaryConfirmDialog(
+                title = "退出编辑？",
+                message = "当前有未保存内容，是否保存后退出？",
+                confirmText = "保存并退出",
+                dismissText = "取消",
+                tertiaryText = "不保存",
+                destructiveTertiary = true,
+                onConfirm = {
+                    showExitConfirm = false
+                    performSaveAndDismiss()
                 },
-                dismissButton = {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { showExitConfirm = false }) {
-                            Text("取消")
-                        }
-                        TextButton(
-                            onClick = {
-                                showExitConfirm = false
-                                visible = false
-                            }
-                        ) {
-                            Text("不保存")
-                        }
-                    }
+                onDismiss = { showExitConfirm = false },
+                onTertiary = {
+                    showExitConfirm = false
+                    visible = false
                 }
             )
         }

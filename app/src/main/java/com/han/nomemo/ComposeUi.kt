@@ -63,7 +63,6 @@ import androidx.compose.material.icons.outlined.ConfirmationNumber
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.LocalShipping
 import androidx.compose.material.icons.outlined.Restaurant
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -124,6 +123,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.PopupPositionProvider
@@ -710,43 +711,23 @@ fun NoMemoConfirmDialog(
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
-    val palette = rememberNoMemoPalette()
-    val isDark = isSystemInDarkTheme()
-    AlertDialog(
+    NoMemoDialogShell(
+        title = title,
+        message = message,
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        containerColor = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f)),
-        title = {
-            Text(
-                text = title,
-                color = palette.textPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Text(
-                text = message,
-                color = palette.textSecondary,
-                fontSize = 14.sp,
-                lineHeight = 22.sp
-            )
-        },
-        confirmButton = {
-            NoMemoDialogActionButton(
+        actions = listOf(
+            NoMemoDialogActionSpec(
+                text = dismissText,
+                primary = false,
+                onClick = onDismiss
+            ),
+            NoMemoDialogActionSpec(
                 text = confirmText,
                 primary = true,
                 destructive = destructive,
                 onClick = onConfirm
             )
-        },
-        dismissButton = {
-            NoMemoDialogActionButton(
-                text = dismissText,
-                primary = false,
-                onClick = onDismiss
-            )
-        }
+        )
     )
 }
 
@@ -775,36 +756,180 @@ fun NoMemoMessageDialog(
     confirmText: String = "知道了",
     onDismiss: () -> Unit
 ) {
-    val palette = rememberNoMemoPalette()
-    val isDark = isSystemInDarkTheme()
-    AlertDialog(
+    NoMemoDialogShell(
+        title = title,
+        message = message,
         onDismissRequest = onDismiss,
-        shape = RoundedCornerShape(28.dp),
-        containerColor = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f)),
-        title = {
-            Text(
-                text = title,
-                color = palette.textPrimary,
-                fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
-            )
-        },
-        text = {
-            Text(
-                text = message,
-                color = palette.textSecondary,
-                fontSize = 14.sp,
-                lineHeight = 22.sp
-            )
-        },
-        confirmButton = {
-            NoMemoDialogActionButton(
+        actions = listOf(
+            NoMemoDialogActionSpec(
                 text = confirmText,
                 primary = true,
                 onClick = onDismiss
             )
-        }
+        )
     )
+}
+
+@Composable
+fun NoMemoTernaryConfirmDialog(
+    title: String,
+    message: String,
+    confirmText: String,
+    dismissText: String,
+    tertiaryText: String,
+    destructiveTertiary: Boolean = false,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    onTertiary: () -> Unit
+) {
+    NoMemoDialogShell(
+        title = title,
+        message = message,
+        onDismissRequest = onDismiss,
+        actions = listOf(
+            NoMemoDialogActionSpec(
+                text = dismissText,
+                primary = false,
+                onClick = onDismiss
+            ),
+            NoMemoDialogActionSpec(
+                text = tertiaryText,
+                primary = false,
+                destructive = destructiveTertiary,
+                onClick = onTertiary
+            ),
+            NoMemoDialogActionSpec(
+                text = confirmText,
+                primary = true,
+                onClick = onConfirm
+            )
+        )
+    )
+}
+
+private data class NoMemoDialogActionSpec(
+    val text: String,
+    val primary: Boolean,
+    val destructive: Boolean = false,
+    val onClick: () -> Unit
+)
+
+@Composable
+private fun NoMemoDialogShell(
+    title: String,
+    message: String,
+    onDismissRequest: () -> Unit,
+    actions: List<NoMemoDialogActionSpec>
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val panelShape = RoundedCornerShape(30.dp)
+    val panelSurface = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.998f))
+    val panelBrush = if (isDark) {
+        Brush.verticalGradient(
+            colors = listOf(
+                panelSurface,
+                Color.White.copy(alpha = 0.035f),
+                panelSurface
+            )
+        )
+    } else {
+        Brush.verticalGradient(
+            colors = listOf(
+                Color.White.copy(alpha = 0.998f),
+                Color(0xFFF8FAFD).copy(alpha = 0.998f)
+            )
+        )
+    }
+    val panelStroke = if (isDark) {
+        palette.glassStroke.copy(alpha = 0.32f)
+    } else {
+        Color.Black.copy(alpha = 0.06f)
+    }
+    val scrimColor = Color.Black.copy(alpha = if (isDark) 0.46f else 0.28f)
+    val outsideInteraction = remember { MutableInteractionSource() }
+    val panelInteraction = remember { MutableInteractionSource() }
+
+    Dialog(
+        onDismissRequest = onDismissRequest,
+        properties = DialogProperties(
+            dismissOnBackPress = true,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false
+        )
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(scrimColor)
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(
+                        interactionSource = outsideInteraction,
+                        indication = null,
+                        onClick = onDismissRequest
+                    )
+            )
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 24.dp)
+                    .fillMaxWidth()
+                    .widthIn(max = 368.dp)
+                    .shadow(
+                        elevation = 18.dp,
+                        shape = panelShape,
+                        ambientColor = Color.Black.copy(alpha = if (isDark) 0.34f else 0.12f),
+                        spotColor = Color.Black.copy(alpha = if (isDark) 0.34f else 0.12f)
+                    )
+                    .clip(panelShape)
+                    .background(panelBrush)
+                    .border(1.dp, panelStroke, panelShape)
+                    .clickable(
+                        interactionSource = panelInteraction,
+                        indication = null,
+                        onClick = {}
+                    )
+                    .padding(horizontal = 24.dp, vertical = 24.dp)
+            ) {
+                Column {
+                    Text(
+                        text = title,
+                        color = palette.textPrimary,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = message,
+                        color = palette.textSecondary,
+                        fontSize = 14.sp,
+                        lineHeight = 22.sp,
+                        modifier = Modifier.padding(top = 10.dp)
+                    )
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 22.dp),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        actions.forEachIndexed { index, action ->
+                            if (index > 0) {
+                                Spacer(modifier = Modifier.width(10.dp))
+                            }
+                            NoMemoDialogActionButton(
+                                text = action.text,
+                                primary = action.primary,
+                                destructive = action.destructive,
+                                onClick = action.onClick
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -815,6 +940,24 @@ private fun NoMemoDialogActionButton(
     onClick: () -> Unit
 ) {
     val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val backgroundColor = when {
+        primary && destructive -> Color(0xFFB63B2E)
+        primary -> palette.accent
+        destructive -> if (isDark) Color(0xFF342221) else Color(0xFFFFF0EE)
+        else -> if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f)
+    }
+    val borderColor = when {
+        primary && destructive -> Color(0xFFB63B2E)
+        primary -> palette.accent
+        destructive -> if (isDark) Color(0x66E57C73) else Color(0xFFFFD0CB)
+        else -> if (isDark) palette.glassStroke.copy(alpha = 0.34f) else Color.Black.copy(alpha = 0.06f)
+    }
+    val textColor = when {
+        primary -> palette.onAccent
+        destructive -> if (isDark) Color(0xFFFFB4AB) else Color(0xFFB42318)
+        else -> palette.textPrimary
+    }
     PressScaleBox(
         onClick = onClick,
         modifier = Modifier
@@ -823,27 +966,13 @@ private fun NoMemoDialogActionButton(
         Box(
             modifier = Modifier
                 .clip(RoundedCornerShape(18.dp))
-                .background(
-                    if (primary) {
-                        if (destructive) Color(0xFFB42318) else palette.accent
-                    } else {
-                        palette.glassFill
-                    }
-                )
-                .border(
-                    1.dp,
-                    if (primary) {
-                        if (destructive) Color(0xFFB42318) else palette.accent
-                    } else {
-                        palette.glassStroke
-                    },
-                    RoundedCornerShape(18.dp)
-                )
+                .background(backgroundColor)
+                .border(1.dp, borderColor, RoundedCornerShape(18.dp))
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Text(
                 text = text,
-                color = if (primary) palette.onAccent else palette.textPrimary,
+                color = textColor,
                 fontSize = 14.sp,
                 fontWeight = FontWeight.Medium,
                 modifier = Modifier.align(Alignment.Center)
