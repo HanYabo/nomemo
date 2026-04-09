@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="archived_memory_empty_subtitle">归档后的记忆会显示在这里</string>
+    <string name="archived_search_idle_title">搜索已归档记忆</string>
+    <string name="archived_search_page_title">搜索已归档</string>
+    <string name="action_add_memory">添加记忆</string>
+    <string name="archived_memory_page_title">已归档记忆</string>
+</resources>

@@ -159,7 +159,8 @@ class MainActivity : BaseComposeActivity() {
                 onOpenGroup = { openGroupPage() },
                 onOpenReminder = { openReminderPage() },
                 onOpenSearch = { openSearchPage() },
-                onOpenSettings = { openSettingsPage() }
+                onOpenSettings = { openSettingsPage() },
+                onOpenArchivedMemory = { openArchivedMemoryPage() }
             )
         }
         refreshRecords()
@@ -251,6 +252,10 @@ class MainActivity : BaseComposeActivity() {
         startActivity(SearchActivity.createIntent(this))
     }
 
+    private fun openArchivedMemoryPage() {
+        startActivity(ArchivedMemoryActivity.createIntent(this))
+    }
+
     private fun openDetailPage(recordId: String) {
         startActivity(MemoryDetailActivity.createIntent(this, recordId))
     }
@@ -320,7 +325,8 @@ class MainActivity : BaseComposeActivity() {
         onOpenGroup: () -> Unit,
         onOpenReminder: () -> Unit,
         onOpenSearch: () -> Unit,
-        onOpenSettings: () -> Unit
+        onOpenSettings: () -> Unit,
+        onOpenArchivedMemory: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -856,6 +862,14 @@ class MainActivity : BaseComposeActivity() {
                                 onClick = {
                                     moreMenuExpanded = false
                                     onOpenSettings()
+                                }
+                            ),
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_memory,
+                                label = "已归档记忆",
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onOpenArchivedMemory()
                                 }
                             )
                         )

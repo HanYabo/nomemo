@@ -236,6 +236,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }
     }
 
+    private fun openMemoryPage() {
+        val intent = Intent(this, MainActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        }
+        switchPrimaryPage(intent)
+    }
+
     private fun toggleArchive(currentRecord: MemoryRecord) {
         val nextArchived = !currentRecord.isArchived
         memoryStore.archiveRecord(currentRecord.recordId, nextArchived)
@@ -245,6 +252,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
             if (nextArchived) R.string.archive_success else R.string.unarchive_success,
             Toast.LENGTH_SHORT
         ).show()
+        if (nextArchived) {
+            openMemoryPage()
+        }
     }
 
     private fun deleteRecord(currentRecord: MemoryRecord) {

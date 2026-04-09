@@ -57,12 +57,26 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 class SearchActivity : BaseComposeActivity() {
+    companion object {
+        private const val EXTRA_ARCHIVED_ONLY = "extra_archived_only"
+
+        fun createIntent(context: Context): Intent = Intent(context, SearchActivity::class.java)
+
+        fun createArchivedIntent(context: Context): Intent {
+            return Intent(context, SearchActivity::class.java)
+                .putExtra(EXTRA_ARCHIVED_ONLY, true)
+        }
+    }
+
     private lateinit var memoryStore: MemoryStore
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
     private var hasLoadedRecords by mutableStateOf(false)
     private var hasHandledInitialResume = false
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
+    private val archivedOnly: Boolean by lazy {
+        intent.getBooleanExtra(EXTRA_ARCHIVED_ONLY, false)
+    }
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -77,6 +91,7 @@ class SearchActivity : BaseComposeActivity() {
             SearchContent(
                 records = records,
                 hasLoadedRecords = hasLoadedRecords,
+                archivedOnly = archivedOnly,
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onClose = { finish() }
             )
@@ -107,7 +122,11 @@ class SearchActivity : BaseComposeActivity() {
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
             val loadedRecords = withContext(Dispatchers.IO) {
-                val result = memoryStore.loadActiveRecords()
+                val result = if (archivedOnly) {
+                    memoryStore.loadArchivedRecords()
+                } else {
+                    memoryStore.loadActiveRecords()
+                }
                 prewarmMemoryThumbnailCache(applicationContext, result)
                 result
             }
@@ -145,6 +164,7 @@ class SearchActivity : BaseComposeActivity() {
     private fun SearchContent(
         records: List<MemoryRecord>,
         hasLoadedRecords: Boolean,
+        archivedOnly: Boolean,
         onOpenDetail: (MemoryRecord) -> Unit,
         onClose: () -> Unit
     ) {
@@ -211,7 +231,11 @@ class SearchActivity : BaseComposeActivity() {
                                 size = spec.topActionButtonSize
                             )
                             Text(
-                                text = stringResource(R.string.search_page_title),
+                                text = if (archivedOnly) {
+                                    stringResource(R.string.archived_search_page_title)
+                                } else {
+                                    stringResource(R.string.search_page_title)
+                                },
                                 color = palette.textPrimary,
                                 fontSize = if (spec.isNarrow) 20.sp else 22.sp,
                                 fontWeight = FontWeight.Bold,
@@ -267,7 +291,7 @@ class SearchActivity : BaseComposeActivity() {
                         NoMemoEmptyState(
                             iconRes = R.drawable.ic_nm_search,
                             title = if (!hasQuery) {
-                                stringResource(R.string.search_idle_title)
+                                if (archivedOnly) stringResource(R.string.archived_search_idle_title) else stringResource(R.string.search_idle_title)
                             } else {
                                 stringResource(R.string.search_empty)
                             },
@@ -358,9 +382,5 @@ class SearchActivity : BaseComposeActivity() {
                 }
             }
         }
-    }
-
-    companion object {
-        fun createIntent(context: Context): Intent = Intent(context, SearchActivity::class.java)
     }
 }

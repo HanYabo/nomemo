@@ -47,6 +47,11 @@
             android:enableOnBackInvokedCallback="true"
             android:theme="@style/Theme.NoMemo" />
         <activity
+            android:name=".ArchivedMemoryActivity"
+            android:exported="false"
+            android:enableOnBackInvokedCallback="true"
+            android:theme="@style/Theme.NoMemo" />
+        <activity
             android:name=".MemoryDetailActivity"
             android:exported="false"
             android:enableOnBackInvokedCallback="true"
