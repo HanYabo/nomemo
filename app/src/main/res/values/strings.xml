@@ -14,8 +14,8 @@
     <string name="image_not_selected">尚未选择截图</string>
     <string name="record_mode_label">记录方式</string>
     <string name="mode_normal">普通</string>
-    <string name="mode_ai">AI 分析</string>
-    <string name="ai_hint">AI 模式会自动分析文字和截图，并生成标题、摘要和一段可回看的记忆总结。</string>
+    <string name="mode_ai">AI分析</string>
+    <string name="ai_hint">AI模式会自动分析文字和截图，并生成标题、摘要和一段可回看的记忆总结。</string>
     <string name="save_record">+</string>
     <string name="save_record_desc">保存记忆</string>
     <string name="history_title">记忆流</string>
@@ -27,8 +27,8 @@
     <string name="search_page_title">搜索</string>
     <string name="input_required">请先输入文字或选择截图</string>
     <string name="save_success">已保存</string>
-    <string name="saving_ai">AI 正在分析，请稍候...</string>
-    <string name="ai_error_fallback">AI 请求失败，已使用本地分析保存</string>
+    <string name="saving_ai">AI正在分析，请稍候...</string>
+    <string name="ai_error_fallback">AI请求失败，已使用本地分析保存</string>
     <string name="record_source_prefix">来源：%1$s</string>
     <string name="record_analysis_prefix">分析：%1$s</string>
     <string name="record_memory_prefix">记忆：%1$s</string>
@@ -37,7 +37,7 @@
     <string name="mode_label_ai">AI</string>
     <string name="image_selected">已选择截图：%1$s</string>
     <string name="memory_saved_screenshot">已保存截图记忆</string>
-    <string name="memory_fallback_analysis">AI 出现异常，已使用本地兜底记忆</string>
+    <string name="memory_fallback_analysis">AI出现异常，已使用本地兜底记忆</string>
     <string name="nav_memory">记忆</string>
     <string name="nav_group">分组</string>
     <string name="nav_reminder">提醒事项</string>
@@ -92,7 +92,7 @@
     <string name="reminder_due_in">还有 %1$s</string>
     <string name="reminder_overdue">已过期 %1$s</string>
     <string name="settings_title">设置</string>
-    <string name="settings_api_section">AI 配置</string>
+    <string name="settings_api_section">AI配置</string>
     <string name="settings_base_url">Base URL</string>
     <string name="settings_api_key">API Key</string>
     <string name="settings_model">Model</string>

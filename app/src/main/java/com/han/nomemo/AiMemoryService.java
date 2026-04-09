@@ -71,7 +71,8 @@ public class AiMemoryService {
     }
 
     private boolean hasCloudConfig() {
-        return !TextUtils.isEmpty(settingsStore.resolvedApiKey())
+        return settingsStore.getAiEnabled()
+                && !TextUtils.isEmpty(settingsStore.resolvedApiKey())
                 && !TextUtils.isEmpty(settingsStore.resolvedApiBaseUrl())
                 && !TextUtils.isEmpty(settingsStore.resolvedApiModel());
     }
@@ -83,7 +84,7 @@ public class AiMemoryService {
             @Nullable String detailContext
     ) throws Exception {
         JSONObject payload = new JSONObject();
-        payload.put("model", settingsStore.resolvedApiModel());
+        payload.put("model", resolveModelForRequest(userText, imageUri));
         payload.put("temperature", 0.35);
         payload.put("messages", buildMessages(userText, imageUri, enhanced, detailContext));
 
@@ -182,6 +183,18 @@ public class AiMemoryService {
             return baseUrl.substring(0, baseUrl.length() - "/responses".length()) + "/chat/completions";
         }
         return baseUrl + "/chat/completions";
+    }
+
+    private String resolveModelForRequest(String userText, @Nullable Uri imageUri) {
+        boolean hasImage = imageUri != null;
+        boolean hasText = !TextUtils.isEmpty(userText);
+        if (hasImage && hasText) {
+            return settingsStore.resolvedMultimodalModel();
+        }
+        if (hasImage) {
+            return settingsStore.resolvedImageModel();
+        }
+        return settingsStore.resolvedTextModel();
     }
 
     String SYSTEM_PROMPT = "# Role\n" +

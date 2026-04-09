@@ -59,6 +59,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
@@ -86,12 +87,14 @@ fun AddMemorySheet(
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
     val memoryStore = remember(context) { MemoryStore(context) }
+    val settingsStore = remember(context) { SettingsStore(context) }
     val aiMemoryService = remember(context) { AiMemoryService(context) }
     val adaptive = rememberNoMemoAdaptiveSpec()
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
 
-    var aiMode by remember { mutableStateOf(true) }
+    val aiEnabled = remember { settingsStore.aiEnabled }
+    var aiMode by remember(aiEnabled) { mutableStateOf(aiEnabled) }
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
     var selectedCategory by remember { mutableStateOf(CategoryCatalog.getQuickCategories().first()) }
@@ -319,9 +322,10 @@ fun AddMemorySheet(
                         ) {
                             SheetModeSwitch(
                                 aiMode = aiMode,
+                                aiEnabled = aiEnabled,
                                 modifier = Modifier.fillMaxWidth(if (adaptive.isNarrow) 0.52f else 0.46f),
                                 onSelectNormal = { aiMode = false },
-                                onSelectAi = { aiMode = true }
+                                onSelectAi = { if (aiEnabled) aiMode = true }
                             )
                         }
                         SheetHeaderButton(
@@ -539,6 +543,7 @@ private fun SheetHeaderButton(
 @Composable
 private fun SheetModeSwitch(
     aiMode: Boolean,
+    aiEnabled: Boolean,
     modifier: Modifier = Modifier,
     onSelectNormal: () -> Unit,
     onSelectAi: () -> Unit
@@ -568,6 +573,7 @@ private fun SheetModeSwitch(
             SheetModeChip(
                 text = "普通",
                 selected = !aiMode,
+                enabled = true,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight(),
@@ -576,6 +582,7 @@ private fun SheetModeSwitch(
             SheetModeChip(
                 text = "AI",
                 selected = aiMode,
+                enabled = aiEnabled,
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight(),
@@ -589,6 +596,7 @@ private fun SheetModeSwitch(
 private fun SheetModeChip(
     text: String,
     selected: Boolean,
+    enabled: Boolean,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -602,7 +610,7 @@ private fun SheetModeChip(
     }
     val selectedTextColor = if (isDark) Color(0xFFEAF2FF) else palette.textPrimary
     PressScaleBox(
-        onClick = onClick,
+        onClick = { if (enabled) onClick() },
         modifier = modifier
             .clip(shape)
     ) {
@@ -615,10 +623,12 @@ private fun SheetModeChip(
         }
         Text(
             text = text,
-            color = if (selected) selectedTextColor else palette.textSecondary,
+            color = if (!enabled) palette.textTertiary else if (selected) selectedTextColor else palette.textSecondary,
             fontSize = 13.sp,
             fontWeight = FontWeight.Bold,
-            modifier = Modifier.align(Alignment.Center)
+            modifier = Modifier
+                .align(Alignment.Center)
+                .alpha(if (enabled) 1f else 0.52f)
         )
     }
 }

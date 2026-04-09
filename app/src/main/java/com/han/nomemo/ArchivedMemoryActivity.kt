@@ -449,7 +449,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                         anchorBounds = moreMenuAnchorBounds,
                         actions = listOf(
                             NoMemoMenuActionItem(
-                                iconRes = R.drawable.ic_sheet_check,
+                                iconRes = R.drawable.ic_sheet_select_all,
                                 label = stringResource(R.string.action_select_all),
                                 onClick = {
                                     moreMenuExpanded = false

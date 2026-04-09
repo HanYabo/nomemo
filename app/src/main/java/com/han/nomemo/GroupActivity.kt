@@ -819,15 +819,18 @@ class GroupActivity : BaseComposeActivity() {
                         anchorBounds = detailMoreAnchorBounds,
                         actions = listOf(
                             NoMemoMenuActionItem(
-                                iconRes = R.drawable.ic_nm_edit,
-                                label = "编辑分组",
+                                iconRes = R.drawable.ic_sheet_select_all,
+                                label = "全选",
                                 onClick = {
                                     detailMoreExpanded = false
-                                    openedAlbum?.let { album ->
-                                        editingAlbumId = album.albumId
-                                        albumNameInput = album.name
-                                        albumDescriptionInput = album.description
-                                        showEditAlbumDialog = true
+                                    if (openedRecords.isNotEmpty()) {
+                                        albumSelectionModeActive = true
+                                        selectedAlbumRecordIds = openedRecords.map { it.recordId }.toSet()
+                                        showRemoveFromAlbumConfirm = false
+                                        showDeleteSelectedConfirm = false
+                                    } else {
+                                        albumSelectionModeActive = false
+                                        selectedAlbumRecordIds = emptySet()
                                     }
                                 }
                             ),
@@ -842,18 +845,15 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             ),
                             NoMemoMenuActionItem(
-                                iconRes = R.drawable.ic_sheet_check,
-                                label = "全选",
+                                iconRes = R.drawable.ic_nm_edit,
+                                label = "编辑分组",
                                 onClick = {
                                     detailMoreExpanded = false
-                                    if (openedRecords.isNotEmpty()) {
-                                        albumSelectionModeActive = true
-                                        selectedAlbumRecordIds = openedRecords.map { it.recordId }.toSet()
-                                        showRemoveFromAlbumConfirm = false
-                                        showDeleteSelectedConfirm = false
-                                    } else {
-                                        albumSelectionModeActive = false
-                                        selectedAlbumRecordIds = emptySet()
+                                    openedAlbum?.let { album ->
+                                        editingAlbumId = album.albumId
+                                        albumNameInput = album.name
+                                        albumDescriptionInput = album.description
+                                        showEditAlbumDialog = true
                                     }
                                 }
                             ),

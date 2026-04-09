@@ -147,7 +147,7 @@ class MainActivity : BaseComposeActivity() {
                 hasLoadedRecords = hasLoadedRecords,
                 selectedFilter = selectedFilter,
                 onFilterSelect = { filter ->
-                    selectedFilter = filter
+                    selectedFilter = normalizeMainFilter(filter)
                     refreshRecords()
                 },
                 onDeleteRecords = { recordIds -> deleteRecords(recordIds) },
@@ -187,8 +187,19 @@ class MainActivity : BaseComposeActivity() {
 
     override fun enableDoubleBackToDesktop(): Boolean = true
 
+    private fun normalizeMainFilter(filter: String): String {
+        return when (filter) {
+            FILTER_AI, FILTER_ARCHIVED -> FILTER_ALL
+            else -> filter
+        }
+    }
+
     private fun refreshRecords() {
-        val filterSnapshot = selectedFilter
+        val normalizedFilter = normalizeMainFilter(selectedFilter)
+        if (selectedFilter != normalizedFilter) {
+            selectedFilter = normalizedFilter
+        }
+        val filterSnapshot = normalizedFilter
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
             val payload = withContext(Dispatchers.IO) {
@@ -670,24 +681,6 @@ class MainActivity : BaseComposeActivity() {
                                         expandedPrimaryFilter = if (wasSelected && wasExpanded) null else FILTER_WORK
                                         onFilterSelect(FILTER_WORK)
                                     }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    FilterChip(
-                                        spec = spec,
-                                        text = buildFilterChipText(stringResource(R.string.filter_ai), filterChipCounts.ai),
-                                        selected = selectedFilter == FILTER_AI
-                                    ) {
-                                        expandedPrimaryFilter = null
-                                        onFilterSelect(FILTER_AI)
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    FilterChip(
-                                        spec = spec,
-                                        text = buildFilterChipText(stringResource(R.string.filter_archived), filterChipCounts.archived),
-                                        selected = selectedFilter == FILTER_ARCHIVED
-                                    ) {
-                                        expandedPrimaryFilter = null
-                                        onFilterSelect(FILTER_ARCHIVED)
-                                    }
                                 }
 
                                 AnimatedVisibility(
@@ -842,7 +835,7 @@ class MainActivity : BaseComposeActivity() {
                         anchorBounds = moreMenuAnchorBounds,
                         actions = listOf(
                             NoMemoMenuActionItem(
-                                iconRes = R.drawable.ic_sheet_check,
+                                iconRes = R.drawable.ic_sheet_select_all,
                                 label = stringResource(R.string.action_select_all),
                                 onClick = {
                                     moreMenuExpanded = false
@@ -857,19 +850,19 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             ),
                             NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_memory,
+                                label = stringResource(R.string.archived_memory_page_title),
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    onOpenArchivedMemory()
+                                }
+                            ),
+                            NoMemoMenuActionItem(
                                 iconRes = R.drawable.ic_nm_settings,
                                 label = stringResource(R.string.action_settings),
                                 onClick = {
                                     moreMenuExpanded = false
                                     onOpenSettings()
-                                }
-                            ),
-                            NoMemoMenuActionItem(
-                                iconRes = R.drawable.ic_nm_memory,
-                                label = "已归档记忆",
-                                onClick = {
-                                    moreMenuExpanded = false
-                                    onOpenArchivedMemory()
                                 }
                             )
                         )

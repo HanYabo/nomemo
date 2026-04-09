@@ -824,25 +824,13 @@ private fun NoMemoDialogShell(
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val panelShape = RoundedCornerShape(30.dp)
-    val panelSurface = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.998f))
-    val panelBrush = if (isDark) {
-        Brush.verticalGradient(
-            colors = listOf(
-                panelSurface,
-                Color.White.copy(alpha = 0.035f),
-                panelSurface
-            )
-        )
+    val panelSurface = if (isDark) {
+        noMemoCardSurfaceColor(true, Color(0xFF171A20))
     } else {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color.White.copy(alpha = 0.998f),
-                Color(0xFFF8FAFD).copy(alpha = 0.998f)
-            )
-        )
+        noMemoCardSurfaceColor(false, Color.White.copy(alpha = 0.998f))
     }
     val panelStroke = if (isDark) {
-        palette.glassStroke.copy(alpha = 0.32f)
+        Color.White.copy(alpha = 0.08f)
     } else {
         Color.Black.copy(alpha = 0.06f)
     }
@@ -885,7 +873,7 @@ private fun NoMemoDialogShell(
                         spotColor = Color.Black.copy(alpha = if (isDark) 0.34f else 0.12f)
                     )
                     .clip(panelShape)
-                    .background(panelBrush)
+                    .background(panelSurface)
                     .border(1.dp, panelStroke, panelShape)
                     .clickable(
                         interactionSource = panelInteraction,
@@ -941,21 +929,22 @@ private fun NoMemoDialogActionButton(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
+    val destructiveBase = Color(0xFFFF5A52)
     val backgroundColor = when {
-        primary && destructive -> Color(0xFFB63B2E)
+        primary && destructive -> destructiveBase
         primary -> palette.accent
-        destructive -> if (isDark) Color(0xFF342221) else Color(0xFFFFF0EE)
+        destructive -> if (isDark) Color(0xFF2D1C1B) else Color(0xFFFFF1F0)
         else -> if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f)
     }
     val borderColor = when {
-        primary && destructive -> Color(0xFFB63B2E)
+        primary && destructive -> destructiveBase
         primary -> palette.accent
-        destructive -> if (isDark) Color(0x66E57C73) else Color(0xFFFFD0CB)
+        destructive -> destructiveBase.copy(alpha = if (isDark) 0.42f else 0.32f)
         else -> if (isDark) palette.glassStroke.copy(alpha = 0.34f) else Color.Black.copy(alpha = 0.06f)
     }
     val textColor = when {
         primary -> palette.onAccent
-        destructive -> if (isDark) Color(0xFFFFB4AB) else Color(0xFFB42318)
+        destructive -> destructiveBase
         else -> palette.textPrimary
     }
     PressScaleBox(
@@ -1040,29 +1029,14 @@ fun NoMemoMenuList(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val panelShape = RoundedCornerShape(20.dp)
+    val panelShape = RoundedCornerShape(24.dp)
     val panelBase = if (isDark) {
-        noMemoCardSurfaceColor(true, Color.White.copy(alpha = 0.995f))
+        noMemoCardSurfaceColor(true, Color(0xFF171A20))
     } else {
         Color.White
     }
-    val panelBrush = if (isDark) {
-        Brush.verticalGradient(
-            listOf(
-                panelBase.copy(alpha = 0.985f),
-                palette.glassFill.copy(alpha = 0.82f)
-            )
-        )
-    } else {
-        Brush.verticalGradient(
-            listOf(
-                Color.White.copy(alpha = 0.995f),
-                Color(0xFFF7F8FB).copy(alpha = 0.995f)
-            )
-        )
-    }
     val panelStroke = if (isDark) {
-        palette.glassStroke.copy(alpha = 0.42f)
+        Color.White.copy(alpha = 0.08f)
     } else {
         Color(0x14000000)
     }
@@ -1072,10 +1046,11 @@ fun NoMemoMenuList(
         Color(0xFF2A3442).copy(alpha = 0.045f)
     }
     val topSheen = if (isDark) {
-        Color.White.copy(alpha = 0.06f)
+        Color.White.copy(alpha = 0.035f)
     } else {
-        Color.White.copy(alpha = 0.92f)
+        Color.White.copy(alpha = 0.7f)
     }
+    val contentInset = 6.dp
 
     Box(
         modifier = modifier
@@ -1087,7 +1062,7 @@ fun NoMemoMenuList(
                 spotColor = panelShadow
             )
             .clip(panelShape)
-            .background(panelBrush)
+            .background(panelBase)
             .border(1.dp, panelStroke, panelShape)
     ) {
         Box(
@@ -1095,10 +1070,11 @@ fun NoMemoMenuList(
                 .fillMaxWidth()
                 .height(1.dp)
                 .background(topSheen)
-                .alpha(0.55f)
-        )
+                .alpha(0.28f)
+        ) {
+        }
         Column(
-            modifier = Modifier.padding(vertical = 8.dp),
+            modifier = Modifier.padding(horizontal = contentInset, vertical = contentInset),
             verticalArrangement = Arrangement.spacedBy(2.dp)
         ) {
             actions.forEach { item ->
@@ -1119,7 +1095,7 @@ fun NoMemoAnchoredMenu(
     onDismissRequest: () -> Unit,
     anchorBounds: IntRect?,
     actions: List<NoMemoMenuActionItem>,
-    menuWidth: Dp = 156.dp,
+    menuWidth: Dp = 194.dp,
     verticalGap: Dp = 8.dp
 ) {
     if (actions.isEmpty()) return
@@ -1197,38 +1173,55 @@ private fun NoMemoAnchoredMenuRow(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
+    val destructiveBase = Color(0xFFFF5A52)
     val contentColor = if (destructive) {
-        if (isDark) Color(0xFFE17B70) else Color(0xFFC55B4F)
+        destructiveBase
     } else {
         palette.textPrimary
     }
-    PressScaleBox(
-        onClick = onClick,
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressedBackground = if (destructive) {
+        destructiveBase.copy(alpha = if (isDark) 0.22f else 0.14f)
+    } else if (isDark) {
+        Color.White.copy(alpha = 0.08f)
+    } else {
+        Color.Black.copy(alpha = 0.045f)
+    }
+    val rowShape = RoundedCornerShape(18.dp)
+    Box(
         modifier = Modifier
             .fillMaxWidth()
+            .clickable(
+                interactionSource = interaction,
+                indication = null,
+                onClick = onClick
+            )
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(42.dp)
-                .padding(horizontal = 12.dp),
+                .height(50.dp)
+                .clip(rowShape)
+                .background(if (pressed) pressedBackground else Color.Transparent)
+                .padding(horizontal = 18.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Icon(
                 painter = painterResource(iconRes),
                 contentDescription = null,
                 tint = contentColor,
-                modifier = Modifier.size(17.dp)
+                modifier = Modifier.size(18.dp)
             )
             Text(
                 text = label,
                 color = contentColor,
-                fontSize = 14.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier
-                    .padding(start = 10.dp)
+                    .padding(start = 16.dp)
                     .weight(1f)
             )
         }

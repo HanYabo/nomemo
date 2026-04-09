@@ -154,6 +154,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     }
 
     private lateinit var memoryStore: MemoryStore
+    private lateinit var settingsStore: SettingsStore
     private lateinit var aiMemoryService: AiMemoryService
     private var record by mutableStateOf<MemoryRecord?>(null)
     private var reanalyzing by mutableStateOf(false)
@@ -169,6 +170,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
+        settingsStore = SettingsStore(this)
         aiMemoryService = AiMemoryService(this)
         loadRecordOrFinish()
         val statusBarResourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
@@ -176,6 +178,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         setContent {
             DetailContent(
                 record = record,
+                aiEnabled = settingsStore.aiEnabled,
                 reanalyzing = reanalyzing,
                 statusBarHeightPx = statusBarHeightPx,
                 onBack = { finish() },
@@ -596,6 +599,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     @Composable
     private fun DetailContent(
         record: MemoryRecord?,
+        aiEnabled: Boolean,
         reanalyzing: Boolean,
         statusBarHeightPx: Int,
         onBack: () -> Unit,
@@ -1193,7 +1197,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     categoryMenuExpanded = false
                                 }
                             )
-                        } else {
+                        } else if (aiEnabled) {
                             val buttonProcessing = reanalyzing || AiProcessingStateRegistry.isProcessing(currentRecord.recordId)
                             NoMemoDetailReanalyzeButton(
                                 text = when {
