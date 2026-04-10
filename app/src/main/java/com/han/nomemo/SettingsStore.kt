@@ -62,6 +62,14 @@ class SettingsStore(context: Context) {
         get() = prefs.getString(KEY_THEME_ACCENT, THEME_ACCENT_DEFAULT) ?: THEME_ACCENT_DEFAULT
         set(value) = prefs.edit().putString(KEY_THEME_ACCENT, value).apply()
 
+    var autoRetry: Boolean
+        get() = prefs.getBoolean(KEY_AUTO_RETRY, true)
+        set(value) = prefs.edit().putBoolean(KEY_AUTO_RETRY, value).apply()
+
+    var economyMode: Boolean
+        get() = prefs.getBoolean(KEY_ECONOMY_MODE, false)
+        set(value) = prefs.edit().putBoolean(KEY_ECONOMY_MODE, value).apply()
+
     fun resolvedApiBaseUrl(): String {
         return apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }
     }
@@ -124,6 +132,8 @@ class SettingsStore(context: Context) {
         private const val KEY_THEME_GLOBAL_ENABLED = "theme_global_enabled"
         private const val KEY_SHOW_DIVIDERS = "show_dividers"
         private const val KEY_THEME_ACCENT = "theme_accent"
+        private const val KEY_AUTO_RETRY = "auto_retry"
+        private const val KEY_ECONOMY_MODE = "economy_mode"
 
         const val THEME_SYSTEM = "SYSTEM"
         const val THEME_LIGHT = "LIGHT"

@@ -72,6 +72,11 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 
+    // Backdrop: Liquid Glass Effect Library
+    implementation("io.github.kyant0:backdrop:1.0.6")
+
+    implementation("io.github.kyant0:capsule:2.1.3")
+    
     implementation("androidx.appcompat:appcompat:1.7.1")
     implementation("androidx.core:core:1.17.0")
     implementation("com.google.android.material:material:1.13.0")

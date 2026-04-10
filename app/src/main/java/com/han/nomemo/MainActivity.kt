@@ -87,6 +87,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -509,9 +511,15 @@ class MainActivity : BaseComposeActivity() {
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Box(modifier = Modifier.fillMaxSize()) {
+                    // 创建全局 backdrop 层，捕获页面内容用于液态玻璃效果
+                    val backdrop = rememberLayerBackdrop {
+                        drawContent()  // 绘制内容层（Column 会标记为 layerBackdrop）
+                    }
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .layerBackdrop(backdrop)  // 标记为内容层
                             .statusBarsPadding()
                             .padding(
                                 start = spec.pageHorizontalPadding,
@@ -778,7 +786,7 @@ class MainActivity : BaseComposeActivity() {
                     }
 
                     if (!selectionModeActive) {
-                        NoMemoBottomDock(
+                        LiquidGlassDock(
                             selectedTab = NoMemoDockTab.MEMORY,
                             spec = spec,
                             modifier = Modifier
@@ -793,8 +801,7 @@ class MainActivity : BaseComposeActivity() {
                             onOpenGroup = onOpenGroup,
                             onOpenReminder = onOpenReminder,
                             onAddClick = onAddClick,
-                            animateFabHalo = !listState.isScrollInProgress,
-                            showEnhancedOutline = dockHasUnderContent
+                            sharedBackdrop = backdrop  // 传入共享的 backdrop，实现真实玻璃效果
                         )
                     } else if (selectedRecords.isNotEmpty()) {
                         NoMemoSelectionActionDock(

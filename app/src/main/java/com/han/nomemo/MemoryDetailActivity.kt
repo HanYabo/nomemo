@@ -2234,7 +2234,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }
 
         val sheetSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.94f))
+            Color(0xFF121316)
         } else {
             Color(0xFFF5F6F8)
         }

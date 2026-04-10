@@ -118,7 +118,11 @@ fun AddMemorySheet(
     val inputTextColor = palette.textPrimary
     val inputHintColor = palette.textTertiary
     val sheetBodyHeight = if (adaptive.isNarrow) 650.dp else 720.dp
-    val dragHandleColor = if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000)
+    val dragHandleColor = if (isDark) {
+        Color(0xFF8E8E93).copy(alpha = 0.72f)
+    } else {
+        Color(0xFF8E8E93).copy(alpha = 0.68f)
+    }
     val hasDraftChanges =
         inputText.isNotBlank() ||
             selectedImageUri != null ||

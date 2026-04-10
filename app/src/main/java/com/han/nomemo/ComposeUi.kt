@@ -463,38 +463,34 @@ private fun applyNoMemoThemeOverrides(
     themeAccentKey: String,
     showDividers: Boolean
 ): NoMemoPalette {
-    val themeBackgroundSeed = if (themeGlobalEnabled) {
+    // 主题色始终生效（非默认选项时）
+    val isDefaultTheme = themeAccentKey == SettingsStore.THEME_ACCENT_DEFAULT
+
+    // 获取色卡颜色，然后适当降低饱和度
+    val themeColor = if (!isDefaultTheme) {
         resolveNoMemoThemeAccent(themeAccentKey, isDark, base.dockIndicator)
-    } else {
-        base.dockIndicator
-    }
-    val liftedBackgroundSeed = if (themeGlobalEnabled) {
-        if (isDark) lerp(themeBackgroundSeed, Color.White, 0.42f) else lerp(themeBackgroundSeed, Color.White, 0.62f)
-    } else {
-        themeBackgroundSeed
-    }
-    val themedBgStart = if (themeGlobalEnabled) {
-        lerp(base.memoBgStart, liftedBackgroundSeed, if (isDark) 0.080f else 0.140f)
     } else {
         base.memoBgStart
     }
-    val themedBgMid = if (themeGlobalEnabled) {
-        lerp(base.memoBgMid, liftedBackgroundSeed, if (isDark) 0.110f else 0.180f)
+
+    // 浅色模式：混合白色降低饱和度；深色模式：混合黑色降低饱和度
+    val themedBg = if (!isDefaultTheme) {
+        if (isDark) {
+            lerp(themeColor, Color.Black, 0.78f)
+        } else {
+            lerp(themeColor, Color.White, 0.82f)
+        }
     } else {
-        base.memoBgMid
+        base.memoBgStart
     }
-    val themedBgEnd = if (themeGlobalEnabled) {
-        lerp(base.memoBgEnd, liftedBackgroundSeed, if (isDark) 0.140f else 0.220f)
-    } else {
-        base.memoBgEnd
-    }
+
     val effectiveStroke = if (showDividers) base.glassStroke else Color.Transparent
     val effectiveDockStroke = if (showDividers) base.dockStroke else Color.Transparent
 
     return base.copy(
-        memoBgStart = themedBgStart,
-        memoBgMid = themedBgMid,
-        memoBgEnd = themedBgEnd,
+        memoBgStart = themedBg,
+        memoBgMid = themedBg,
+        memoBgEnd = themedBg,
         glassStroke = effectiveStroke,
         dockStroke = effectiveDockStroke,
         glassFill = base.glassFill,
@@ -511,15 +507,39 @@ private fun applyNoMemoThemeOverrides(
 }
 
 private fun resolveNoMemoThemeAccent(key: String, isDark: Boolean, fallback: Color): Color {
+    // 深色和浅色模式使用相同的色卡颜色
     return when (key) {
-        SettingsStore.THEME_ACCENT_WARM_GRAY -> if (isDark) Color(0xFFD4CCBE) else Color(0xFFB8AF9D)
-        SettingsStore.THEME_ACCENT_NOTE_YELLOW -> if (isDark) Color(0xFFFFD54F) else Color(0xFFFFC83D)
-        SettingsStore.THEME_ACCENT_SAKURA_PINK -> if (isDark) Color(0xFFFF7FA6) else Color(0xFFFF6B96)
-        SettingsStore.THEME_ACCENT_SKY_BLUE -> if (isDark) Color(0xFF64B6FF) else Color(0xFF4AA3FF)
-        SettingsStore.THEME_ACCENT_MINT_GREEN -> if (isDark) Color(0xFF58E59A) else Color(0xFF39D98A)
-        SettingsStore.THEME_ACCENT_PEACH_ORANGE -> if (isDark) Color(0xFFFFB35A) else Color(0xFFFF9A3D)
-        SettingsStore.THEME_ACCENT_LAVENDER_PURPLE -> if (isDark) Color(0xFFC39CFF) else Color(0xFFB587FF)
+        SettingsStore.THEME_ACCENT_WARM_GRAY -> Color(0xFFB8AF9D)
+        SettingsStore.THEME_ACCENT_NOTE_YELLOW -> Color(0xFFFFC83D)
+        SettingsStore.THEME_ACCENT_SAKURA_PINK -> Color(0xFFFF6B96)
+        SettingsStore.THEME_ACCENT_SKY_BLUE -> Color(0xFF4AA3FF)
+        SettingsStore.THEME_ACCENT_MINT_GREEN -> Color(0xFF39D98A)
+        SettingsStore.THEME_ACCENT_PEACH_ORANGE -> Color(0xFFFF9A3D)
+        SettingsStore.THEME_ACCENT_LAVENDER_PURPLE -> Color(0xFFB587FF)
         else -> fallback
+    }
+}
+
+/**
+ * 获取默认（无主题色）的背景色列表
+ */
+@Composable
+fun rememberDefaultBackgroundColors(): List<Color> {
+    val isDark = isSystemInDarkTheme()
+    return remember(isDark) {
+        if (isDark) {
+            listOf(
+                Color(0xFF000000),
+                Color(0xFF000000),
+                Color(0xFF000000)
+            )
+        } else {
+            listOf(
+                Color(0xFFF5F5F5),
+                Color(0xFFF5F5F5),
+                Color(0xFFF5F5F5)
+            )
+        }
     }
 }
 

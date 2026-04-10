@@ -91,8 +91,9 @@ private enum class AiTestTarget {
     MULTIMODAL
 }
 
-private const val API_TEST_IMAGE_DATA_URI =
-    "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9sX6lz0AAAAASUVORK5CYII="
+// 10x10 红色方块 JPEG 图片的 base64 编码，用于 API 测试
+private const val API_TEST_IMAGE_URL =
+    "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAALCAAKAAoBAREA/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAAAAAAAAAAAAAAAAD/2gAIAQEAAD8AKp//2Q=="
 
 class SettingsActivity : BaseComposeActivity() {
     companion object {
@@ -167,6 +168,14 @@ class SettingsActivity : BaseComposeActivity() {
                 },
                 onThemeAccentChange = { value ->
                     settingsStore.themeAccent = value
+                    setResult(RESULT_OK)
+                },
+                onAutoRetryChange = { value ->
+                    settingsStore.autoRetry = value
+                    setResult(RESULT_OK)
+                },
+                onEconomyModeChange = { value ->
+                    settingsStore.economyMode = value
                     setResult(RESULT_OK)
                 },
                 onClearData = {
@@ -289,7 +298,7 @@ class SettingsActivity : BaseComposeActivity() {
                                                 put("type", "image_url")
                                                 put(
                                                     "image_url",
-                                                    JSONObject().put("url", API_TEST_IMAGE_DATA_URI)
+                                                    JSONObject().put("url", API_TEST_IMAGE_URL)
                                                 )
                                             }
                                         )
@@ -312,7 +321,7 @@ class SettingsActivity : BaseComposeActivity() {
                                                 put("type", "image_url")
                                                 put(
                                                     "image_url",
-                                                    JSONObject().put("url", API_TEST_IMAGE_DATA_URI)
+                                                    JSONObject().put("url", API_TEST_IMAGE_URL)
                                                 )
                                             }
                                         )
@@ -399,19 +408,16 @@ class SettingsActivity : BaseComposeActivity() {
         onThemeGlobalEnabledChange: (Boolean) -> Unit,
         onShowDividersChange: (Boolean) -> Unit,
         onThemeAccentChange: (String) -> Unit,
+        onAutoRetryChange: (Boolean) -> Unit,
+        onEconomyModeChange: (Boolean) -> Unit,
         onClearData: () -> Unit,
         onTestApi: (AiTestTarget, String, String, String, String, (Boolean, String) -> Unit) -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val pageBackgroundBrush = Brush.verticalGradient(
-            listOf(
-                palette.memoBgStart,
-                palette.memoBgMid,
-                palette.memoBgEnd
-            )
-        )
+        // 默认背景色（无主题色）
+        val defaultBgColors = rememberDefaultBackgroundColors()
         val cardSurface = if (isDark) {
             noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.92f))
         } else {
@@ -452,12 +458,21 @@ class SettingsActivity : BaseComposeActivity() {
         var themeGlobalEnabled by remember { mutableStateOf(settingsStore.themeGlobalEnabled) }
         var showDividers by remember { mutableStateOf(settingsStore.showDividers) }
         var themeAccent by remember { mutableStateOf(settingsStore.themeAccent) }
+        var autoRetry by remember { mutableStateOf(settingsStore.autoRetry) }
+        var economyMode by remember { mutableStateOf(settingsStore.economyMode) }
+        // 根据 themeGlobalEnabled 决定是否应用主题色背景
+        val pageBackgroundColor = if (themeGlobalEnabled) {
+            palette.memoBgStart
+        } else {
+            defaultBgColors.first()
+        }
         val dividerColor = if (showDividers) {
             if (isDark) palette.glassStroke.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.055f)
         } else {
             Color.Transparent
         }
         var showClearConfirm by remember { mutableStateOf(false) }
+        var showResetConfirm by remember { mutableStateOf(false) }
         var testingTarget by remember { mutableStateOf<AiTestTarget?>(null) }
         var showTestResult by remember { mutableStateOf(false) }
         var testResultSuccess by remember { mutableStateOf(false) }
@@ -467,7 +482,7 @@ class SettingsActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(pageBackgroundBrush)
+                .background(pageBackgroundColor)
         ) {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Column(
@@ -489,6 +504,10 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsRoute.AiModel -> "模型配置"
                             SettingsRoute.AiGuide -> "AI功能帮助"
                             SettingsRoute.Appearance -> "显示与主题"
+                            SettingsRoute.CustomIcon -> "自定义图标"
+                            SettingsRoute.CustomDock -> "自定义底栏"
+                            SettingsRoute.Backup -> "备份与迁移"
+                            SettingsRoute.StorageClean -> "存储空间清理"
                             SettingsRoute.Data -> "本地数据管理"
                         },
                         onBack = onClose,
@@ -528,6 +547,8 @@ class SettingsActivity : BaseComposeActivity() {
                             themeGlobalEnabled = themeGlobalEnabled,
                             showDividers = showDividers,
                             themeAccent = themeAccent,
+                            autoRetry = autoRetry,
+                            economyMode = economyMode,
                             testingTarget = testingTarget,
                             onNavigate = onNavigate,
                             onAiEnabledChange = {
@@ -582,7 +603,16 @@ class SettingsActivity : BaseComposeActivity() {
                                 themeAccent = it
                                 onThemeAccentChange(it)
                             },
+                            onAutoRetryChange = {
+                                autoRetry = it
+                                onAutoRetryChange(it)
+                            },
+                            onEconomyModeChange = {
+                                economyMode = it
+                                onEconomyModeChange(it)
+                            },
                             onShowClearConfirm = { showClearConfirm = true },
+                            onShowResetConfirm = { showResetConfirm = true },
                             onRunApiTest = { target, modelName, title ->
                                 if (testingTarget != null) {
                                     return@SettingsRouteBody
@@ -613,6 +643,21 @@ class SettingsActivity : BaseComposeActivity() {
                     onClearData()
                 },
                 onDismiss = { showClearConfirm = false }
+            )
+        }
+
+        if (showResetConfirm) {
+            NoMemoConfirmDialog(
+                title = "恢复默认配置",
+                message = "确定要将 API 地址恢复为默认值吗？",
+                confirmText = "确认",
+                dismissText = "取消",
+                destructive = true,
+                onConfirm = {
+                    showResetConfirm = false
+                    onBaseUrlChange("https://open.bigmodel.cn/api/paas/v4")
+                },
+                onDismiss = { showResetConfirm = false }
             )
         }
 
@@ -653,6 +698,8 @@ class SettingsActivity : BaseComposeActivity() {
         themeGlobalEnabled: Boolean,
         showDividers: Boolean,
         themeAccent: String,
+        autoRetry: Boolean,
+        economyMode: Boolean,
         testingTarget: AiTestTarget?,
         onNavigate: (SettingsRoute) -> Unit,
         onAiEnabledChange: (Boolean) -> Unit,
@@ -668,7 +715,10 @@ class SettingsActivity : BaseComposeActivity() {
         onThemeGlobalEnabledChange: (Boolean) -> Unit,
         onShowDividersChange: (Boolean) -> Unit,
         onThemeAccentChange: (String) -> Unit,
+        onAutoRetryChange: (Boolean) -> Unit,
+        onEconomyModeChange: (Boolean) -> Unit,
         onShowClearConfirm: () -> Unit,
+        onShowResetConfirm: () -> Unit,
         onRunApiTest: (AiTestTarget, String, String) -> Unit
     ) {
         when (currentRoute) {
@@ -752,6 +802,52 @@ class SettingsActivity : BaseComposeActivity() {
                             onClick = { onNavigate(SettingsRoute.AiModel) }
                         )
                     }
+
+                    Spacer(modifier = Modifier.height(28.dp))
+                    SettingsSectionLabel("体验配置", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SettingsToggleRow(
+                                title = "分析失败时自动重试",
+                                checked = autoRetry,
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor,
+                                accentColor = aiToggleColor,
+                                surface = softSurface,
+                                subtitle = "可能会消耗较多词元",
+                                onCheckedChange = onAutoRetryChange
+                            )
+                            if (showDividers) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 20.dp)
+                                        .height(1.dp)
+                                        .background(dividerColor)
+                                )
+                            }
+                            SettingsToggleRow(
+                                title = "节省模式",
+                                checked = economyMode,
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor,
+                                accentColor = aiToggleColor,
+                                surface = softSurface,
+                                subtitle = "降低识别的费用，识别精度可能会降低",
+                                onCheckedChange = onEconomyModeChange
+                            )
+                        }
+                    }
+
+                    SettingsDangerAction(
+                        title = "恢复默认",
+                        modifier = Modifier.padding(top = 28.dp),
+                        onClick = onShowResetConfirm
+                    )
                 }
             }
 
@@ -1112,7 +1208,7 @@ class SettingsActivity : BaseComposeActivity() {
 
                     Spacer(modifier = Modifier.height(24.dp))
                     SettingsSectionLabel("主题", sectionLabelColor)
-                    val defaultThemeSwatch = rememberLightThemeTokenColor(R.color.dock_indicator)
+                    val defaultThemeSwatch = Color(0xFFF5F5F5)
                     val themeOptions = appearanceThemeOptions(defaultThemeSwatch)
                     SettingsSurfaceCard(
                         surface = cardSurface,
@@ -1133,6 +1229,98 @@ class SettingsActivity : BaseComposeActivity() {
                                     SettingsInfoDivider(dividerColor, modifier = Modifier.padding(horizontal = 20.dp))
                                 }
                             }
+                        }
+                    }
+                }
+            }
+
+            SettingsRoute.CustomIcon -> {
+                Column {
+                    Spacer(modifier = Modifier.height(22.dp))
+                    SettingsSectionLabel("图标设置", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "自定义图标功能即将上线",
+                                color = subtitleColor,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            SettingsRoute.CustomDock -> {
+                Column {
+                    Spacer(modifier = Modifier.height(22.dp))
+                    SettingsSectionLabel("底栏设置", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "自定义底栏功能即将上线",
+                                color = subtitleColor,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            SettingsRoute.Backup -> {
+                Column {
+                    Spacer(modifier = Modifier.height(22.dp))
+                    SettingsSectionLabel("备份与迁移", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "备份与迁移功能即将上线",
+                                color = subtitleColor,
+                                fontSize = 15.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            SettingsRoute.StorageClean -> {
+                Column {
+                    Spacer(modifier = Modifier.height(22.dp))
+                    SettingsSectionLabel("存储空间清理", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "存储空间清理功能即将上线",
+                                color = subtitleColor,
+                                fontSize = 15.sp
+                            )
                         }
                     }
                 }
@@ -1206,7 +1394,9 @@ class SettingsActivity : BaseComposeActivity() {
             dividerColor = dividerColor,
             modifier = Modifier.padding(top = 10.dp),
             items = listOf(
-                SettingsMenuItem("显示与主题", route = SettingsRoute.Appearance)
+                SettingsMenuItem("显示与主题", route = SettingsRoute.Appearance),
+                SettingsMenuItem("自定义图标", route = SettingsRoute.CustomIcon),
+                SettingsMenuItem("自定义底栏", route = SettingsRoute.CustomDock)
             ),
             titleColor = titleColor,
             onClick = onNavigate
@@ -1220,7 +1410,9 @@ class SettingsActivity : BaseComposeActivity() {
             dividerColor = dividerColor,
             modifier = Modifier.padding(top = 10.dp),
             items = listOf(
-                SettingsMenuItem("本地数据管理", route = SettingsRoute.Data)
+                SettingsMenuItem("本地数据管理", route = SettingsRoute.Data),
+                SettingsMenuItem("备份与迁移", route = SettingsRoute.Backup),
+                SettingsMenuItem("存储空间清理", route = SettingsRoute.StorageClean)
             ),
             titleColor = titleColor,
             onClick = onNavigate
@@ -2464,6 +2656,22 @@ class SettingsActivity : BaseComposeActivity() {
             override val key: String = "appearance"
         }
 
+        data object CustomIcon : SettingsRoute {
+            override val key: String = "custom_icon"
+        }
+
+        data object CustomDock : SettingsRoute {
+            override val key: String = "custom_dock"
+        }
+
+        data object Backup : SettingsRoute {
+            override val key: String = "backup"
+        }
+
+        data object StorageClean : SettingsRoute {
+            override val key: String = "storage_clean"
+        }
+
         data object Data : SettingsRoute {
             override val key: String = "data"
         }
@@ -2475,6 +2683,10 @@ class SettingsActivity : BaseComposeActivity() {
                     AiModel.key -> AiModel
                     AiGuide.key -> AiGuide
                     Appearance.key -> Appearance
+                    CustomIcon.key -> CustomIcon
+                    CustomDock.key -> CustomDock
+                    Backup.key -> Backup
+                    StorageClean.key -> StorageClean
                     Data.key -> Data
                     else -> Home
                 }

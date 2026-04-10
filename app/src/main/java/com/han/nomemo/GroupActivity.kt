@@ -85,6 +85,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -482,9 +484,15 @@ class GroupActivity : BaseComposeActivity() {
         NoMemoBackground {
             ResponsiveContentFrame(spec = albumAdaptive) { spec ->
                 Box(modifier = Modifier.fillMaxSize()) {
+                    // 创建全局 backdrop 层，捕获页面内容用于液态玻璃效果
+                    val backdrop = rememberLayerBackdrop {
+                        drawContent()  // 绘制内容层（Column 会标记为 layerBackdrop）
+                    }
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
+                            .layerBackdrop(backdrop)  // 标记为内容层
                             .statusBarsPadding()
                             .padding(
                                 start = spec.pageHorizontalPadding,
@@ -757,15 +765,13 @@ class GroupActivity : BaseComposeActivity() {
                     }
 
                     if (openedAlbum == null) {
-                        NoMemoBottomDock(
+                        LiquidGlassDock(
                             selectedTab = NoMemoDockTab.GROUP,
                             onOpenMemory = onOpenMemory,
                             onOpenGroup = {},
                             onOpenReminder = onOpenReminder,
                             onAddClick = onAddClick,
                             spec = spec,
-                            animateFabHalo = !groupListState.isScrollInProgress,
-                            showEnhancedOutline = albumDockHasUnderContent,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
@@ -773,7 +779,8 @@ class GroupActivity : BaseComposeActivity() {
                                     start = spec.pageHorizontalPadding,
                                     end = spec.pageHorizontalPadding,
                                     bottom = if (spec.isNarrow) 10.dp else 14.dp
-                                )
+                                ),
+                            sharedBackdrop = backdrop  // 传入共享的 backdrop，实现真实玻璃效果
                         )
                     } else if (albumSelectionModeActive && selectedAlbumRecords.isNotEmpty()) {
                         NoMemoSelectionActionDock(
@@ -1539,7 +1546,7 @@ class GroupActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
         val panelSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.94f))
+            Color(0xFF121316)
         } else {
             Color(0xFFF5F6F8)
         }
@@ -1800,7 +1807,7 @@ class GroupActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
         val panelSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.94f))
+            Color(0xFF121316)
         } else {
             Color(0xFFF5F6F8)
         }
