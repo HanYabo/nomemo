@@ -2,6 +2,8 @@
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
+import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
@@ -17,10 +19,13 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
@@ -48,14 +53,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -70,6 +80,10 @@ import java.io.InputStream
 import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.charset.StandardCharsets
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import androidx.core.content.ContextCompat
 
 private enum class AiTestTarget {
     IMAGE,
@@ -114,8 +128,16 @@ class SettingsActivity : BaseComposeActivity() {
                     settingsStore.apiKey = value
                     setResult(RESULT_OK)
                 },
-                onCustomModelChange = { value ->
-                    settingsStore.apiModel = value
+                onImageCustomModelChange = { value ->
+                    settingsStore.imageCustomModel = value
+                    setResult(RESULT_OK)
+                },
+                onTextCustomModelChange = { value ->
+                    settingsStore.textCustomModel = value
+                    setResult(RESULT_OK)
+                },
+                onMultimodalCustomModelChange = { value ->
+                    settingsStore.multimodalCustomModel = value
                     setResult(RESULT_OK)
                 },
                 onImageModelPresetChange = { value ->
@@ -133,6 +155,18 @@ class SettingsActivity : BaseComposeActivity() {
                 onThemeModeChange = { value ->
                     settingsStore.themeMode = value
                     settingsStore.applyThemeMode()
+                    setResult(RESULT_OK)
+                },
+                onThemeGlobalEnabledChange = { value ->
+                    settingsStore.themeGlobalEnabled = value
+                    setResult(RESULT_OK)
+                },
+                onShowDividersChange = { value ->
+                    settingsStore.showDividers = value
+                    setResult(RESULT_OK)
+                },
+                onThemeAccentChange = { value ->
+                    settingsStore.themeAccent = value
                     setResult(RESULT_OK)
                 },
                 onClearData = {
@@ -338,6 +372,15 @@ class SettingsActivity : BaseComposeActivity() {
             Intent(this, SettingsActivity::class.java).putExtra(EXTRA_ROUTE_KEY, route.key)
         )
     }
+
+    private fun openExternalUrl(url: String) {
+        runCatching {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        }.onFailure {
+            Toast.makeText(this, "无法打开链接", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     @Composable
     private fun SettingsContent(
         currentRoute: SettingsRoute,
@@ -346,48 +389,74 @@ class SettingsActivity : BaseComposeActivity() {
         onAiEnabledChange: (Boolean) -> Unit,
         onBaseUrlChange: (String) -> Unit,
         onApiKeyChange: (String) -> Unit,
-        onCustomModelChange: (String) -> Unit,
+        onImageCustomModelChange: (String) -> Unit,
+        onTextCustomModelChange: (String) -> Unit,
+        onMultimodalCustomModelChange: (String) -> Unit,
         onImageModelPresetChange: (String) -> Unit,
         onTextModelPresetChange: (String) -> Unit,
         onMultimodalModelPresetChange: (String) -> Unit,
         onThemeModeChange: (String) -> Unit,
+        onThemeGlobalEnabledChange: (Boolean) -> Unit,
+        onShowDividersChange: (Boolean) -> Unit,
+        onThemeAccentChange: (String) -> Unit,
         onClearData: () -> Unit,
         onTestApi: (AiTestTarget, String, String, String, String, (Boolean, String) -> Unit) -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val pageBackground = palette.memoBgStart
+        val pageBackgroundBrush = Brush.verticalGradient(
+            listOf(
+                palette.memoBgStart,
+                palette.memoBgMid,
+                palette.memoBgEnd
+            )
+        )
         val cardSurface = if (isDark) {
             noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.92f))
         } else {
-            noMemoCardSurfaceColor(false, Color.White.copy(alpha = 0.985f))
+            Color.White.copy(alpha = 0.985f)
         }
         val actionSurface = if (isDark) {
-            Color(0xFF1D2026)
+            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
         } else {
             Color.White.copy(alpha = 0.985f)
         }
         val softSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, Color(0xFF1D2026))
+            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.92f))
         } else {
             Color(0xFFF1F3F6)
         }
         val titleColor = palette.textPrimary
         val subtitleColor = palette.textSecondary
         val sectionLabelColor = palette.textTertiary
-        val dividerColor = if (isDark) palette.glassStroke.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.055f)
         val borderColor = Color.Transparent
         val aiToggleColor = if (isDark) Color(0xFF3BD166) else Color(0xFF30C85A)
         val aiActionColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
         var aiEnabled by remember { mutableStateOf(settingsStore.aiEnabled) }
         var baseUrl by remember { mutableStateOf(settingsStore.apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }) }
         var apiKey by remember { mutableStateOf(settingsStore.apiKey) }
-        var customModel by remember { mutableStateOf(settingsStore.apiModel.ifBlank { BuildConfig.OPENAI_MODEL }) }
+        var imageCustomModel by remember {
+            mutableStateOf(settingsStore.imageCustomModel.ifBlank { settingsStore.resolvedApiModel() })
+        }
+        var textCustomModel by remember {
+            mutableStateOf(settingsStore.textCustomModel.ifBlank { settingsStore.resolvedApiModel() })
+        }
+        var multimodalCustomModel by remember {
+            mutableStateOf(settingsStore.multimodalCustomModel.ifBlank { settingsStore.resolvedApiModel() })
+        }
         var imageModelPreset by remember { mutableStateOf(settingsStore.imageModelPreset) }
         var textModelPreset by remember { mutableStateOf(settingsStore.textModelPreset) }
         var multimodalModelPreset by remember { mutableStateOf(settingsStore.multimodalModelPreset) }
         var themeMode by remember { mutableStateOf(settingsStore.themeMode) }
+        var themeGlobalEnabled by remember { mutableStateOf(settingsStore.themeGlobalEnabled) }
+        var showDividers by remember { mutableStateOf(settingsStore.showDividers) }
+        var themeAccent by remember { mutableStateOf(settingsStore.themeAccent) }
+        val dividerColor = if (showDividers) {
+            if (isDark) palette.glassStroke.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.055f)
+        } else {
+            Color.Transparent
+        }
         var showClearConfirm by remember { mutableStateOf(false) }
         var testingTarget by remember { mutableStateOf<AiTestTarget?>(null) }
         var showTestResult by remember { mutableStateOf(false) }
@@ -398,7 +467,7 @@ class SettingsActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(pageBackground)
+                .background(pageBackgroundBrush)
         ) {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Column(
@@ -418,7 +487,7 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsRoute.Home -> "设置"
                             SettingsRoute.AiConfig -> "AI 功能"
                             SettingsRoute.AiModel -> "模型配置"
-                            SettingsRoute.AiGuide -> "AI 功能说明"
+                            SettingsRoute.AiGuide -> "AI功能帮助"
                             SettingsRoute.Appearance -> "显示与主题"
                             SettingsRoute.Data -> "本地数据管理"
                         },
@@ -449,11 +518,16 @@ class SettingsActivity : BaseComposeActivity() {
                             aiEnabled = aiEnabled,
                             baseUrl = baseUrl,
                             apiKey = apiKey,
-                            customModel = customModel,
+                            imageCustomModel = imageCustomModel,
+                            textCustomModel = textCustomModel,
+                            multimodalCustomModel = multimodalCustomModel,
                             imageModelPreset = imageModelPreset,
                             textModelPreset = textModelPreset,
                             multimodalModelPreset = multimodalModelPreset,
                             themeMode = themeMode,
+                            themeGlobalEnabled = themeGlobalEnabled,
+                            showDividers = showDividers,
+                            themeAccent = themeAccent,
                             testingTarget = testingTarget,
                             onNavigate = onNavigate,
                             onAiEnabledChange = {
@@ -468,9 +542,17 @@ class SettingsActivity : BaseComposeActivity() {
                                 apiKey = it
                                 onApiKeyChange(it)
                             },
-                            onCustomModelChange = {
-                                customModel = it
-                                onCustomModelChange(it)
+                            onImageCustomModelChange = {
+                                imageCustomModel = it
+                                onImageCustomModelChange(it)
+                            },
+                            onTextCustomModelChange = {
+                                textCustomModel = it
+                                onTextCustomModelChange(it)
+                            },
+                            onMultimodalCustomModelChange = {
+                                multimodalCustomModel = it
+                                onMultimodalCustomModelChange(it)
                             },
                             onImageModelPresetChange = {
                                 imageModelPreset = it
@@ -487,6 +569,18 @@ class SettingsActivity : BaseComposeActivity() {
                             onThemeModeChange = {
                                 themeMode = it
                                 onThemeModeChange(it)
+                            },
+                            onThemeGlobalEnabledChange = {
+                                themeGlobalEnabled = it
+                                onThemeGlobalEnabledChange(it)
+                            },
+                            onShowDividersChange = {
+                                showDividers = it
+                                onShowDividersChange(it)
+                            },
+                            onThemeAccentChange = {
+                                themeAccent = it
+                                onThemeAccentChange(it)
                             },
                             onShowClearConfirm = { showClearConfirm = true },
                             onRunApiTest = { target, modelName, title ->
@@ -549,21 +643,31 @@ class SettingsActivity : BaseComposeActivity() {
         aiEnabled: Boolean,
         baseUrl: String,
         apiKey: String,
-        customModel: String,
+        imageCustomModel: String,
+        textCustomModel: String,
+        multimodalCustomModel: String,
         imageModelPreset: String,
         textModelPreset: String,
         multimodalModelPreset: String,
         themeMode: String,
+        themeGlobalEnabled: Boolean,
+        showDividers: Boolean,
+        themeAccent: String,
         testingTarget: AiTestTarget?,
         onNavigate: (SettingsRoute) -> Unit,
         onAiEnabledChange: (Boolean) -> Unit,
         onBaseUrlChange: (String) -> Unit,
         onApiKeyChange: (String) -> Unit,
-        onCustomModelChange: (String) -> Unit,
+        onImageCustomModelChange: (String) -> Unit,
+        onTextCustomModelChange: (String) -> Unit,
+        onMultimodalCustomModelChange: (String) -> Unit,
         onImageModelPresetChange: (String) -> Unit,
         onTextModelPresetChange: (String) -> Unit,
         onMultimodalModelPresetChange: (String) -> Unit,
         onThemeModeChange: (String) -> Unit,
+        onThemeGlobalEnabledChange: (Boolean) -> Unit,
+        onShowDividersChange: (Boolean) -> Unit,
+        onThemeAccentChange: (String) -> Unit,
         onShowClearConfirm: () -> Unit,
         onRunApiTest: (AiTestTarget, String, String) -> Unit
     ) {
@@ -663,7 +767,7 @@ class SettingsActivity : BaseComposeActivity() {
                         subtitleColor = subtitleColor,
                         accentColor = aiActionColor,
                         selectedPreset = imageModelPreset,
-                        customModel = customModel,
+                        customModel = imageCustomModel,
                         options = listOf(
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_IMAGE_FLASH,
@@ -678,11 +782,11 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_PRESET_CUSTOM,
                                 title = "自定义模型",
-                                subtitle = "当前自定义模型：${customModel.ifBlank { BuildConfig.OPENAI_MODEL }}"
+                                subtitle = "当前自定义模型：${imageCustomModel.ifBlank { settingsStore.resolvedApiModel() }}"
                             )
                         ),
                         onSelect = onImageModelPresetChange,
-                        onCustomModelChange = onCustomModelChange
+                        onCustomModelChange = onImageCustomModelChange
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -695,7 +799,7 @@ class SettingsActivity : BaseComposeActivity() {
                         subtitleColor = subtitleColor,
                         accentColor = aiActionColor,
                         selectedPreset = textModelPreset,
-                        customModel = customModel,
+                        customModel = textCustomModel,
                         options = listOf(
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_TEXT_FLASH,
@@ -710,11 +814,11 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_PRESET_CUSTOM,
                                 title = "自定义模型",
-                                subtitle = "当前自定义模型：${customModel.ifBlank { BuildConfig.OPENAI_MODEL }}"
+                                subtitle = "当前自定义模型：${textCustomModel.ifBlank { settingsStore.resolvedApiModel() }}"
                             )
                         ),
                         onSelect = onTextModelPresetChange,
-                        onCustomModelChange = onCustomModelChange
+                        onCustomModelChange = onTextCustomModelChange
                     )
 
                     Spacer(modifier = Modifier.height(24.dp))
@@ -727,7 +831,7 @@ class SettingsActivity : BaseComposeActivity() {
                         subtitleColor = subtitleColor,
                         accentColor = aiActionColor,
                         selectedPreset = multimodalModelPreset,
-                        customModel = customModel,
+                        customModel = multimodalCustomModel,
                         options = listOf(
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_MULTIMODAL_FLASH,
@@ -737,16 +841,16 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_PRESET_CUSTOM,
                                 title = "自定义模型",
-                                subtitle = "当前自定义模型：${customModel.ifBlank { BuildConfig.OPENAI_MODEL }}"
+                                subtitle = "当前自定义模型：${multimodalCustomModel.ifBlank { settingsStore.resolvedApiModel() }}"
                             )
                         ),
                         onSelect = onMultimodalModelPresetChange,
-                        onCustomModelChange = onCustomModelChange
+                        onCustomModelChange = onMultimodalCustomModelChange
                     )
 
                     SettingsPrimaryAction(
                         title = if (testingTarget == AiTestTarget.IMAGE) "正在测试..." else "测试图像 API",
-                        modifier = Modifier.padding(top = 18.dp),
+                        modifier = Modifier.padding(top = 24.dp),
                         accentColor = aiActionColor,
                         surface = actionSurface,
                         onClick = {
@@ -754,7 +858,7 @@ class SettingsActivity : BaseComposeActivity() {
                                 AiTestTarget.IMAGE,
                                 resolveModelPresetValue(
                                     imageModelPreset,
-                                    customModel,
+                                    imageCustomModel,
                                     SettingsStore.MODEL_IMAGE_DEFAULT
                                 ),
                                 "图像 API"
@@ -763,7 +867,7 @@ class SettingsActivity : BaseComposeActivity() {
                     )
                     SettingsPrimaryAction(
                         title = if (testingTarget == AiTestTarget.TEXT) "正在测试..." else "测试文本 API",
-                        modifier = Modifier.padding(top = 10.dp),
+                        modifier = Modifier.padding(top = 14.dp),
                         accentColor = aiActionColor,
                         surface = actionSurface,
                         onClick = {
@@ -771,7 +875,7 @@ class SettingsActivity : BaseComposeActivity() {
                                 AiTestTarget.TEXT,
                                 resolveModelPresetValue(
                                     textModelPreset,
-                                    customModel,
+                                    textCustomModel,
                                     SettingsStore.MODEL_TEXT_DEFAULT
                                 ),
                                 "文本 API"
@@ -780,7 +884,7 @@ class SettingsActivity : BaseComposeActivity() {
                     )
                     SettingsPrimaryAction(
                         title = if (testingTarget == AiTestTarget.MULTIMODAL) "正在测试..." else "测试多模态 API",
-                        modifier = Modifier.padding(top = 10.dp),
+                        modifier = Modifier.padding(top = 14.dp),
                         accentColor = aiActionColor,
                         surface = actionSurface,
                         onClick = {
@@ -788,7 +892,7 @@ class SettingsActivity : BaseComposeActivity() {
                                 AiTestTarget.MULTIMODAL,
                                 resolveModelPresetValue(
                                     multimodalModelPreset,
-                                    customModel,
+                                    multimodalCustomModel,
                                     SettingsStore.MODEL_MULTIMODAL_DEFAULT
                                 ),
                                 "多模态 API"
@@ -797,13 +901,13 @@ class SettingsActivity : BaseComposeActivity() {
                     )
 
                     Column(
-                        modifier = Modifier.padding(top = 16.dp, start = 4.dp),
+                        modifier = Modifier.padding(top = 20.dp, start = 4.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        SettingsBulletNote("图像模型：用于分析图片内容", subtitleColor)
-                        SettingsBulletNote("文本模型：用于分析文本内容", subtitleColor)
-                        SettingsBulletNote("多模态模型：用于同时分析图片和文字", subtitleColor)
-                        SettingsBulletNote("在使用 AI 功能之前，请先完成 API 测试", subtitleColor)
+                        SettingsBulletNote("图像模型：用于分析图片内容", subtitleColor, 13.sp, 20.sp)
+                        SettingsBulletNote("文本模型：用于分析文本内容", subtitleColor, 13.sp, 20.sp)
+                        SettingsBulletNote("多模态模型：用于同时分析图片和文字", subtitleColor, 13.sp, 20.sp)
+                        SettingsBulletNote("在使用 AI 功能之前，请先完成 API 测试", subtitleColor, 13.sp, 20.sp)
                     }
                 }
             }
@@ -811,6 +915,88 @@ class SettingsActivity : BaseComposeActivity() {
             SettingsRoute.AiGuide -> {
                 Column {
                     Spacer(modifier = Modifier.height(22.dp))
+                    SettingsSectionLabel("简介", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Text(
+                            text = "AI功能需要配置API地址与API Key方可正常访问和使用。配置后，即可使用AI根据截图、文本内容，自动提取并创建记忆。",
+                            color = titleColor,
+                            fontSize = 15.sp,
+                            lineHeight = 23.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SettingsSectionLabel("申请 API Key", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        SettingsGuideLinkRow(
+                            title = "智谱AI开放平台",
+                            subtitle = "兼容 OpenAI 接口，推荐配置 API Key",
+                            titleColor = titleColor,
+                            subtitleColor = subtitleColor,
+                            onClick = { openExternalUrl("https://bigmodel.cn/login") }
+                        )
+                    }
+                    Text(
+                        text = "页面会展示账户下所有 API Key，请妥善保管。如无信息，可先完成实名认证或创建应用。",
+                        color = subtitleColor,
+                        fontSize = 13.sp,
+                        lineHeight = 20.sp,
+                        modifier = Modifier.padding(start = 8.dp, top = 12.dp, end = 8.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SettingsSectionLabel("配置步骤", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Column {
+                            SettingsGuideStepRow(
+                                index = "1",
+                                title = "添加新密钥",
+                                subtitle = "点击“添加新的 API Key”按钮",
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor
+                            )
+                            SettingsInfoDivider(
+                                color = dividerColor,
+                                startInset = 20.dp,
+                                endInset = 20.dp
+                            )
+                            SettingsGuideStepRow(
+                                index = "2",
+                                title = "创建密钥",
+                                subtitle = "填写名称后点击“确定”",
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor
+                            )
+                            SettingsInfoDivider(
+                                color = dividerColor,
+                                startInset = 20.dp,
+                                endInset = 20.dp
+                            )
+                            SettingsGuideStepRow(
+                                index = "3",
+                                title = "配置应用",
+                                subtitle = "复制 API Key 并粘贴到应用设置",
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
                     SettingsSectionLabel("说明", sectionLabelColor)
                     SettingsSurfaceCard(
                         surface = cardSurface,
@@ -819,27 +1005,29 @@ class SettingsActivity : BaseComposeActivity() {
                     ) {
                         Column(
                             modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
-                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                            verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            SettingsInfoBlock(
-                                title = "分析方式",
-                                text = "新增记忆时可以提交文本或图片，应用会读取当前 AI 配置完成内容提取与摘要生成。",
-                                titleColor = titleColor,
-                                textColor = subtitleColor
+                            Text(
+                                text = "本应用支持通过AI分析截图和文本，自动识别并提取取件码、票券、日程、预约等关键信息。",
+                                color = titleColor,
+                                fontSize = 15.sp,
+                                lineHeight = 23.sp,
+                                fontWeight = FontWeight.Medium
                             )
-                            SettingsInfoDivider(dividerColor)
-                            SettingsInfoBlock(
-                                title = "保存逻辑",
-                                text = "点击确认后会先生成对应条目，分析完成后再热更新摘要、记忆与分析结果。",
-                                titleColor = titleColor,
-                                textColor = subtitleColor
+                            Text(
+                                text = "您可以选择：",
+                                color = titleColor,
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.SemiBold
                             )
-                            SettingsInfoDivider(dividerColor)
-                            SettingsInfoBlock(
-                                title = "兜底策略",
-                                text = "当网络或模型调用失败时，应用会使用本地 fallback，避免普通录入流程被阻塞。",
-                                titleColor = titleColor,
-                                textColor = subtitleColor
+                            SettingsBulletNote("智谱AI：使用预设模型，配置简单，也可以通过自定义模型接入其他兼容模型。", subtitleColor)
+                            SettingsBulletNote("自定义API：支持 OpenAI 兼容接口，配置 BaseURL 与 API Key 后即可使用。", subtitleColor)
+                            SettingsInfoDivider(color = dividerColor)
+                            Text(
+                                text = "申请并配置 API Key 后，在“AI 功能”页完成地址、密钥和模型设置即可启用。免费模型可能存在波动，建议在稳定场景下优先使用可靠服务。",
+                                color = subtitleColor,
+                                fontSize = 14.sp,
+                                lineHeight = 22.sp
                             )
                         }
                     }
@@ -849,48 +1037,101 @@ class SettingsActivity : BaseComposeActivity() {
             SettingsRoute.Appearance -> {
                 Column {
                     Spacer(modifier = Modifier.height(22.dp))
-                    SettingsSectionLabel("显示模式", sectionLabelColor)
+                    val appearanceSelectionColor =
+                        if (isSystemInDarkTheme()) Color(0xFF2E8BFF) else Color(0xFF1677FF)
+                    SettingsSectionLabel("显示", sectionLabelColor)
                     SettingsSurfaceCard(
                         surface = cardSurface,
                         borderColor = borderColor,
                         modifier = Modifier.padding(top = 10.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 18.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 2.dp),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                ThemeChoicePill(
-                                    text = "跟随系统",
-                                    selected = themeMode == SettingsStore.THEME_SYSTEM,
-                                    onClick = { onThemeModeChange(SettingsStore.THEME_SYSTEM) },
-                                    selectedColor = palette.accent,
-                                    selectedTextColor = palette.onAccent,
-                                    surface = softSurface,
-                                    textColor = titleColor
+                        Column {
+                            SettingsSelectRow(
+                                title = "跟随系统",
+                                selected = themeMode == SettingsStore.THEME_SYSTEM,
+                                titleColor = titleColor,
+                                accentColor = appearanceSelectionColor,
+                                onClick = { onThemeModeChange(SettingsStore.THEME_SYSTEM) }
+                            )
+                            SettingsInfoDivider(dividerColor, modifier = Modifier.padding(horizontal = 20.dp))
+                            SettingsSelectRow(
+                                title = "浅色模式",
+                                selected = themeMode == SettingsStore.THEME_LIGHT,
+                                titleColor = titleColor,
+                                accentColor = appearanceSelectionColor,
+                                onClick = { onThemeModeChange(SettingsStore.THEME_LIGHT) }
+                            )
+                            SettingsInfoDivider(dividerColor, modifier = Modifier.padding(horizontal = 20.dp))
+                            SettingsSelectRow(
+                                title = "深色模式",
+                                selected = themeMode == SettingsStore.THEME_DARK,
+                                titleColor = titleColor,
+                                accentColor = appearanceSelectionColor,
+                                onClick = { onThemeModeChange(SettingsStore.THEME_DARK) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SettingsSectionLabel("主题设置", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        SettingsToggleRow(
+                            title = "全局生效",
+                            checked = themeGlobalEnabled,
+                            titleColor = titleColor,
+                            subtitleColor = subtitleColor,
+                            accentColor = aiToggleColor,
+                            surface = softSurface,
+                            verticalPadding = 15.dp,
+                            onCheckedChange = onThemeGlobalEnabledChange
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SettingsSectionLabel("视觉效果", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        SettingsToggleRow(
+                            title = "显示分割线",
+                            checked = showDividers,
+                            titleColor = titleColor,
+                            subtitleColor = subtitleColor,
+                            accentColor = aiToggleColor,
+                            surface = softSurface,
+                            verticalPadding = 15.dp,
+                            onCheckedChange = onShowDividersChange
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+                    SettingsSectionLabel("主题", sectionLabelColor)
+                    val defaultThemeSwatch = rememberLightThemeTokenColor(R.color.dock_indicator)
+                    val themeOptions = appearanceThemeOptions(defaultThemeSwatch)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Column {
+                            themeOptions.forEachIndexed { index, option ->
+                                SettingsThemeAccentRow(
+                                    title = option.title,
+                                    accentColor = option.swatchColor,
+                                    selected = themeAccent == option.key,
+                                    titleColor = titleColor,
+                                    selectedColor = appearanceSelectionColor,
+                                    onClick = { onThemeAccentChange(option.key) }
                                 )
-                                ThemeChoicePill(
-                                    text = "浅色",
-                                    selected = themeMode == SettingsStore.THEME_LIGHT,
-                                    onClick = { onThemeModeChange(SettingsStore.THEME_LIGHT) },
-                                    selectedColor = palette.accent,
-                                    selectedTextColor = palette.onAccent,
-                                    surface = softSurface,
-                                    textColor = titleColor
-                                )
-                                ThemeChoicePill(
-                                    text = "深色",
-                                    selected = themeMode == SettingsStore.THEME_DARK,
-                                    onClick = { onThemeModeChange(SettingsStore.THEME_DARK) },
-                                    selectedColor = palette.accent,
-                                    selectedTextColor = palette.onAccent,
-                                    surface = softSurface,
-                                    textColor = titleColor
-                                )
+                                if (index != themeOptions.lastIndex) {
+                                    SettingsInfoDivider(dividerColor, modifier = Modifier.padding(horizontal = 20.dp))
+                                }
                             }
                         }
                     }
@@ -951,7 +1192,7 @@ class SettingsActivity : BaseComposeActivity() {
             modifier = Modifier.padding(top = 10.dp),
             items = listOf(
                 SettingsMenuItem("AI 功能", route = SettingsRoute.AiConfig),
-                SettingsMenuItem("AI 功能说明", route = SettingsRoute.AiGuide)
+                SettingsMenuItem("AI功能帮助", route = SettingsRoute.AiGuide)
             ),
             titleColor = titleColor,
             onClick = onNavigate
@@ -1079,14 +1320,26 @@ class SettingsActivity : BaseComposeActivity() {
         titleColor: Color,
         onClick: () -> Unit
     ) {
+        val isDark = isSystemInDarkTheme()
+        val interactionSource = remember { MutableInteractionSource() }
+        val (backgroundColor, triggerHighlight) = rememberSettingsTapHighlightColor(
+            interactionSource = interactionSource,
+            isDark = isDark,
+            label = "settingsMenuRow"
+        )
         PressScaleBox(
-            onClick = onClick,
+            onClick = {
+                triggerHighlight()
+                onClick()
+            },
             modifier = Modifier.fillMaxWidth(),
-            pressedScale = 0.985f
+            pressedScale = 1f,
+            interactionSource = interactionSource
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(backgroundColor)
                     .height(60.dp)
                     .padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1107,6 +1360,182 @@ class SettingsActivity : BaseComposeActivity() {
                         .size(18.dp)
                         .graphicsLayer { rotationZ = -90f }
                 )
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsSelectRow(
+        title: String,
+        selected: Boolean,
+        titleColor: Color,
+        accentColor: Color,
+        onClick: () -> Unit
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val interactionSource = remember { MutableInteractionSource() }
+        val (backgroundColor, triggerHighlight) = rememberSettingsTapHighlightColor(
+            interactionSource = interactionSource,
+            isDark = isDark,
+            label = "settingsSelectRow_$title"
+        )
+        PressScaleBox(
+            onClick = {
+                triggerHighlight()
+                onClick()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            pressedScale = 1f,
+            interactionSource = interactionSource
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(backgroundColor)
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = title,
+                    color = titleColor,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier.weight(1f)
+                )
+                if (selected) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_sheet_check),
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier
+                            .padding(start = 12.dp)
+                            .size(18.dp)
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsToggleRow(
+        title: String,
+        checked: Boolean,
+        titleColor: Color,
+        subtitleColor: Color,
+        accentColor: Color,
+        surface: Color,
+        subtitle: String? = null,
+        verticalPadding: androidx.compose.ui.unit.Dp = 18.dp,
+        onCheckedChange: (Boolean) -> Unit
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val interactionSource = remember { MutableInteractionSource() }
+        val (backgroundColor, triggerHighlight) = rememberSettingsTapHighlightColor(
+            interactionSource = interactionSource,
+            isDark = isDark,
+            label = "settingsToggleRow_$title"
+        )
+        PressScaleBox(
+            onClick = {
+                triggerHighlight()
+                onCheckedChange(!checked)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            pressedScale = 1f,
+            interactionSource = interactionSource
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(backgroundColor)
+                    .padding(horizontal = 20.dp, vertical = verticalPadding),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        color = titleColor,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (!subtitle.isNullOrBlank()) {
+                        Text(
+                            text = subtitle,
+                            color = subtitleColor,
+                            fontSize = 13.sp,
+                            lineHeight = 19.sp,
+                            modifier = Modifier.padding(top = 4.dp)
+                        )
+                    }
+                }
+                SettingsToggleSwitch(
+                    checked = checked,
+                    enabled = true,
+                    accentColor = accentColor,
+                    surface = surface,
+                    onCheckedChange = onCheckedChange
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsThemeAccentRow(
+        title: String,
+        accentColor: Color,
+        selected: Boolean,
+        titleColor: Color,
+        selectedColor: Color,
+        onClick: () -> Unit
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val interactionSource = remember { MutableInteractionSource() }
+        val (backgroundColor, triggerHighlight) = rememberSettingsTapHighlightColor(
+            interactionSource = interactionSource,
+            isDark = isDark,
+            label = "settingsThemeAccentRow_$title"
+        )
+        PressScaleBox(
+            onClick = {
+                triggerHighlight()
+                onClick()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            pressedScale = 1f,
+            interactionSource = interactionSource
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(backgroundColor)
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(width = 18.dp, height = 18.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(accentColor)
+                )
+                Text(
+                    text = title,
+                    color = titleColor,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    modifier = Modifier
+                        .padding(start = 14.dp)
+                        .weight(1f)
+                )
+                if (selected) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_sheet_check),
+                        contentDescription = null,
+                        tint = selectedColor,
+                        modifier = Modifier
+                            .padding(start = 12.dp)
+                            .size(18.dp)
+                    )
+                }
             }
         }
     }
@@ -1231,7 +1660,7 @@ class SettingsActivity : BaseComposeActivity() {
         PressScaleBox(
             onClick = onClick,
             modifier = modifier,
-            pressedScale = 0.985f
+            pressedScale = 1f
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
@@ -1261,14 +1690,26 @@ class SettingsActivity : BaseComposeActivity() {
         expanded: Boolean,
         onClick: () -> Unit
     ) {
+        val isDark = isSystemInDarkTheme()
+        val interactionSource = remember { MutableInteractionSource() }
+        val (backgroundColor, triggerHighlight) = rememberSettingsTapHighlightColor(
+            interactionSource = interactionSource,
+            isDark = isDark,
+            label = "settingsDisclosureRow"
+        )
         PressScaleBox(
-            onClick = onClick,
+            onClick = {
+                triggerHighlight()
+                onClick()
+            },
             modifier = Modifier.fillMaxWidth(),
-            pressedScale = 0.985f
+            pressedScale = 1f,
+            interactionSource = interactionSource
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .background(backgroundColor)
                     .height(60.dp)
                     .padding(horizontal = 20.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -1287,6 +1728,108 @@ class SettingsActivity : BaseComposeActivity() {
                     modifier = Modifier
                         .size(18.dp)
                         .graphicsLayer { rotationZ = if (expanded) 0f else -90f }
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsGuideLinkRow(
+        title: String,
+        subtitle: String,
+        titleColor: Color,
+        subtitleColor: Color,
+        onClick: () -> Unit
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val interactionSource = remember { MutableInteractionSource() }
+        val (backgroundColor, triggerHighlight) = rememberSettingsTapHighlightColor(
+            interactionSource = interactionSource,
+            isDark = isDark,
+            label = "settingsGuideLinkRow"
+        )
+        PressScaleBox(
+            onClick = {
+                triggerHighlight()
+                onClick()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            pressedScale = 1f,
+            interactionSource = interactionSource
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(backgroundColor)
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        color = titleColor,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        color = subtitleColor,
+                        fontSize = 13.sp,
+                        lineHeight = 19.sp,
+                        modifier = Modifier.padding(top = 4.dp)
+                    )
+                }
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_sheet_chevron_down),
+                    contentDescription = null,
+                    tint = titleColor.copy(alpha = 0.46f),
+                    modifier = Modifier
+                        .padding(start = 12.dp)
+                        .size(18.dp)
+                        .graphicsLayer { rotationZ = -90f }
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsGuideStepRow(
+        index: String,
+        title: String,
+        subtitle: String,
+        titleColor: Color,
+        subtitleColor: Color
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.Top
+        ) {
+            Text(
+                text = index,
+                color = titleColor.copy(alpha = 0.92f),
+                fontSize = 18.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(top = 1.dp)
+            )
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp)
+            ) {
+                Text(
+                    text = title,
+                    color = titleColor,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = subtitle,
+                    color = subtitleColor,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                    modifier = Modifier.padding(top = 4.dp)
                 )
             }
         }
@@ -1314,12 +1857,21 @@ class SettingsActivity : BaseComposeActivity() {
         ) {
             Column {
                 options.forEachIndexed { index, option ->
+                    val isDark = isSystemInDarkTheme()
                     val customExpanded =
                         option.preset == SettingsStore.MODEL_PRESET_CUSTOM &&
                             selectedPreset == SettingsStore.MODEL_PRESET_CUSTOM &&
                             customEditorExpanded
+                    val selected = selectedPreset == option.preset
+                    val interactionSource = remember(option.preset) { MutableInteractionSource() }
+                    val (optionBackground, triggerHighlight) = rememberSettingsTapHighlightColor(
+                        interactionSource = interactionSource,
+                        isDark = isDark,
+                        label = "settingsModelOption_${option.preset}"
+                    )
                     PressScaleBox(
                         onClick = {
+                            triggerHighlight()
                             if (option.preset == SettingsStore.MODEL_PRESET_CUSTOM) {
                                 if (selectedPreset == SettingsStore.MODEL_PRESET_CUSTOM) {
                                     customEditorExpanded = !customEditorExpanded
@@ -1333,11 +1885,13 @@ class SettingsActivity : BaseComposeActivity() {
                             }
                         },
                         modifier = Modifier.fillMaxWidth(),
-                        pressedScale = 0.985f
+                        pressedScale = 1f,
+                        interactionSource = interactionSource
                     ) {
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
+                                .background(optionBackground)
                                 .padding(
                                     start = 20.dp,
                                     top = 18.dp,
@@ -1345,11 +1899,11 @@ class SettingsActivity : BaseComposeActivity() {
                                     bottom = if (customExpanded) 10.dp else 18.dp
                                 ),
                             verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = option.title,
-                                    color = titleColor,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = option.title,
+                                        color = titleColor,
                                     fontSize = 17.sp,
                                     fontWeight = FontWeight.Bold
                                 )
@@ -1358,21 +1912,21 @@ class SettingsActivity : BaseComposeActivity() {
                                 color = subtitleColor,
                                 fontSize = 13.sp,
                                 lineHeight = 19.sp,
-                                modifier = Modifier.padding(top = 4.dp)
-                            )
-                        }
-                        if (selectedPreset == option.preset) {
-                            Icon(
-                                painter = painterResource(id = R.drawable.ic_sheet_check),
-                                contentDescription = null,
-                                    tint = accentColor,
-                                    modifier = Modifier
-                                        .padding(start = 12.dp)
-                                        .size(18.dp)
-                                )
+                                        modifier = Modifier.padding(top = 4.dp)
+                                    )
+                                }
+                                if (selected) {
+                                    Icon(
+                                        painter = painterResource(id = R.drawable.ic_sheet_check),
+                                        contentDescription = null,
+                                        tint = accentColor,
+                                        modifier = Modifier
+                                            .padding(start = 12.dp)
+                                            .size(18.dp)
+                                    )
+                                }
                             }
                         }
-                    }
                     if (index != options.lastIndex) {
                         SettingsInfoDivider(
                             color = dividerColor,
@@ -1408,6 +1962,7 @@ class SettingsActivity : BaseComposeActivity() {
                             placeholder = BuildConfig.OPENAI_MODEL,
                             titleColor = titleColor,
                             subtitleColor = subtitleColor,
+                            accentColor = accentColor,
                             onDone = { customEditorExpanded = false }
                         )
                     }
@@ -1417,13 +1972,57 @@ class SettingsActivity : BaseComposeActivity() {
     }
 
     @Composable
-    private fun SettingsBulletNote(text: String, color: Color) {
+    private fun SettingsBulletNote(
+        text: String,
+        color: Color,
+        fontSize: androidx.compose.ui.unit.TextUnit = 12.sp,
+        lineHeight: androidx.compose.ui.unit.TextUnit = 18.sp
+    ) {
         Text(
             text = "• $text",
             color = color,
-            fontSize = 12.sp,
-            lineHeight = 18.sp
+            fontSize = fontSize,
+            lineHeight = lineHeight
         )
+    }
+
+    @Composable
+    private fun rememberSettingsTapHighlightColor(
+        interactionSource: MutableInteractionSource,
+        isDark: Boolean,
+        label: String
+    ): Pair<Color, () -> Unit> {
+        val scope = rememberCoroutineScope()
+        val pressed by interactionSource.collectIsPressedAsState()
+        var holdHighlight by remember { mutableStateOf(false) }
+        var holdJob by remember { mutableStateOf<Job?>(null) }
+
+        val highlightActive = pressed || holdHighlight
+        val highlightFactor by animateFloatAsState(
+            targetValue = if (highlightActive) 1f else 0f,
+            animationSpec = if (highlightActive) {
+                tween(durationMillis = 75)
+            } else {
+                tween(durationMillis = 220, easing = FastOutSlowInEasing)
+            },
+            label = "${label}Factor"
+        )
+
+        val backgroundColor = if (isDark) {
+            Color.White.copy(alpha = 0.055f * highlightFactor)
+        } else {
+            Color.Black.copy(alpha = 0.04f * highlightFactor)
+        }
+
+        val triggerHighlight = {
+            holdJob?.cancel()
+            holdHighlight = true
+            holdJob = scope.launch {
+                delay(150)
+                holdHighlight = false
+            }
+        }
+        return backgroundColor to triggerHighlight
     }
 
     private fun resolveModelPresetValue(
@@ -1439,6 +2038,31 @@ class SettingsActivity : BaseComposeActivity() {
             SettingsStore.MODEL_TEXT_FLASH_47,
             SettingsStore.MODEL_MULTIMODAL_FLASH -> preset
             else -> fallback
+        }
+    }
+
+    private fun appearanceThemeOptions(defaultSwatch: Color): List<SettingsThemeOption> {
+        return listOf(
+            SettingsThemeOption("默认", SettingsStore.THEME_ACCENT_DEFAULT, defaultSwatch),
+            SettingsThemeOption("米灰", SettingsStore.THEME_ACCENT_WARM_GRAY, Color(0xFFB8AF9D)),
+            SettingsThemeOption("便签黄", SettingsStore.THEME_ACCENT_NOTE_YELLOW, Color(0xFFFFC83D)),
+            SettingsThemeOption("樱花粉", SettingsStore.THEME_ACCENT_SAKURA_PINK, Color(0xFFFF6B96)),
+            SettingsThemeOption("天空蓝", SettingsStore.THEME_ACCENT_SKY_BLUE, Color(0xFF4AA3FF)),
+            SettingsThemeOption("薄荷绿", SettingsStore.THEME_ACCENT_MINT_GREEN, Color(0xFF39D98A)),
+            SettingsThemeOption("蜜桃橙", SettingsStore.THEME_ACCENT_PEACH_ORANGE, Color(0xFFFF9A3D)),
+            SettingsThemeOption("薰衣草紫", SettingsStore.THEME_ACCENT_LAVENDER_PURPLE, Color(0xFFB587FF))
+        )
+    }
+
+    @Composable
+    private fun rememberLightThemeTokenColor(colorRes: Int): Color {
+        val context = LocalContext.current
+        return remember(context, colorRes) {
+            val configuration = Configuration(context.resources.configuration).apply {
+                uiMode = (uiMode and Configuration.UI_MODE_NIGHT_MASK.inv()) or Configuration.UI_MODE_NIGHT_NO
+            }
+            val lightContext = context.createConfigurationContext(configuration)
+            Color(ContextCompat.getColor(lightContext, colorRes))
         }
     }
 
@@ -1535,7 +2159,7 @@ class SettingsActivity : BaseComposeActivity() {
         PressScaleBox(
             onClick = onClick,
             modifier = Modifier.weight(1f),
-            pressedScale = 0.97f
+            pressedScale = 1f
         ) {
             Box(
                 modifier = Modifier
@@ -1569,7 +2193,7 @@ class SettingsActivity : BaseComposeActivity() {
         PressScaleBox(
             onClick = onClick,
             modifier = modifier.fillMaxWidth(),
-            pressedScale = 0.985f
+            pressedScale = 1f
         ) {
             Box(
                 modifier = Modifier
@@ -1596,9 +2220,9 @@ class SettingsActivity : BaseComposeActivity() {
         placeholder: String,
         titleColor: Color,
         subtitleColor: Color,
+        accentColor: Color,
         onDone: () -> Unit
     ) {
-        val actionBlue = if (isSystemInDarkTheme()) Color(0xFF2E8BFF) else Color(0xFF1677FF)
         val focusManager = LocalFocusManager.current
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -1641,12 +2265,12 @@ class SettingsActivity : BaseComposeActivity() {
                     focusManager.clearFocus(force = true)
                     onDone()
                 },
-                pressedScale = 0.985f
+                pressedScale = 1f
             ) {
                 Box(
                     modifier = Modifier
                         .clip(RoundedCornerShape(999.dp))
-                        .background(actionBlue)
+                        .background(accentColor)
                         .padding(horizontal = 22.dp, vertical = 14.dp)
                 ) {
                     Text(
@@ -1676,7 +2300,7 @@ class SettingsActivity : BaseComposeActivity() {
         PressScaleBox(
             onClick = onClick,
             modifier = modifier.fillMaxWidth(),
-            pressedScale = 0.985f
+            pressedScale = 1f
         ) {
             Box(
                 modifier = Modifier
@@ -1723,7 +2347,7 @@ class SettingsActivity : BaseComposeActivity() {
                 }
             },
             modifier = Modifier.alpha(if (enabled) 1f else 0.52f),
-            pressedScale = 0.985f
+            pressedScale = 1f
         ) {
             Box(
                 modifier = Modifier
@@ -1867,5 +2491,11 @@ class SettingsActivity : BaseComposeActivity() {
         val preset: String,
         val title: String,
         val subtitle: String
+    )
+
+    private data class SettingsThemeOption(
+        val title: String,
+        val key: String,
+        val swatchColor: Color
     )
 }

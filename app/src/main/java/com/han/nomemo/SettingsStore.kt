@@ -22,6 +22,18 @@ class SettingsStore(context: Context) {
         get() = prefs.getString(KEY_API_MODEL, "") ?: ""
         set(value) = prefs.edit().putString(KEY_API_MODEL, value.trim()).apply()
 
+    var imageCustomModel: String
+        get() = prefs.getString(KEY_IMAGE_CUSTOM_MODEL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_IMAGE_CUSTOM_MODEL, value.trim()).apply()
+
+    var textCustomModel: String
+        get() = prefs.getString(KEY_TEXT_CUSTOM_MODEL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_TEXT_CUSTOM_MODEL, value.trim()).apply()
+
+    var multimodalCustomModel: String
+        get() = prefs.getString(KEY_MULTIMODAL_CUSTOM_MODEL, "") ?: ""
+        set(value) = prefs.edit().putString(KEY_MULTIMODAL_CUSTOM_MODEL, value.trim()).apply()
+
     var imageModelPreset: String
         get() = prefs.getString(KEY_IMAGE_MODEL_PRESET, MODEL_IMAGE_DEFAULT) ?: MODEL_IMAGE_DEFAULT
         set(value) = prefs.edit().putString(KEY_IMAGE_MODEL_PRESET, value).apply()
@@ -38,6 +50,18 @@ class SettingsStore(context: Context) {
         get() = prefs.getString(KEY_THEME_MODE, THEME_SYSTEM) ?: THEME_SYSTEM
         set(value) = prefs.edit().putString(KEY_THEME_MODE, value).apply()
 
+    var themeGlobalEnabled: Boolean
+        get() = prefs.getBoolean(KEY_THEME_GLOBAL_ENABLED, true)
+        set(value) = prefs.edit().putBoolean(KEY_THEME_GLOBAL_ENABLED, value).apply()
+
+    var showDividers: Boolean
+        get() = prefs.getBoolean(KEY_SHOW_DIVIDERS, true)
+        set(value) = prefs.edit().putBoolean(KEY_SHOW_DIVIDERS, value).apply()
+
+    var themeAccent: String
+        get() = prefs.getString(KEY_THEME_ACCENT, THEME_ACCENT_DEFAULT) ?: THEME_ACCENT_DEFAULT
+        set(value) = prefs.edit().putString(KEY_THEME_ACCENT, value).apply()
+
     fun resolvedApiBaseUrl(): String {
         return apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }
     }
@@ -51,20 +75,20 @@ class SettingsStore(context: Context) {
     }
 
     fun resolvedImageModel(): String {
-        return resolveModelByPreset(imageModelPreset, MODEL_IMAGE_DEFAULT)
+        return resolveModelByPreset(imageModelPreset, MODEL_IMAGE_DEFAULT, imageCustomModel)
     }
 
     fun resolvedTextModel(): String {
-        return resolveModelByPreset(textModelPreset, MODEL_TEXT_DEFAULT)
+        return resolveModelByPreset(textModelPreset, MODEL_TEXT_DEFAULT, textCustomModel)
     }
 
     fun resolvedMultimodalModel(): String {
-        return resolveModelByPreset(multimodalModelPreset, MODEL_MULTIMODAL_DEFAULT)
+        return resolveModelByPreset(multimodalModelPreset, MODEL_MULTIMODAL_DEFAULT, multimodalCustomModel)
     }
 
-    private fun resolveModelByPreset(preset: String, fallback: String): String {
+    private fun resolveModelByPreset(preset: String, fallback: String, customValue: String): String {
         return when (preset) {
-            MODEL_PRESET_CUSTOM -> resolvedApiModel()
+            MODEL_PRESET_CUSTOM -> customValue.ifBlank { resolvedApiModel() }
             MODEL_IMAGE_FLASH -> MODEL_IMAGE_FLASH
             MODEL_IMAGE_THINKING -> MODEL_IMAGE_THINKING
             MODEL_TEXT_FLASH -> MODEL_TEXT_FLASH
@@ -85,19 +109,34 @@ class SettingsStore(context: Context) {
     }
 
     companion object {
-        private const val PREF_NAME = "no_memo_settings"
+        const val PREF_NAME = "no_memo_settings"
         private const val KEY_AI_ENABLED = "ai_enabled"
         private const val KEY_API_BASE_URL = "api_base_url"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_API_MODEL = "api_model"
+        private const val KEY_IMAGE_CUSTOM_MODEL = "image_custom_model"
+        private const val KEY_TEXT_CUSTOM_MODEL = "text_custom_model"
+        private const val KEY_MULTIMODAL_CUSTOM_MODEL = "multimodal_custom_model"
         private const val KEY_IMAGE_MODEL_PRESET = "image_model_preset"
         private const val KEY_TEXT_MODEL_PRESET = "text_model_preset"
         private const val KEY_MULTIMODAL_MODEL_PRESET = "multimodal_model_preset"
         private const val KEY_THEME_MODE = "theme_mode"
+        private const val KEY_THEME_GLOBAL_ENABLED = "theme_global_enabled"
+        private const val KEY_SHOW_DIVIDERS = "show_dividers"
+        private const val KEY_THEME_ACCENT = "theme_accent"
 
         const val THEME_SYSTEM = "SYSTEM"
         const val THEME_LIGHT = "LIGHT"
         const val THEME_DARK = "DARK"
+
+        const val THEME_ACCENT_DEFAULT = "default"
+        const val THEME_ACCENT_WARM_GRAY = "warm_gray"
+        const val THEME_ACCENT_NOTE_YELLOW = "note_yellow"
+        const val THEME_ACCENT_SAKURA_PINK = "sakura_pink"
+        const val THEME_ACCENT_SKY_BLUE = "sky_blue"
+        const val THEME_ACCENT_MINT_GREEN = "mint_green"
+        const val THEME_ACCENT_PEACH_ORANGE = "peach_orange"
+        const val THEME_ACCENT_LAVENDER_PURPLE = "lavender_purple"
 
         const val MODEL_PRESET_CUSTOM = "custom"
 

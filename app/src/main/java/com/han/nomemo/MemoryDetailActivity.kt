@@ -2090,12 +2090,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
         modifier: Modifier = Modifier
     ) {
         val isDark = isSystemInDarkTheme()
+        val palette = rememberNoMemoPalette()
         val buttonSurface = if (isDark) {
-            Color(0xFF111111).copy(alpha = 0.92f)
+            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
         } else {
             Color.White.copy(alpha = 0.94f)
         }
-        val iconTint = if (isDark) Color.White else Color(0xFF121212)
+        val iconTint = if (isDark) Color.White else palette.textPrimary
         val borderColor = if (isDark) {
             Color.White.copy(alpha = 0.16f)
         } else {
@@ -2232,33 +2233,41 @@ class MemoryDetailActivity : BaseComposeActivity() {
             (eventAt - safeLeadMinutes * 60L * 1000L).coerceAtLeast(0L)
         }
 
-        val sheetSurface = if (isDark) Color(0xFF121316) else palette.memoBgStart
-        val cardSurface = if (isDark) Color(0xFF1A1A1C) else Color.White
+        val sheetSurface = if (isDark) {
+            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.94f))
+        } else {
+            Color(0xFFF5F6F8)
+        }
+        val cardSurface = if (isDark) {
+            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
+        } else {
+            Color.White
+        }
         val timeCardSurface = cardSurface
         val optionCardColor = cardSurface
         val optionSelectedColor = if (isDark) {
-            Color(0xFF273247)
+            palette.accent.copy(alpha = 0.24f)
         } else {
-            Color(0xFFEFF4FF)
+            palette.accent.copy(alpha = 0.12f)
         }
         val optionSelectedStroke = if (isDark) {
-            Color(0xFF4D6BAA)
+            palette.accent.copy(alpha = 0.52f)
         } else {
-            Color(0xFFC9D8FF)
+            palette.accent.copy(alpha = 0.28f)
         }
-        val dragHandleColor = if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000)
+        val dragHandleColor = if (isDark) Color.White.copy(alpha = 0.16f) else palette.glassStroke.copy(alpha = 0.92f)
         val wheelHighlightColor = if (isDark) {
-            Color.White.copy(alpha = 0.13f)
+            palette.accent.copy(alpha = 0.18f)
         } else {
-            Color(0xFFE1ECFF)
+            palette.accent.copy(alpha = 0.10f)
         }
         val wheelHighlightSheenColor = if (isDark) {
             Color.White.copy(alpha = 0.08f)
         } else {
             Color.White.copy(alpha = 0.72f)
         }
-        val wheelSelectedTextColor = if (isDark) Color.White else Color(0xFF1344C4)
-        val wheelNormalTextColor = if (isDark) Color.White.copy(alpha = 0.70f) else Color(0xFF1E2230).copy(alpha = 0.58f)
+        val wheelSelectedTextColor = if (isDark) palette.textPrimary else palette.accent
+        val wheelNormalTextColor = if (isDark) Color.White.copy(alpha = 0.70f) else palette.textPrimary.copy(alpha = 0.58f)
         val infoCardSurface = cardSurface
         val timePanelBrush = Brush.verticalGradient(
             colors = listOf(

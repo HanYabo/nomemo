@@ -1,5 +1,7 @@
 ﻿package com.han.nomemo
 
+import android.content.Context
+import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.PathMeasure
@@ -70,6 +72,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -89,6 +92,8 @@ import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -404,7 +409,23 @@ fun rememberNoMemoPalette(): NoMemoPalette {
 
 @Composable
 private fun rememberNoMemoPaletteValue(): NoMemoPalette {
-    return NoMemoPalette(
+    val context = LocalContext.current.applicationContext
+    val prefs = remember(context) {
+        context.getSharedPreferences(SettingsStore.PREF_NAME, Context.MODE_PRIVATE)
+    }
+    var settingsVersion by remember { mutableStateOf(0) }
+    DisposableEffect(prefs) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, _ ->
+            settingsVersion += 1
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+    }
+    val settingsStore = remember(context) { SettingsStore(context) }
+    val isDark = isSystemInDarkTheme()
+    settingsVersion
+
+    val basePalette = NoMemoPalette(
         memoBgStart = colorResource(id = R.color.memo_bg_start),
         memoBgMid = colorResource(id = R.color.memo_bg_mid),
         memoBgEnd = colorResource(id = R.color.memo_bg_end),
@@ -426,6 +447,80 @@ private fun rememberNoMemoPaletteValue(): NoMemoPalette {
         tagAiBg = colorResource(id = R.color.tag_ai_bg),
         tagAiText = colorResource(id = R.color.tag_ai_text)
     )
+    return applyNoMemoThemeOverrides(
+        base = basePalette,
+        isDark = isDark,
+        themeGlobalEnabled = settingsStore.themeGlobalEnabled,
+        themeAccentKey = settingsStore.themeAccent,
+        showDividers = settingsStore.showDividers
+    )
+}
+
+private fun applyNoMemoThemeOverrides(
+    base: NoMemoPalette,
+    isDark: Boolean,
+    themeGlobalEnabled: Boolean,
+    themeAccentKey: String,
+    showDividers: Boolean
+): NoMemoPalette {
+    val themeBackgroundSeed = if (themeGlobalEnabled) {
+        resolveNoMemoThemeAccent(themeAccentKey, isDark, base.dockIndicator)
+    } else {
+        base.dockIndicator
+    }
+    val liftedBackgroundSeed = if (themeGlobalEnabled) {
+        if (isDark) lerp(themeBackgroundSeed, Color.White, 0.42f) else lerp(themeBackgroundSeed, Color.White, 0.62f)
+    } else {
+        themeBackgroundSeed
+    }
+    val themedBgStart = if (themeGlobalEnabled) {
+        lerp(base.memoBgStart, liftedBackgroundSeed, if (isDark) 0.080f else 0.140f)
+    } else {
+        base.memoBgStart
+    }
+    val themedBgMid = if (themeGlobalEnabled) {
+        lerp(base.memoBgMid, liftedBackgroundSeed, if (isDark) 0.110f else 0.180f)
+    } else {
+        base.memoBgMid
+    }
+    val themedBgEnd = if (themeGlobalEnabled) {
+        lerp(base.memoBgEnd, liftedBackgroundSeed, if (isDark) 0.140f else 0.220f)
+    } else {
+        base.memoBgEnd
+    }
+    val effectiveStroke = if (showDividers) base.glassStroke else Color.Transparent
+    val effectiveDockStroke = if (showDividers) base.dockStroke else Color.Transparent
+
+    return base.copy(
+        memoBgStart = themedBgStart,
+        memoBgMid = themedBgMid,
+        memoBgEnd = themedBgEnd,
+        glassStroke = effectiveStroke,
+        dockStroke = effectiveDockStroke,
+        glassFill = base.glassFill,
+        glassFillSoft = base.glassFillSoft,
+        dockSurface = base.dockSurface,
+        dockIndicator = base.dockIndicator,
+        dockGlow = base.dockGlow,
+        dockFabSurface = base.dockFabSurface,
+        accent = base.accent,
+        onAccent = base.onAccent,
+        tagAiBg = base.tagAiBg,
+        tagAiText = base.tagAiText
+    )
+}
+
+private fun resolveNoMemoThemeAccent(key: String, isDark: Boolean, fallback: Color): Color {
+    return when (key) {
+        SettingsStore.THEME_ACCENT_WARM_GRAY -> if (isDark) Color(0xFFD4CCBE) else Color(0xFFB8AF9D)
+        SettingsStore.THEME_ACCENT_NOTE_YELLOW -> if (isDark) Color(0xFFFFD54F) else Color(0xFFFFC83D)
+        SettingsStore.THEME_ACCENT_SAKURA_PINK -> if (isDark) Color(0xFFFF7FA6) else Color(0xFFFF6B96)
+        SettingsStore.THEME_ACCENT_SKY_BLUE -> if (isDark) Color(0xFF64B6FF) else Color(0xFF4AA3FF)
+        SettingsStore.THEME_ACCENT_MINT_GREEN -> if (isDark) Color(0xFF58E59A) else Color(0xFF39D98A)
+        SettingsStore.THEME_ACCENT_PEACH_ORANGE -> if (isDark) Color(0xFFFFB35A) else Color(0xFFFF9A3D)
+        SettingsStore.THEME_ACCENT_LAVENDER_PURPLE -> if (isDark) Color(0xFFC39CFF) else Color(0xFFB587FF)
+        else -> fallback
+    }
 }
 
 @Composable
@@ -470,9 +565,10 @@ fun PressScaleBox(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     pressedScale: Float = 0.95f,
+    interactionSource: MutableInteractionSource? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
-    val interaction = remember { MutableInteractionSource() }
+    val interaction = interactionSource ?: remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
         targetValue = if (pressed) pressedScale else 1f,

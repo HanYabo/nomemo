@@ -707,7 +707,10 @@ class GroupActivity : BaseComposeActivity() {
                                             selected = selected,
                                             allowImageLoading = true,
                                             showShadow = false,
-                                            darkCardBackgroundOverride = Color(0xFF1A1A1C),
+                                            darkCardBackgroundOverride = noMemoCardSurfaceColor(
+                                                true,
+                                                albumPalette.glassFill.copy(alpha = 0.92f)
+                                            ),
                                             onClick = {
                                                 if (albumSelectionModeActive) {
                                                     selectedAlbumRecordIds = if (selected) {
@@ -1433,15 +1436,16 @@ class GroupActivity : BaseComposeActivity() {
         modifier: Modifier = Modifier
     ) {
         val isDark = isSystemInDarkTheme()
+        val palette = rememberNoMemoPalette()
         val frameSurface = if (isDark) {
-            Color(0xFF1E2026).copy(alpha = 0.96f)
+            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
         } else {
             Color.White.copy(alpha = 0.97f)
         }
         val frameBorder = if (isDark) {
             Color.White.copy(alpha = 0.08f)
         } else {
-            Color(0x19000000)
+            palette.glassStroke.copy(alpha = 0.78f)
         }
         val fallbackBackground = if (isDark) {
             Color.White.copy(alpha = 0.08f)
@@ -1534,8 +1538,16 @@ class GroupActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val panelSurface = if (isDark) Color(0xFF121316) else palette.memoBgStart
-        val searchSurface = if (isDark) Color(0xFF1A1A1C) else Color.White.copy(alpha = 0.995f)
+        val panelSurface = if (isDark) {
+            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.94f))
+        } else {
+            Color(0xFFF5F6F8)
+        }
+        val searchSurface = if (isDark) {
+            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
+        } else {
+            Color.White.copy(alpha = 0.995f)
+        }
         val bodyHeight = if (adaptive.isNarrow) 620.dp else 700.dp
         var visible by remember { mutableStateOf(false) }
         var dismissCommitted by remember { mutableStateOf(false) }
@@ -1624,7 +1636,13 @@ class GroupActivity : BaseComposeActivity() {
                             .width(56.dp)
                             .height(5.dp)
                             .clip(RoundedCornerShape(999.dp))
-                            .background(if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000))
+                            .background(
+                                if (isDark) {
+                                    Color.White.copy(alpha = 0.16f)
+                                } else {
+                                    palette.glassStroke.copy(alpha = 0.92f)
+                                }
+                            )
                     )
 
                     Row(
@@ -1752,7 +1770,10 @@ class GroupActivity : BaseComposeActivity() {
                                     selected = selected,
                                     allowImageLoading = true,
                                     showShadow = false,
-                                    darkCardBackgroundOverride = Color(0xFF1A1A1C),
+                                    darkCardBackgroundOverride = noMemoCardSurfaceColor(
+                                        true,
+                                        palette.glassFill.copy(alpha = 0.92f)
+                                    ),
                                     onClick = { onToggleRecord(record.recordId) },
                                     onLongPress = { onToggleRecord(record.recordId) }
                                 )
@@ -1778,8 +1799,16 @@ class GroupActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val panelSurface = if (isDark) Color(0xFF121316) else palette.memoBgStart
-        val inputSurface = if (isDark) Color(0xFF1A1A1C) else Color.White.copy(alpha = 0.995f)
+        val panelSurface = if (isDark) {
+            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.94f))
+        } else {
+            Color(0xFFF5F6F8)
+        }
+        val inputSurface = if (isDark) {
+            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
+        } else {
+            Color.White.copy(alpha = 0.995f)
+        }
         val bodyHeight = if (adaptive.isNarrow) 450.dp else 500.dp
         val descriptionScrollState = rememberScrollState()
         var visible by remember { mutableStateOf(false) }
@@ -1868,7 +1897,13 @@ class GroupActivity : BaseComposeActivity() {
                                 .width(56.dp)
                                 .height(5.dp)
                                 .clip(RoundedCornerShape(999.dp))
-                                .background(if (isDark) Color.White.copy(alpha = 0.16f) else Color(0x24000000))
+                                .background(
+                                    if (isDark) {
+                                        Color.White.copy(alpha = 0.16f)
+                                    } else {
+                                        palette.glassStroke.copy(alpha = 0.92f)
+                                    }
+                                )
                         )
 
                         Row(
