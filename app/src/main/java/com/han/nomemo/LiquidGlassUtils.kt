@@ -1,5 +1,7 @@
 package com.han.nomemo
 
+import android.graphics.RuntimeShader
+import android.os.Build
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
 import androidx.compose.animation.core.VisibilityThreshold
@@ -156,6 +158,24 @@ class LiquidGlassInteractiveHighlight(
     private val positionAnimation = Animatable(Offset.Zero, Offset.VectorConverter, Offset.VisibilityThreshold)
 
     private var startPosition = Offset.Zero
+    private val shader =
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            RuntimeShader(
+                """
+uniform float2 size;
+layout(color) uniform half4 color;
+uniform float radius;
+uniform float2 position;
+
+half4 main(float2 coord) {
+    float dist = distance(coord, position);
+    float intensity = smoothstep(radius, radius * 0.5, dist);
+    return color * intensity;
+}"""
+            )
+        } else {
+            null
+        }
 
     val pressProgress: Float get() = pressProgressAnimation.value
     val offset: Offset get() = positionAnimation.value - startPosition
@@ -163,10 +183,32 @@ class LiquidGlassInteractiveHighlight(
     val modifier: Modifier = Modifier.drawWithContent {
         val progress = pressProgressAnimation.value
         if (progress > 0f) {
-            drawRect(
-                Color.White.copy(alpha = 0.08f * progress),
-                blendMode = BlendMode.Plus
-            )
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && shader != null) {
+                drawRect(
+                    Color.White.copy(alpha = 0.08f * progress),
+                    blendMode = BlendMode.Plus
+                )
+                shader.apply {
+                    val shaderPosition = position(size, positionAnimation.value)
+                    setFloatUniform("size", size.width, size.height)
+                    setColorUniform("color", Color.White.copy(alpha = 0.15f * progress).toArgb())
+                    setFloatUniform("radius", size.minDimension * 1.5f)
+                    setFloatUniform(
+                        "position",
+                        shaderPosition.x.fastCoerceIn(0f, size.width),
+                        shaderPosition.y.fastCoerceIn(0f, size.height)
+                    )
+                }
+                drawRect(
+                    ShaderBrush(shader),
+                    blendMode = BlendMode.Plus
+                )
+            } else {
+                drawRect(
+                    Color.White.copy(alpha = 0.25f * progress),
+                    blendMode = BlendMode.Plus
+                )
+            }
         }
         drawContent()
     }
@@ -194,9 +236,7 @@ class LiquidGlassInteractiveHighlight(
             }
         ) { change, _ ->
             animationScope.launch {
-                positionAnimation.snapTo(
-                    position(Size(size.width.toFloat(), size.height.toFloat()), change.position)
-                )
+                positionAnimation.snapTo(change.position)
             }
         }
     }
