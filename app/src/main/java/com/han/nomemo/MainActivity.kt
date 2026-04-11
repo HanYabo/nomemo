@@ -46,7 +46,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
@@ -928,7 +927,7 @@ class MainActivity : BaseComposeActivity() {
         PressScaleBox(onClick = onClick) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(NoMemoG2CapsuleShape)
                     .background(bg)
                     .padding(
                         start = if (spec.isNarrow) 18.dp else 24.dp,
@@ -995,7 +994,7 @@ class MainActivity : BaseComposeActivity() {
         PressScaleBox(onClick = onClick) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(NoMemoG2CapsuleShape)
                     .background(bg)
                     .padding(
                         start = if (spec.isNarrow) 10.dp else 12.dp,
@@ -1082,7 +1081,7 @@ class MainActivity : BaseComposeActivity() {
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(top = 8.dp),
-            shape = RoundedCornerShape(28.dp),
+            shape = noMemoG2RoundedShape(28.dp),
             colors = CardDefaults.cardColors(containerColor = palette.glassFill),
             border = androidx.compose.foundation.BorderStroke(1.dp, palette.glassStroke)
         ) {

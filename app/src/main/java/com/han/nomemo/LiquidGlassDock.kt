@@ -107,7 +107,7 @@ fun LiquidGlassDock(
             DockTabSpec(NoMemoDockTab.REMINDER, R.drawable.ic_nm_reminder, "", onOpenReminder)
         )
     }
-    val dockHeight = if (spec.isNarrow) 64.dp else 68.dp
+    val dockHeight = if (spec.isNarrow) 60.dp else 64.dp
     val buttonSize = dockHeight
     val dockWidth = if (spec.isNarrow) 266.dp else 292.dp
     val backdrop = sharedBackdrop ?: rememberLayerBackdrop { drawContent() }
@@ -221,7 +221,6 @@ private fun LiquidGlassDockTabs(
                 }
             )
         }
-
         LaunchedEffect(selectedIndex) {
             currentIndex = selectedIndex
         }
@@ -431,7 +430,7 @@ private fun RowScope.LiquidGlassDockItem(
             painter = painterResource(id = iconRes),
             contentDescription = label,
             tint = contentColor,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(19.dp)
         )
         androidx.compose.material3.Text(
             text = label,
@@ -513,7 +512,7 @@ private fun LiquidGlassAddButton(
             painter = painterResource(id = R.drawable.ic_nm_compose),
             contentDescription = null,
             tint = iconTint,
-            modifier = Modifier.size(if (spec.isNarrow) 22.dp else 24.dp)
+            modifier = Modifier.size(if (spec.isNarrow) 20.dp else 22.dp)
         )
     }
 }

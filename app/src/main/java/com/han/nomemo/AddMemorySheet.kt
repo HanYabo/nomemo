@@ -1,4 +1,4 @@
-package com.han.nomemo
+﻿package com.han.nomemo
 
 import android.Manifest
 import android.app.Activity
@@ -41,7 +41,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -93,7 +92,7 @@ fun AddMemorySheet(
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
 
-    val aiEnabled = remember { settingsStore.aiEnabled }
+    val aiEnabled = remember { settingsStore.isAiAvailable() }
     var aiMode by remember(aiEnabled) { mutableStateOf(aiEnabled) }
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -114,7 +113,11 @@ fun AddMemorySheet(
     val panelSurface = addSheetPanelSurface(isDark, palette)
     val sheetSurface = addSheetBaseSurface(isDark, palette)
     val inputSurface = addSheetInputSurface(isDark, palette)
-    val actionSurface = inputSurface
+    val actionSurface = if (isDark) {
+        noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
+    } else {
+        Color.White.copy(alpha = 0.985f)
+    }
     val inputTextColor = palette.textPrimary
     val inputHintColor = palette.textTertiary
     val sheetBodyHeight = if (adaptive.isNarrow) 650.dp else 720.dp
@@ -291,9 +294,9 @@ fun AddMemorySheet(
                     .fillMaxWidth()
                     .shadow(
                         elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
-                        shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp)
+                        shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp)
                     ),
-                shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+                shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp),
                 colors = CardDefaults.cardColors(containerColor = sheetSurface)
             ) {
                 Column(
@@ -306,7 +309,7 @@ fun AddMemorySheet(
                         modifier = Modifier
                             .align(Alignment.CenterHorizontally)
                             .size(width = 56.dp, height = 5.dp)
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(NoMemoG2CapsuleShape)
                             .background(dragHandleColor)
                     )
                     Row(
@@ -347,7 +350,7 @@ fun AddMemorySheet(
                             .verticalScroll(rememberScrollState())
                             .padding(top = 16.dp)
                     ) {
-                        if (!aiMode) {
+                        if (!(aiMode && aiEnabled)) {
                             SheetCategorySection(
                                 categories = allCategories,
                                 selectedCategory = selectedCategory,
@@ -367,7 +370,7 @@ fun AddMemorySheet(
                                 .padding(
                                     top = if (aiMode) 0.dp else 18.dp
                                 ),
-                            shape = RoundedCornerShape(24.dp),
+                            shape = noMemoG2RoundedShape(24.dp),
                             colors = CardDefaults.cardColors(containerColor = inputSurface)
                         ) {
                             BasicTextField(
@@ -482,6 +485,7 @@ fun AddMemorySheet(
                             } else {
                                 "提醒时间"
                             },
+                            surfaceColor = actionSurface,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 18.dp),
@@ -555,7 +559,7 @@ private fun SheetModeSwitch(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val shape = RoundedCornerShape(32.dp)
+    val shape = noMemoG2RoundedShape(32.dp)
     val switchSurface = addSheetInputSurface(isDark, palette)
     Box(
         modifier = modifier
@@ -608,7 +612,7 @@ private fun SheetModeChip(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val shape = RoundedCornerShape(28.dp)
+    val shape = noMemoG2RoundedShape(28.dp)
     val selectedSurface = if (isDark) {
         palette.accent.copy(alpha = 0.22f)
     } else {
@@ -651,7 +655,7 @@ fun SheetCategorySection(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val selectorShape = RoundedCornerShape(if (detailStyle) 22.dp else 24.dp)
+    val selectorShape = noMemoG2RoundedShape(if (detailStyle) 22.dp else 24.dp)
     val selectorSurface = if (detailStyle) noMemoCardSurfaceColor(isDark) else addSheetCategorySelectorSurface(isDark, palette)
     val menuSurface = if (detailStyle) noMemoCardSurfaceColor(isDark) else addSheetCategoryMenuSurface(isDark, palette)
     val primaryTextColor = palette.textPrimary
@@ -737,7 +741,7 @@ fun SheetCategorySection(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = menuTopPadding),
-                shape = RoundedCornerShape(22.dp),
+                shape = noMemoG2RoundedShape(22.dp),
                 colors = CardDefaults.cardColors(containerColor = menuSurface)
             ) {
                 Column(
@@ -795,7 +799,7 @@ private fun SheetCategoryListItem(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val rowShape = RoundedCornerShape(12.dp)
+    val rowShape = noMemoG2RoundedShape(12.dp)
     val textColor = palette.textPrimary
     val rowHeight = if (compact) 46.dp else 48.dp
     val textSize = if (compact) 16.sp else 17.sp
@@ -862,35 +866,30 @@ private fun SheetActionCard(
     surfaceColor: Color,
     onClick: () -> Unit
 ) {
-    val palette = rememberNoMemoPalette()
-    val titleColor = palette.textPrimary
-    val shape = RoundedCornerShape(24.dp)
+    val isDark = isSystemInDarkTheme()
+    val titleColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
     PressScaleBox(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 18.dp)
-            .height(52.dp)
+            .padding(top = 18.dp),
+        pressedScale = 1f
     ) {
-        Card(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
-            shape = shape,
-            colors = CardDefaults.cardColors(containerColor = surfaceColor)
+                .clip(noMemoG2RoundedShape(20.dp))
+                .background(surfaceColor)
+                .padding(horizontal = 20.dp, vertical = 17.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = title,
-                    color = titleColor,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center
-                )
-            }
+            Text(
+                text = title,
+                color = titleColor,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
@@ -898,36 +897,32 @@ private fun SheetActionCard(
 @Composable
 private fun SheetInlineButton(
     text: String,
+    surfaceColor: Color,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
-    val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
+    val titleColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
     PressScaleBox(
         onClick = onClick,
-        modifier = modifier
-            .height(52.dp)
-            .fillMaxWidth()
+        modifier = modifier.fillMaxWidth(),
+        pressedScale = 1f
     ) {
-        Card(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(52.dp),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = addSheetInputSurface(isDark, palette))
+                .clip(noMemoG2RoundedShape(20.dp))
+                .background(surfaceColor)
+                .padding(horizontal = 20.dp, vertical = 17.dp),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier.fillMaxSize(),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = text,
-                    color = palette.textPrimary,
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    textAlign = TextAlign.Center
-                )
-            }
+            Text(
+                text = text,
+                color = titleColor,
+                fontSize = 17.sp,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center
+            )
         }
     }
 }
@@ -942,7 +937,7 @@ private fun SheetImagePreviewCard(
 ) {
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(24.dp),
+        shape = noMemoG2RoundedShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = surfaceColor)
     ) {
         Box(
@@ -958,7 +953,7 @@ private fun SheetImagePreviewCard(
                 },
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(24.dp)),
+                    .clip(noMemoG2RoundedShape(24.dp)),
                 update = { image ->
                     image.setImageURI(imageUri)
                 }
@@ -1042,11 +1037,11 @@ private fun ReminderPickerDialog(
                 .padding(horizontal = 18.dp)
                 .shadow(
                     elevation = 22.dp,
-                    shape = RoundedCornerShape(24.dp),
+                    shape = noMemoG2RoundedShape(24.dp),
                     ambientColor = if (isDark) Color.Black.copy(alpha = 0.32f) else Color.Black.copy(alpha = 0.12f),
                     spotColor = if (isDark) Color.Black.copy(alpha = 0.32f) else Color.Black.copy(alpha = 0.12f)
                 ),
-            shape = RoundedCornerShape(24.dp),
+            shape = noMemoG2RoundedShape(24.dp),
             colors = CardDefaults.cardColors(
                 containerColor = addSheetPanelSurface(isDark, palette)
             ),
@@ -1169,7 +1164,7 @@ private fun ReminderPresetChip(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(40.dp),
-            shape = RoundedCornerShape(20.dp),
+            shape = noMemoG2RoundedShape(20.dp),
             colors = CardDefaults.cardColors(containerColor = addSheetInputSurface(isDark, palette)),
             border = BorderStroke(
                 1.dp,
@@ -1234,7 +1229,7 @@ private fun ReminderAdjustRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(noMemoG2RoundedShape(18.dp))
             .background(addSheetSubtleSurface(isDark, palette))
             .padding(horizontal = 12.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -1277,7 +1272,7 @@ private fun ReminderAdjustCard(
     val isDark = isSystemInDarkTheme()
     Card(
         modifier = modifier,
-        shape = RoundedCornerShape(18.dp),
+        shape = noMemoG2RoundedShape(18.dp),
         colors = CardDefaults.cardColors(
             containerColor = addSheetSubtleSurface(isDark, palette)
         )
@@ -1329,7 +1324,7 @@ private fun ReminderFooterActionButton(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(52.dp),
-            shape = RoundedCornerShape(24.dp),
+            shape = noMemoG2RoundedShape(24.dp),
             colors = CardDefaults.cardColors(containerColor = addSheetInputSurface(isDark, palette)),
             border = BorderStroke(
                 1.dp,
@@ -1424,19 +1419,22 @@ private fun saveRecord(
     reminderAt: Long
 ) {
     val imageUriText = imageUri?.toString().orEmpty()
+    val aiAvailable = SettingsStore(context).isAiAvailable()
+    val quickNoteCategory = CategoryCatalog.getQuickCategories().first()
     val finalReminderAt = if (reminderEnabled) {
         if (reminderAt > 0L) reminderAt else System.currentTimeMillis() + 60L * 60L * 1000L
     } else {
         0L
     }
 
-    if (!aiMode) {
+    if (!(aiMode && aiAvailable)) {
+        val finalCategory = if (aiAvailable) category else quickNoteCategory
         val memoryText = if (input.isBlank()) "已保存图片记忆" else input
         memoryStore.prependRecord(
             MemoryRecord(
                 System.currentTimeMillis(),
                 MemoryRecord.MODE_NORMAL,
-                compactTitle(input, category.categoryName),
+                compactTitle(input, finalCategory.categoryName),
                 compactSummary(input, memoryText),
                 input,
                 input,
@@ -1444,9 +1442,9 @@ private fun saveRecord(
                 "",
                 memoryText,
                 "manual",
-                category.groupCode,
-                category.categoryCode,
-                category.categoryName,
+                finalCategory.groupCode,
+                finalCategory.categoryCode,
+                finalCategory.categoryName,
                 finalReminderAt,
                 false,
                 false
@@ -1456,7 +1454,7 @@ private fun saveRecord(
         return
     }
 
-    val aiCategory = CategoryCatalog.getQuickCategories().first()
+    val aiCategory = quickNoteCategory
     val createdAt = System.currentTimeMillis()
     val placeholder = MemoryRecord(
         createdAt,
@@ -1467,7 +1465,7 @@ private fun saveRecord(
         input,
         imageUriText,
         "AI 分析中...",
-        if (input.isBlank()) "已保存截图记忆" else input,
+        if (input.isBlank()) "已保存图片记忆" else input,
         "pending",
         aiCategory.groupCode,
         aiCategory.categoryCode,
@@ -1620,3 +1618,5 @@ private tailrec fun Context.findActivity(): Activity? = when (this) {
     is ContextWrapper -> baseContext.findActivity()
     else -> null
 }
+
+

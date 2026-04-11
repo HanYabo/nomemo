@@ -43,7 +43,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
@@ -655,7 +654,7 @@ class ReminderActivity : BaseComposeActivity() {
         val haptic = LocalHapticFeedback.current
         val isDark = isSystemInDarkTheme()
         val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
-        val cardShape = RoundedCornerShape(if (adaptive.isNarrow) 28.dp else 30.dp)
+        val cardShape = noMemoG2RoundedShape(if (adaptive.isNarrow) 28.dp else 30.dp)
         val cardBackground = if (selected) {
             noMemoSelectedCardGradient(isDark).first()
         } else {

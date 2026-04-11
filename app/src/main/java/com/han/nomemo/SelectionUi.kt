@@ -87,7 +87,7 @@ private fun NoMemoSelectionTextActionButton(
     ) {
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp),
+            shape = noMemoG2RoundedShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = containerColor),
             border = BorderStroke(1.dp, borderColor)
         ) {

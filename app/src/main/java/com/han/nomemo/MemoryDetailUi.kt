@@ -23,25 +23,16 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.tween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -63,8 +54,8 @@ data class StructuredPickupInfo(
         get() = locationText.orEmpty()
 }
 
-private val memoryDetailPanelShape = RoundedCornerShape(24.dp)
-private val memoryDetailContentPanelShape = RoundedCornerShape(22.dp)
+private val memoryDetailPanelShape = noMemoG2RoundedShape(24.dp)
+private val memoryDetailContentPanelShape = noMemoG2RoundedShape(22.dp)
 private val memoryDetailContentHorizontalPadding = 18.dp
 private val memoryDetailContentVerticalPadding = 17.dp
 private val memoryDetailBodyFontSize = 16.sp
@@ -79,167 +70,41 @@ fun NoMemoDetailReanalyzeButton(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val processingSurfaceTop = if (isDark) {
-        Color(0xFF241D19)
+    val actionSurface = if (isDark) {
+        noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
     } else {
-        Color(0xFFF8F2ED)
+        Color.White.copy(alpha = 0.985f)
     }
-    val processingSurfaceBottom = if (isDark) {
-        Color(0xFF1B1614)
-    } else {
-        Color(0xFFF2E8E2)
-    }
-    val processingText = if (isDark) {
-        Color.White.copy(alpha = 0.96f)
-    } else {
-        palette.textPrimary
-    }
+    val actionColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
     PressScaleBox(
         onClick = {
             if (!processing) {
                 onClick()
             }
         },
-        modifier = modifier.fillMaxWidth()
+        modifier = modifier.fillMaxWidth(),
+        pressedScale = 1f
     ) {
-        Card(
+        Box(
             modifier = Modifier.fillMaxWidth(),
-            shape = memoryDetailPanelShape,
-            colors = CardDefaults.cardColors(
-                containerColor = if (processing) Color.Transparent else palette.accent
-            ),
-            border = BorderStroke(
-                1.dp,
-                if (processing) Color.Transparent else palette.accent
-            )
+            contentAlignment = Alignment.Center
         ) {
-            Box(modifier = Modifier.fillMaxWidth()) {
-                if (processing) {
-                    Box(
-                        modifier = Modifier
-                            .matchParentSize()
-                            .background(
-                                Brush.verticalGradient(
-                                    colors = listOf(
-                                        processingSurfaceTop,
-                                        processingSurfaceBottom
-                                    )
-                                )
-                            )
-                    )
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopCenter)
-                            .fillMaxWidth()
-                            .height(1.dp)
-                            .background(
-                                if (isDark) {
-                                    Color.White.copy(alpha = 0.10f)
-                                } else {
-                                    Color.White.copy(alpha = 0.55f)
-                                }
-                            )
-                    )
-                    AiProcessingBorderOverlay(
-                        cornerRadius = 24.dp,
-                        isDark = isDark,
-                        modifier = Modifier.matchParentSize()
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 18.dp, vertical = 17.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (processing) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
-                        ) {
-                            NoMemoProcessingSpark()
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text(
-                                text = text,
-                                color = processingText,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    } else {
-                        Text(
-                            text = text,
-                            color = palette.onAccent,
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                    }
-                }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(noMemoG2RoundedShape(20.dp))
+                    .background(actionSurface)
+                    .padding(horizontal = 20.dp, vertical = 17.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = text,
+                    color = actionColor,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
-    }
-}
-
-@Composable
-private fun NoMemoProcessingSpark() {
-    val transition = rememberInfiniteTransition(label = "reanalyzeSpark")
-    val pulse by transition.animateFloat(
-        initialValue = 0.82f,
-        targetValue = 1.1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1250, easing = LinearEasing)
-        ),
-        label = "reanalyzeSparkPulse"
-    )
-    val glow by transition.animateFloat(
-        initialValue = 0.7f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 1250, easing = LinearEasing)
-        ),
-        label = "reanalyzeSparkGlow"
-    )
-    val dotBrush = Brush.linearGradient(
-        listOf(
-            Color(0xFFFFBC79).copy(alpha = 0.96f),
-            Color(0xFFFFA0B3).copy(alpha = 0.94f),
-            Color(0xFFFFE4EE).copy(alpha = 0.98f)
-        )
-    )
-    Box(
-        modifier = Modifier.size(14.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Box(
-            modifier = Modifier
-                .size((10.dp * glow).coerceAtLeast(7.dp))
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.10f))
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.Center)
-                .size((6.dp * pulse).coerceAtLeast(4.dp))
-                .clip(CircleShape)
-                .background(dotBrush)
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .offset(x = 1.dp, y = 1.dp)
-                .size(3.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFFFD7B6).copy(alpha = 0.72f))
-        )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .offset(x = (-1).dp, y = (-1).dp)
-                .size(2.5.dp)
-                .clip(CircleShape)
-                .background(Color(0xFFFFE6EF).copy(alpha = 0.76f))
-        )
     }
 }
 
@@ -612,7 +477,7 @@ private fun NoMemoLocationNavigateButton(
         modifier = modifier
     ) {
         Card(
-            shape = RoundedCornerShape(999.dp),
+            shape = NoMemoG2CapsuleShape,
             colors = CardDefaults.cardColors(containerColor = palette.accent),
             border = BorderStroke(1.dp, palette.accent)
         ) {
@@ -696,7 +561,7 @@ fun NoMemoDetailActionButton(
         modifier = modifier
     ) {
         Card(
-            shape = RoundedCornerShape(18.dp),
+            shape = noMemoG2RoundedShape(18.dp),
             colors = CardDefaults.cardColors(
                 containerColor = containerColor
             ),
@@ -716,4 +581,3 @@ fun NoMemoDetailActionButton(
         }
     }
 }
-

@@ -77,7 +77,7 @@ public class AiMemoryService {
     }
 
     private boolean hasCloudConfig() {
-        return settingsStore.getAiEnabled()
+        return settingsStore.isAiAvailable()
                 && !TextUtils.isEmpty(settingsStore.resolvedApiKey())
                 && !TextUtils.isEmpty(settingsStore.resolvedApiBaseUrl())
                 && !TextUtils.isEmpty(settingsStore.resolvedApiModel());

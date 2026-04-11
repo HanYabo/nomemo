@@ -38,7 +38,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.automirrored.outlined.HelpOutline
@@ -443,13 +442,13 @@ class SettingsActivity : BaseComposeActivity() {
         var baseUrl by remember { mutableStateOf(settingsStore.apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }) }
         var apiKey by remember { mutableStateOf(settingsStore.apiKey) }
         var imageCustomModel by remember {
-            mutableStateOf(settingsStore.imageCustomModel.ifBlank { settingsStore.resolvedApiModel() })
+            mutableStateOf(settingsStore.imageCustomModel)
         }
         var textCustomModel by remember {
-            mutableStateOf(settingsStore.textCustomModel.ifBlank { settingsStore.resolvedApiModel() })
+            mutableStateOf(settingsStore.textCustomModel)
         }
         var multimodalCustomModel by remember {
-            mutableStateOf(settingsStore.multimodalCustomModel.ifBlank { settingsStore.resolvedApiModel() })
+            mutableStateOf(settingsStore.multimodalCustomModel)
         }
         var imageModelPreset by remember { mutableStateOf(settingsStore.imageModelPreset) }
         var textModelPreset by remember { mutableStateOf(settingsStore.textModelPreset) }
@@ -620,6 +619,11 @@ class SettingsActivity : BaseComposeActivity() {
                                 testingTarget = target
                                 onTestApi(target, baseUrl, apiKey, modelName, title) { success, message ->
                                     testingTarget = null
+                                    if (success) {
+                                        settingsStore.aiConfigVerified = true
+                                        aiEnabled = true
+                                        onAiEnabledChange(true)
+                                    }
                                     testResultSuccess = success
                                     testResultMessage = message
                                     showTestResult = true
@@ -772,7 +776,7 @@ class SettingsActivity : BaseComposeActivity() {
                                 label = "API 密钥",
                                 value = apiKey,
                                 onValueChange = onApiKeyChange,
-                                placeholder = "sk-...",
+                                placeholder = "请输入您的API密钥",
                                 isSecret = true,
                                 titleColor = titleColor,
                                 subtitleColor = subtitleColor,
@@ -878,7 +882,7 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_PRESET_CUSTOM,
                                 title = "自定义模型",
-                                subtitle = "当前自定义模型：${imageCustomModel.ifBlank { settingsStore.resolvedApiModel() }}"
+                                subtitle = "当前自定义模型：${imageCustomModel.ifBlank { "未设置" }}"
                             )
                         ),
                         onSelect = onImageModelPresetChange,
@@ -910,7 +914,7 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_PRESET_CUSTOM,
                                 title = "自定义模型",
-                                subtitle = "当前自定义模型：${textCustomModel.ifBlank { settingsStore.resolvedApiModel() }}"
+                                subtitle = "当前自定义模型：${textCustomModel.ifBlank { "未设置" }}"
                             )
                         ),
                         onSelect = onTextModelPresetChange,
@@ -937,7 +941,7 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsModelOption(
                                 preset = SettingsStore.MODEL_PRESET_CUSTOM,
                                 title = "自定义模型",
-                                subtitle = "当前自定义模型：${multimodalCustomModel.ifBlank { settingsStore.resolvedApiModel() }}"
+                                subtitle = "当前自定义模型：${multimodalCustomModel.ifBlank { "未设置" }}"
                             )
                         ),
                         onSelect = onMultimodalModelPresetChange,
@@ -1469,7 +1473,7 @@ class SettingsActivity : BaseComposeActivity() {
         Card(
             modifier = modifier.fillMaxWidth(),
             colors = CardDefaults.cardColors(containerColor = surface),
-            shape = RoundedCornerShape(26.dp),
+            shape = noMemoG2RoundedShape(26.dp),
             border = null
         ) {
             content()
@@ -1706,7 +1710,7 @@ class SettingsActivity : BaseComposeActivity() {
                 Box(
                     modifier = Modifier
                         .size(width = 18.dp, height = 18.dp)
-                        .clip(RoundedCornerShape(6.dp))
+                        .clip(noMemoG2RoundedShape(6.dp))
                         .background(accentColor)
                 )
                 Text(
@@ -2151,7 +2155,7 @@ class SettingsActivity : BaseComposeActivity() {
                         SettingsInlineModelInputBar(
                             value = customModel,
                             onValueChange = onCustomModelChange,
-                            placeholder = BuildConfig.OPENAI_MODEL,
+                            placeholder = "输入自定义模型名称",
                             titleColor = titleColor,
                             subtitleColor = subtitleColor,
                             accentColor = accentColor,
@@ -2284,7 +2288,7 @@ class SettingsActivity : BaseComposeActivity() {
                     .fillMaxWidth()
                     .padding(top = 8.dp),
                 colors = CardDefaults.cardColors(containerColor = fieldSurface),
-                shape = RoundedCornerShape(18.dp),
+                shape = noMemoG2RoundedShape(18.dp),
                 border = BorderStroke(1.dp, borderColor)
             ) {
                 BasicTextField(
@@ -2358,7 +2362,7 @@ class SettingsActivity : BaseComposeActivity() {
                     .fillMaxWidth()
                     .background(
                         color = if (selected) selectedColor else surface,
-                        shape = RoundedCornerShape(999.dp)
+                        shape = NoMemoG2CapsuleShape
                     )
             ) {
                 Text(
@@ -2390,7 +2394,7 @@ class SettingsActivity : BaseComposeActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(noMemoG2RoundedShape(20.dp))
                     .background(surface)
                     .padding(horizontal = 20.dp, vertical = 17.dp)
             ) {
@@ -2423,7 +2427,7 @@ class SettingsActivity : BaseComposeActivity() {
             Box(
                 modifier = Modifier
                     .weight(1f)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(noMemoG2RoundedShape(18.dp))
                     .background(if (isSystemInDarkTheme()) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f))
                     .padding(horizontal = 16.dp, vertical = 14.dp)
             ) {
@@ -2461,7 +2465,7 @@ class SettingsActivity : BaseComposeActivity() {
             ) {
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(999.dp))
+                        .clip(NoMemoG2CapsuleShape)
                         .background(accentColor)
                         .padding(horizontal = 22.dp, vertical = 14.dp)
                 ) {
@@ -2497,7 +2501,7 @@ class SettingsActivity : BaseComposeActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
+                    .clip(noMemoG2RoundedShape(20.dp))
                     .background(surface)
                     .padding(horizontal = 20.dp, vertical = 17.dp)
             ) {
@@ -2544,7 +2548,7 @@ class SettingsActivity : BaseComposeActivity() {
             Box(
                 modifier = Modifier
                     .size(width = 60.dp, height = 36.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(NoMemoG2CapsuleShape)
                     .background(trackColor)
                     .padding(4.dp)
             ) {

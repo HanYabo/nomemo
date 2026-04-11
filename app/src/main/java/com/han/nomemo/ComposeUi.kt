@@ -55,7 +55,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AssignmentTurnedIn
@@ -91,6 +90,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
@@ -142,8 +142,32 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
+import com.kyant.capsule.ContinuousCapsule
+import com.kyant.capsule.ContinuousRoundedRectangle
+import com.kyant.capsule.continuities.G2Continuity
 
 private val DockEaseOut = androidx.compose.animation.core.CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+private val NoMemoG2Continuity = G2Continuity()
+val NoMemoG2CapsuleShape = ContinuousCapsule(NoMemoG2Continuity)
+
+fun noMemoG2RoundedShape(radius: Dp): ContinuousRoundedRectangle {
+    return ContinuousRoundedRectangle(radius, continuity = NoMemoG2Continuity)
+}
+
+fun noMemoG2RoundedShape(
+    topStart: Dp = 0.dp,
+    topEnd: Dp = 0.dp,
+    bottomEnd: Dp = 0.dp,
+    bottomStart: Dp = 0.dp
+): ContinuousRoundedRectangle {
+    return ContinuousRoundedRectangle(
+        topStart = topStart,
+        topEnd = topEnd,
+        bottomEnd = bottomEnd,
+        bottomStart = bottomStart,
+        continuity = NoMemoG2Continuity
+    )
+}
 
 object AiProcessingStateRegistry {
     private val processingState = mutableStateMapOf<String, Boolean>()
@@ -659,12 +683,12 @@ fun GlassChip(
     ) {
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(999.dp))
+                .clip(NoMemoG2CapsuleShape)
                 .background(bg)
                 .border(
                     width = if (showBorder) 1.dp else 0.dp,
                     color = if (showBorder) palette.glassStroke else Color.Transparent,
-                    shape = RoundedCornerShape(999.dp)
+                    shape = NoMemoG2CapsuleShape
                 )
         ) {
             Text(
@@ -767,7 +791,7 @@ fun NoMemoSearchBarCard(
         modifier = modifier
             .fillMaxWidth()
             .padding(top = 8.dp),
-        shape = RoundedCornerShape(28.dp),
+        shape = noMemoG2RoundedShape(28.dp),
         colors = CardDefaults.cardColors(containerColor = noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))),
         border = BorderStroke(1.dp, palette.glassStroke)
     ) {
@@ -939,7 +963,7 @@ private fun NoMemoDialogShell(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val panelShape = RoundedCornerShape(30.dp)
+    val panelShape = noMemoG2RoundedShape(30.dp)
     val panelSurface = if (isDark) {
         noMemoCardSurfaceColor(true, Color(0xFF171A20))
     } else {
@@ -1070,9 +1094,9 @@ private fun NoMemoDialogActionButton(
     ) {
         Box(
             modifier = Modifier
-                .clip(RoundedCornerShape(18.dp))
+                .clip(noMemoG2RoundedShape(18.dp))
                 .background(backgroundColor)
-                .border(1.dp, borderColor, RoundedCornerShape(18.dp))
+                .border(1.dp, borderColor, noMemoG2RoundedShape(18.dp))
                 .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Text(
@@ -1145,7 +1169,7 @@ fun NoMemoMenuList(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val panelShape = RoundedCornerShape(24.dp)
+    val panelShape = noMemoG2RoundedShape(24.dp)
     val panelBase = if (isDark) {
         noMemoCardSurfaceColor(true, Color(0xFF171A20))
     } else {
@@ -1304,7 +1328,7 @@ private fun NoMemoAnchoredMenuRow(
     } else {
         Color.Black.copy(alpha = 0.045f)
     }
-    val rowShape = RoundedCornerShape(18.dp)
+    val rowShape = noMemoG2RoundedShape(18.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -1363,7 +1387,7 @@ fun NoMemoPillTextButton(
         modifier = modifier
     ) {
         Card(
-            shape = RoundedCornerShape(999.dp),
+            shape = NoMemoG2CapsuleShape,
             colors = CardDefaults.cardColors(containerColor = palette.glassFill),
             border = BorderStroke(1.dp, palette.glassStroke)
         ) {
@@ -1395,8 +1419,8 @@ fun NoMemoWideActionButton(
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .shadow(12.dp, RoundedCornerShape(26.dp)),
-            shape = RoundedCornerShape(26.dp),
+                .shadow(12.dp, noMemoG2RoundedShape(26.dp)),
+            shape = noMemoG2RoundedShape(26.dp),
             colors = CardDefaults.cardColors(containerColor = containerColor),
             border = BorderStroke(1.dp, borderColor)
         ) {
@@ -1439,7 +1463,7 @@ fun NoMemoBottomDock(
 ) {
     val isDark = isSystemInDarkTheme()
     val palette = rememberNoMemoPalette()
-    val dockShape = RoundedCornerShape(999.dp)
+    val dockShape = NoMemoG2CapsuleShape
     val dockHeight = if (spec.isNarrow) 64.dp else 68.dp
     val dockBlurTint = if (isDark) {
         palette.dockSurface.copy(alpha = 0.72f)
@@ -1691,8 +1715,8 @@ fun NoMemoBottomDock(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(1.dp)
-                    .clip(RoundedCornerShape(999.dp))
-                    .border(0.8.dp, dockInnerStroke, RoundedCornerShape(999.dp))
+                    .clip(NoMemoG2CapsuleShape)
+                    .border(0.8.dp, dockInnerStroke, NoMemoG2CapsuleShape)
             )
             Box(
                 modifier = Modifier
@@ -1976,7 +2000,7 @@ private fun RowScope.DockNavItem(
 private fun DockGlowLayer(
     animatedX: Float,
     isDark: Boolean,
-    dockShape: RoundedCornerShape,
+    dockShape: Shape,
     glowColor: Color
 ) {
     val whiteGlow = if (isDark) Color.White.copy(alpha = 0.13f) else Color.White.copy(alpha = 0.24f)
@@ -2178,7 +2202,7 @@ fun MemoryThumbnail(
     Box(
         modifier = modifier
             .size(width = width, height = height)
-            .clip(RoundedCornerShape(cornerRadius))
+            .clip(noMemoG2RoundedShape(cornerRadius))
             .background(backgroundColor)
     ) {
         val shownBitmap = bitmap
@@ -2253,7 +2277,7 @@ fun RecordCard(
     }
     val previewCornerRadius = if (adaptive.isNarrow) 15.dp else 17.dp
     val cardCornerRadius = if (adaptive.isNarrow) 28.dp else 30.dp
-    val cardShape = RoundedCornerShape(cardCornerRadius)
+    val cardShape = noMemoG2RoundedShape(cardCornerRadius)
     val darkCardColor = darkCardBackgroundOverride ?: noMemoCardSurfaceColor(true)
     val lightCardTop = Color.White.copy(alpha = 0.995f)
     val lightCardBottom = Color(0xFFFCFCFD).copy(alpha = 0.995f)
@@ -2366,19 +2390,19 @@ fun RecordCard(
                                 .border(
                                     width = 1.dp,
                                     color = thumbnailBorder,
-                                    shape = RoundedCornerShape(previewCornerRadius)
+                                    shape = noMemoG2RoundedShape(previewCornerRadius)
                                 )
                         )
                     } else {
                         Box(
                             modifier = Modifier
                                 .size(width = previewWidth, height = previewHeight)
-                                .clip(RoundedCornerShape(previewCornerRadius))
+                                .clip(noMemoG2RoundedShape(previewCornerRadius))
                                 .background(thumbnailBackground)
                                 .border(
                                     width = 1.dp,
                                     color = thumbnailBorder,
-                                    shape = RoundedCornerShape(previewCornerRadius)
+                                    shape = noMemoG2RoundedShape(previewCornerRadius)
                                 )
                         )
                     }
@@ -2440,12 +2464,12 @@ private fun AiProcessingStatusChip(
     )
     Row(
         modifier = modifier
-            .clip(RoundedCornerShape(999.dp))
+            .clip(NoMemoG2CapsuleShape)
             .background(chipBackground)
             .border(
                 width = 1.dp,
                 color = chipBorder,
-                shape = RoundedCornerShape(999.dp)
+                shape = NoMemoG2CapsuleShape
             )
             .padding(horizontal = 9.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically
@@ -2734,7 +2758,7 @@ fun GlassPanelText(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
+            .clip(noMemoG2RoundedShape(20.dp))
             .background(palette.glassFill)
             .padding(12.dp)
     ) {

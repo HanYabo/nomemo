@@ -251,7 +251,11 @@ object MemoryDetailParser {
         extractLabeledValue(
             source,
             listOf("商品", "商品名", "餐品", "菜品", "套餐", "饮品", "饮料", "物品")
-        )?.let { return cleanStructuredFieldValue(it) }
+        )?.let { labeled ->
+            cleanStructuredFieldValue(labeled)
+                .takeUnless(::isGenericPickupItemText)
+                ?.let { return it }
+        }
 
         sourceParts.forEach { part ->
             val partSource = part.trim()
@@ -259,7 +263,11 @@ object MemoryDetailParser {
             extractLabeledValue(
                 partSource,
                 listOf("商品", "商品名", "餐品", "菜品", "套餐", "饮品", "饮料", "物品")
-            )?.let { return cleanStructuredFieldValue(it) }
+            )?.let { labeled ->
+                cleanStructuredFieldValue(labeled)
+                    .takeUnless(::isGenericPickupItemText)
+                    ?.let { return it }
+            }
         }
 
         return lines.asSequence()
@@ -267,6 +275,7 @@ object MemoryDetailParser {
             .firstOrNull { candidate ->
                 candidate.isNotBlank() &&
                     candidate != storeName &&
+                    !isGenericPickupItemText(candidate) &&
                     !isStatusLikeText(candidate) &&
                     !isLikelyCodeOrLogisticsText(candidate) &&
                     !looksLikeLocationText(candidate) &&
@@ -719,6 +728,30 @@ object MemoryDetailParser {
             "已送达",
             "已到店",
             "待处理"
+        )
+    }
+
+    private fun isGenericPickupItemText(text: String): Boolean {
+        val candidate = text.trim()
+        if (candidate.isBlank()) {
+            return true
+        }
+        if (candidate.length <= 1) {
+            return true
+        }
+        return containsAnyKeyword(
+            candidate,
+            "明细",
+            "详情",
+            "商品明细",
+            "餐品明细",
+            "菜品明细",
+            "物品明细",
+            "订单明细",
+            "查看明细",
+            "查看详情",
+            "更多详情",
+            "商品详情"
         )
     }
 

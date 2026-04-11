@@ -7,7 +7,7 @@ fun String.toBuildConfigString(): String = "\"" +
     replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 val openAiBaseUrl = (project.findProperty("OPENAI_BASE_URL") as String?)
-    ?: "https://api.openai.com/v1"
+    ?: "https://open.bigmodel.cn/api/paas/v4"
 val openAiModel = (project.findProperty("OPENAI_MODEL") as String?)
     ?: "gpt-4o-mini"
 val openAiApiKey = (project.findProperty("OPENAI_API_KEY") as String?)
@@ -75,6 +75,7 @@ dependencies {
     // Backdrop: Liquid Glass Effect Library
     implementation("io.github.kyant0:backdrop:1.0.6")
 
+    // Capsule: G2 Continuous Curve
     implementation("io.github.kyant0:capsule:2.1.3")
     
     implementation("androidx.appcompat:appcompat:1.7.1")

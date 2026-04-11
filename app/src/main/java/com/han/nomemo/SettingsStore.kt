@@ -7,44 +7,93 @@ class SettingsStore(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     var aiEnabled: Boolean
-        get() = prefs.getBoolean(KEY_AI_ENABLED, true)
+        get() = prefs.getBoolean(KEY_AI_ENABLED, false)
         set(value) = prefs.edit().putBoolean(KEY_AI_ENABLED, value).apply()
+
+    var aiConfigVerified: Boolean
+        get() = prefs.getBoolean(KEY_AI_CONFIG_VERIFIED, false)
+        set(value) = prefs.edit().putBoolean(KEY_AI_CONFIG_VERIFIED, value).apply()
 
     var apiBaseUrl: String
         get() = prefs.getString(KEY_API_BASE_URL, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_API_BASE_URL, value.trim()).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_API_BASE_URL, value.trim())
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var apiKey: String
         get() = prefs.getString(KEY_API_KEY, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_API_KEY, value.trim()).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_API_KEY, value.trim())
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var apiModel: String
         get() = prefs.getString(KEY_API_MODEL, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_API_MODEL, value.trim()).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_API_MODEL, value.trim())
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var imageCustomModel: String
         get() = prefs.getString(KEY_IMAGE_CUSTOM_MODEL, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_IMAGE_CUSTOM_MODEL, value.trim()).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_IMAGE_CUSTOM_MODEL, value.trim())
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var textCustomModel: String
         get() = prefs.getString(KEY_TEXT_CUSTOM_MODEL, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_TEXT_CUSTOM_MODEL, value.trim()).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_TEXT_CUSTOM_MODEL, value.trim())
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var multimodalCustomModel: String
         get() = prefs.getString(KEY_MULTIMODAL_CUSTOM_MODEL, "") ?: ""
-        set(value) = prefs.edit().putString(KEY_MULTIMODAL_CUSTOM_MODEL, value.trim()).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_MULTIMODAL_CUSTOM_MODEL, value.trim())
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var imageModelPreset: String
         get() = prefs.getString(KEY_IMAGE_MODEL_PRESET, MODEL_IMAGE_DEFAULT) ?: MODEL_IMAGE_DEFAULT
-        set(value) = prefs.edit().putString(KEY_IMAGE_MODEL_PRESET, value).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_IMAGE_MODEL_PRESET, value)
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var textModelPreset: String
         get() = prefs.getString(KEY_TEXT_MODEL_PRESET, MODEL_TEXT_DEFAULT) ?: MODEL_TEXT_DEFAULT
-        set(value) = prefs.edit().putString(KEY_TEXT_MODEL_PRESET, value).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_TEXT_MODEL_PRESET, value)
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var multimodalModelPreset: String
         get() = prefs.getString(KEY_MULTIMODAL_MODEL_PRESET, MODEL_MULTIMODAL_DEFAULT) ?: MODEL_MULTIMODAL_DEFAULT
-        set(value) = prefs.edit().putString(KEY_MULTIMODAL_MODEL_PRESET, value).apply()
+        set(value) {
+            prefs.edit()
+                .putString(KEY_MULTIMODAL_MODEL_PRESET, value)
+                .putBoolean(KEY_AI_CONFIG_VERIFIED, false)
+                .apply()
+        }
 
     var themeMode: String
         get() = prefs.getString(KEY_THEME_MODE, THEME_SYSTEM) ?: THEME_SYSTEM
@@ -94,6 +143,14 @@ class SettingsStore(context: Context) {
         return resolveModelByPreset(multimodalModelPreset, MODEL_MULTIMODAL_DEFAULT, multimodalCustomModel)
     }
 
+    fun isAiAvailable(): Boolean {
+        return aiEnabled &&
+            aiConfigVerified &&
+            resolvedApiBaseUrl().isNotBlank() &&
+            resolvedApiKey().isNotBlank() &&
+            resolvedApiModel().isNotBlank()
+    }
+
     private fun resolveModelByPreset(preset: String, fallback: String, customValue: String): String {
         return when (preset) {
             MODEL_PRESET_CUSTOM -> customValue.ifBlank { resolvedApiModel() }
@@ -119,6 +176,7 @@ class SettingsStore(context: Context) {
     companion object {
         const val PREF_NAME = "no_memo_settings"
         private const val KEY_AI_ENABLED = "ai_enabled"
+        private const val KEY_AI_CONFIG_VERIFIED = "ai_config_verified"
         private const val KEY_API_BASE_URL = "api_base_url"
         private const val KEY_API_KEY = "api_key"
         private const val KEY_API_MODEL = "api_model"

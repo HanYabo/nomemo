@@ -65,7 +65,6 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -178,7 +177,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         setContent {
             DetailContent(
                 record = record,
-                aiEnabled = settingsStore.aiEnabled,
+                aiEnabled = settingsStore.isAiAvailable(),
                 reanalyzing = reanalyzing,
                 statusBarHeightPx = statusBarHeightPx,
                 onBack = { finish() },
@@ -973,7 +972,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                             showImagePreview = true
                                         }
                                     },
-                                shape = RoundedCornerShape(28.dp),
+                                shape = noMemoG2RoundedShape(28.dp),
                                 colors = CardDefaults.cardColors(containerColor = noMemoCardSurfaceColor(isSystemInDarkTheme(), palette.glassFill)),
                                 border = BorderStroke(1.dp, palette.glassStroke)
                             ) {
@@ -987,7 +986,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     },
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(RoundedCornerShape(28.dp)),
+                                        .clip(noMemoG2RoundedShape(28.dp)),
                                     update = { imageView ->
                                         try {
                                             imageView.setImageURI(Uri.parse(displayImageUri))
@@ -1461,7 +1460,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         width = with(density) { animatedWidth.toDp() },
                                         height = with(density) { animatedHeight.toDp() }
                                     )
-                                    .clip(RoundedCornerShape(animatedCornerRadius))
+                                    .clip(noMemoG2RoundedShape(animatedCornerRadius))
                             ) {
                                 previewImageContent(Modifier.fillMaxSize())
                             }
@@ -2324,9 +2323,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         .fillMaxWidth()
                         .shadow(
                             elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
-                            shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp)
+                            shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp)
                         ),
-                    shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+                    shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp),
                     colors = CardDefaults.cardColors(containerColor = sheetSurface)
                 ) {
                     Column(
@@ -2339,7 +2338,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             modifier = Modifier
                                 .align(Alignment.CenterHorizontally)
                                 .size(width = 56.dp, height = 5.dp)
-                                .clip(RoundedCornerShape(999.dp))
+                                .clip(NoMemoG2CapsuleShape)
                                 .background(dragHandleColor)
                         )
 
@@ -2396,7 +2395,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(24.dp),
+                                shape = noMemoG2RoundedShape(24.dp),
                                 colors = CardDefaults.cardColors(containerColor = timeCardSurface)
                             ) {
                                 Box(
@@ -2538,7 +2537,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(22.dp),
+                                shape = noMemoG2RoundedShape(22.dp),
                                 colors = CardDefaults.cardColors(containerColor = optionCardColor)
                             ) {
                                 Column(
@@ -2649,7 +2648,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     .fillMaxWidth()
                     .height(138.dp)
                     .graphicsLayer {
-                        shape = RoundedCornerShape(18.dp)
+                        shape = noMemoG2RoundedShape(18.dp)
                         clip = true
                         compositingStrategy = CompositingStrategy.Offscreen
                     }
@@ -2663,7 +2662,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         .fillMaxWidth()
                         .height(48.dp)
                         .padding(horizontal = 8.dp)
-                        .clip(RoundedCornerShape(15.dp))
+                        .clip(noMemoG2RoundedShape(15.dp))
                         .background(highlightColor)
                 )
                 Box(
@@ -2672,7 +2671,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         .fillMaxWidth()
                         .height(48.dp)
                         .padding(horizontal = 8.dp)
-                        .clip(RoundedCornerShape(15.dp))
+                        .clip(noMemoG2RoundedShape(15.dp))
                         .background(
                             Brush.verticalGradient(
                                 colors = listOf(
@@ -2692,7 +2691,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(138.dp)
-                        .clip(RoundedCornerShape(18.dp))
+                        .clip(noMemoG2RoundedShape(18.dp))
                 )
             }
             if (label.isNotBlank()) {
@@ -2836,7 +2835,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         Card(
             modifier = modifier,
-            shape = RoundedCornerShape(18.dp),
+            shape = noMemoG2RoundedShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = surface)
         ) {
             Box(
@@ -2884,7 +2883,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             onClick = if (enabled) onClick else ({ }),
             modifier = modifier
                 .height(46.dp)
-                .clip(RoundedCornerShape(16.dp))
+                .clip(noMemoG2RoundedShape(16.dp))
                 .alpha(if (enabled) 1f else 0.44f)
         ) {
             Box(
@@ -2894,7 +2893,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     .border(
                         width = 1.dp,
                         color = if (selected) selectedStroke else Color.Transparent,
-                        shape = RoundedCornerShape(16.dp)
+                        shape = noMemoG2RoundedShape(16.dp)
                     )
             )
             Text(
@@ -2920,7 +2919,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val isDark = isSystemInDarkTheme()
         Card(
             modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(18.dp),
+            shape = noMemoG2RoundedShape(18.dp),
             colors = CardDefaults.cardColors(containerColor = surface)
         ) {
             Column(
@@ -3007,7 +3006,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     modifier = Modifier
                         .weight(1.3f)
                         .height(42.dp)
-                        .clip(RoundedCornerShape(14.dp))
+                        .clip(noMemoG2RoundedShape(14.dp))
                         .background(if (isDark) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.88f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -3045,7 +3044,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             onClick = if (enabled) onClick else ({ }),
             modifier = modifier
                 .height(42.dp)
-                .clip(RoundedCornerShape(14.dp))
+                .clip(noMemoG2RoundedShape(14.dp))
         ) {
             Box(
                 modifier = Modifier
@@ -3209,7 +3208,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         return if (remainder < 0) remainder + mod else remainder
     }
 }
-
 
 
 

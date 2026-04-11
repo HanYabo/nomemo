@@ -22,7 +22,6 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -318,7 +317,7 @@ class SearchActivity : BaseComposeActivity() {
         Card(
             modifier = Modifier
                 .fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
+            shape = noMemoG2RoundedShape(22.dp),
             colors = CardDefaults.cardColors(containerColor = searchSurface)
         ) {
             Row(

@@ -47,7 +47,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -1068,7 +1067,7 @@ class GroupActivity : BaseComposeActivity() {
         val dayText = remember(album.createdAt) {
             SimpleDateFormat("yyyy.MM.dd", Locale.getDefault()).format(Date(album.createdAt))
         }
-        val cardShape = RoundedCornerShape(if (compact) 24.dp else 26.dp)
+        val cardShape = noMemoG2RoundedShape(if (compact) 24.dp else 26.dp)
 
         PressScaleBox(onClick = onClick, modifier = modifier) {
             Card(
@@ -1119,7 +1118,7 @@ class GroupActivity : BaseComposeActivity() {
             modifier = modifier
                 .fillMaxWidth()
                 .height(coverHeight)
-                .clip(RoundedCornerShape(coverCorner))
+                .clip(noMemoG2RoundedShape(coverCorner))
                 .background(groupAlbumCoverBrush(albumId, isDark))
         ) {
             Box(
@@ -1128,7 +1127,7 @@ class GroupActivity : BaseComposeActivity() {
                     .padding(start = 10.dp, top = 10.dp, bottom = 10.dp)
                     .width(if (compact) 8.dp else 9.dp)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(NoMemoG2CapsuleShape)
                     .background(
                         Brush.verticalGradient(
                             colors = if (isDark) {
@@ -1163,7 +1162,7 @@ class GroupActivity : BaseComposeActivity() {
                         .graphicsLayer {
                             rotationZ = -4f
                         }
-                        .clip(RoundedCornerShape(tileCorner + 2.dp))
+                        .clip(noMemoG2RoundedShape(tileCorner + 2.dp))
                         .background(
                             if (isDark) Color.White.copy(alpha = 0.06f) else Color.White.copy(alpha = 0.32f)
                         )
@@ -1177,7 +1176,7 @@ class GroupActivity : BaseComposeActivity() {
                         .graphicsLayer {
                             rotationZ = 5f
                         }
-                        .clip(RoundedCornerShape(tileCorner + 1.dp))
+                        .clip(noMemoG2RoundedShape(tileCorner + 1.dp))
                         .background(
                             if (isDark) Color.White.copy(alpha = 0.05f) else Color.White.copy(alpha = 0.24f)
                         )
@@ -1259,7 +1258,7 @@ class GroupActivity : BaseComposeActivity() {
                 modifier = Modifier
                     .align(Alignment.TopEnd)
                     .padding(10.dp)
-                    .clip(RoundedCornerShape(999.dp))
+                    .clip(NoMemoG2CapsuleShape)
                     .background(
                         if (isDark) {
                             Color.Black.copy(alpha = 0.28f)
@@ -1270,7 +1269,7 @@ class GroupActivity : BaseComposeActivity() {
                     .border(
                         width = 1.dp,
                         color = if (isDark) Color.White.copy(alpha = 0.12f) else Color.White.copy(alpha = 0.42f),
-                        shape = RoundedCornerShape(999.dp)
+                        shape = NoMemoG2CapsuleShape
                     )
                     .padding(horizontal = 10.dp, vertical = 5.dp)
             ) {
@@ -1305,7 +1304,7 @@ class GroupActivity : BaseComposeActivity() {
                     Box(
                         modifier = Modifier
                             .size(3.dp)
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(NoMemoG2CapsuleShape)
                             .background(Color.White.copy(alpha = 0.46f))
                     )
                     Spacer(modifier = Modifier.width(7.dp))
@@ -1468,15 +1467,15 @@ class GroupActivity : BaseComposeActivity() {
                 }
                 .shadow(
                     elevation = if (isDark) 6.dp else 10.dp,
-                    shape = RoundedCornerShape(cornerRadius),
+                    shape = noMemoG2RoundedShape(cornerRadius),
                     clip = false
                 )
-                .clip(RoundedCornerShape(cornerRadius))
+                .clip(noMemoG2RoundedShape(cornerRadius))
                 .background(frameSurface)
                 .border(
                     width = 1.dp,
                     color = frameBorder,
-                    shape = RoundedCornerShape(cornerRadius)
+                    shape = noMemoG2RoundedShape(cornerRadius)
                 )
                 .padding(4.dp)
         ) {
@@ -1486,7 +1485,7 @@ class GroupActivity : BaseComposeActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(innerCorner))
+                    .clip(noMemoG2RoundedShape(innerCorner))
             ) {
                 if (currentRecord?.imageUri?.isNullOrBlank() == false) {
                     MemoryThumbnail(
@@ -1626,9 +1625,9 @@ class GroupActivity : BaseComposeActivity() {
                         .fillMaxWidth()
                         .shadow(
                             elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
-                            shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp)
+                            shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp)
                         ),
-                shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+                shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp),
                 colors = CardDefaults.cardColors(containerColor = panelSurface)
                 ) {
                     Column(
@@ -1642,7 +1641,7 @@ class GroupActivity : BaseComposeActivity() {
                             .align(Alignment.CenterHorizontally)
                             .width(56.dp)
                             .height(5.dp)
-                            .clip(RoundedCornerShape(999.dp))
+                            .clip(NoMemoG2CapsuleShape)
                             .background(
                                 if (isDark) {
                                     Color.White.copy(alpha = 0.16f)
@@ -1690,7 +1689,7 @@ class GroupActivity : BaseComposeActivity() {
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(bottom = 12.dp),
-                        shape = RoundedCornerShape(22.dp),
+                        shape = noMemoG2RoundedShape(22.dp),
                         colors = CardDefaults.cardColors(containerColor = searchSurface)
                     ) {
                         Row(
@@ -1887,9 +1886,9 @@ class GroupActivity : BaseComposeActivity() {
                         .fillMaxWidth()
                         .shadow(
                             elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
-                            shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp)
+                            shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp)
                         ),
-                    shape = RoundedCornerShape(topStart = 36.dp, topEnd = 36.dp),
+                    shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp),
                     colors = CardDefaults.cardColors(containerColor = panelSurface)
                 ) {
                     Column(
@@ -1903,7 +1902,7 @@ class GroupActivity : BaseComposeActivity() {
                                 .align(Alignment.CenterHorizontally)
                                 .width(56.dp)
                                 .height(5.dp)
-                                .clip(RoundedCornerShape(999.dp))
+                                .clip(NoMemoG2CapsuleShape)
                                 .background(
                                     if (isDark) {
                                         Color.White.copy(alpha = 0.16f)
@@ -1963,7 +1962,7 @@ class GroupActivity : BaseComposeActivity() {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 12.dp),
-                                shape = RoundedCornerShape(22.dp),
+                                shape = noMemoG2RoundedShape(22.dp),
                                 colors = CardDefaults.cardColors(containerColor = inputSurface)
                             ) {
                                 BasicTextField(
@@ -1998,7 +1997,7 @@ class GroupActivity : BaseComposeActivity() {
                             )
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(22.dp),
+                                shape = noMemoG2RoundedShape(22.dp),
                                 colors = CardDefaults.cardColors(containerColor = inputSurface)
                             ) {
                                 BasicTextField(
@@ -2045,7 +2044,7 @@ class GroupActivity : BaseComposeActivity() {
         val isDark = isSystemInDarkTheme()
         Card(
             modifier = modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
+            shape = noMemoG2RoundedShape(16.dp),
             colors = CardDefaults.cardColors(
                 containerColor = noMemoCardSurfaceColor(
                     isDark = isDark,
