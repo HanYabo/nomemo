@@ -502,7 +502,7 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsRoute.Home -> "设置"
                             SettingsRoute.AiConfig -> "AI 功能"
                             SettingsRoute.AiModel -> "模型配置"
-                            SettingsRoute.AiGuide -> "AI功能帮助"
+                            SettingsRoute.AiGuide -> "AI 功能帮助"
                             SettingsRoute.Appearance -> "显示与主题"
                             SettingsRoute.CustomIcon -> "自定义图标"
                             SettingsRoute.CustomDock -> "自定义底栏"
@@ -654,7 +654,7 @@ class SettingsActivity : BaseComposeActivity() {
         if (showResetConfirm) {
             NoMemoConfirmDialog(
                 title = "恢复默认配置",
-                message = "确定要将 API 地址恢复为默认值吗？",
+                message = "确定要恢复默认配置吗？这将清除所有自定义配置。",
                 confirmText = "确认",
                 dismissText = "取消",
                 destructive = true,

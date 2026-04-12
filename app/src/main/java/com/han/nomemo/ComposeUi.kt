@@ -78,6 +78,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -139,7 +140,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import com.kyant.capsule.ContinuousCapsule
@@ -1021,18 +1024,18 @@ private fun NoMemoDialogShell(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val panelShape = noMemoG2RoundedShape(30.dp)
+    val panelShape = noMemoG2RoundedShape(34.dp)
     val panelSurface = if (isDark) {
-        noMemoCardSurfaceColor(true, Color(0xFF171A20))
+        Color(0xFF1F1F22)
     } else {
-        noMemoCardSurfaceColor(false, Color.White.copy(alpha = 0.998f))
+        Color.White.copy(alpha = 0.998f)
     }
     val panelStroke = if (isDark) {
-        Color.White.copy(alpha = 0.08f)
+        Color.White.copy(alpha = 0.26f)
     } else {
-        Color.Black.copy(alpha = 0.06f)
+        Color.Black.copy(alpha = 0.10f)
     }
-    val scrimColor = Color.Black.copy(alpha = if (isDark) 0.46f else 0.28f)
+    val scrimColor = Color.Black.copy(alpha = if (isDark) 0.56f else 0.32f)
     val outsideInteraction = remember { MutableInteractionSource() }
     val panelInteraction = remember { MutableInteractionSource() }
 
@@ -1061,14 +1064,14 @@ private fun NoMemoDialogShell(
             Box(
                 modifier = Modifier
                     .align(Alignment.Center)
-                    .padding(horizontal = 24.dp)
+                    .padding(horizontal = 18.dp)
                     .fillMaxWidth()
-                    .widthIn(max = 368.dp)
+                    .widthIn(max = 560.dp)
                     .shadow(
-                        elevation = 18.dp,
+                        elevation = 20.dp,
                         shape = panelShape,
-                        ambientColor = Color.Black.copy(alpha = if (isDark) 0.34f else 0.12f),
-                        spotColor = Color.Black.copy(alpha = if (isDark) 0.34f else 0.12f)
+                        ambientColor = Color.Black.copy(alpha = if (isDark) 0.30f else 0.10f),
+                        spotColor = Color.Black.copy(alpha = if (isDark) 0.30f else 0.10f)
                     )
                     .clip(panelShape)
                     .background(panelSurface)
@@ -1078,33 +1081,31 @@ private fun NoMemoDialogShell(
                         indication = null,
                         onClick = {}
                     )
-                    .padding(horizontal = 24.dp, vertical = 24.dp)
+                    .padding(horizontal = 26.dp, vertical = 28.dp)
             ) {
                 Column {
                     Text(
                         text = title,
                         color = palette.textPrimary,
-                        fontSize = 19.sp,
-                        fontWeight = FontWeight.SemiBold
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold
                     )
                     Text(
                         text = message,
                         color = palette.textSecondary,
-                        fontSize = 14.sp,
-                        lineHeight = 22.sp,
-                        modifier = Modifier.padding(top = 10.dp)
+                        fontSize = 15.sp,
+                        lineHeight = 24.sp,
+                        modifier = Modifier.padding(top = 18.dp)
                     )
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 22.dp),
-                        horizontalArrangement = Arrangement.End
+                            .padding(top = 28.dp),
+                        horizontalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
-                        actions.forEachIndexed { index, action ->
-                            if (index > 0) {
-                                Spacer(modifier = Modifier.width(10.dp))
-                            }
+                        actions.forEach { action ->
                             NoMemoDialogActionButton(
+                                modifier = Modifier.weight(1f),
                                 text = action.text,
                                 primary = action.primary,
                                 destructive = action.destructive,
@@ -1120,6 +1121,7 @@ private fun NoMemoDialogShell(
 
 @Composable
 private fun NoMemoDialogActionButton(
+    modifier: Modifier = Modifier,
     text: String,
     primary: Boolean,
     destructive: Boolean = false,
@@ -1127,45 +1129,104 @@ private fun NoMemoDialogActionButton(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val destructiveBase = Color(0xFFFF5A52)
-    val backgroundColor = when {
-        primary && destructive -> destructiveBase
-        primary -> palette.accent
-        destructive -> if (isDark) Color(0xFF2D1C1B) else Color(0xFFFFF1F0)
-        else -> if (isDark) Color.White.copy(alpha = 0.06f) else Color.Black.copy(alpha = 0.035f)
+    val destructiveBase = Color(0xFFFF4A43)
+    val backgroundColor = if (isDark) {
+        Color(0xFF434347)
+    } else {
+        Color(0xFFF3F4F7)
     }
-    val borderColor = when {
-        primary && destructive -> destructiveBase
-        primary -> palette.accent
-        destructive -> destructiveBase.copy(alpha = if (isDark) 0.42f else 0.32f)
-        else -> if (isDark) palette.glassStroke.copy(alpha = 0.34f) else Color.Black.copy(alpha = 0.06f)
+    val borderColor = if (isDark) {
+        Color.White.copy(alpha = 0.26f)
+    } else {
+        Color.Black.copy(alpha = 0.12f)
     }
+    val useSettingsTapStyle = true
+    val interactionSource = remember { MutableInteractionSource() }
+    val (highlightOverlay, triggerHighlight) = rememberDialogTapHighlightColor(
+        interactionSource = interactionSource,
+        isDark = isDark,
+        enabled = useSettingsTapStyle,
+        label = "dialogAction_$text"
+    )
     val textColor = when {
-        primary -> palette.onAccent
         destructive -> destructiveBase
+        primary -> if (isDark) Color(0xFF4A9DFF) else palette.accent
         else -> palette.textPrimary
     }
     PressScaleBox(
-        onClick = onClick,
-        modifier = Modifier
-            .widthIn(min = 84.dp)
+        onClick = {
+            triggerHighlight()
+            onClick()
+        },
+        modifier = modifier,
+        pressedScale = 1f,
+        interactionSource = interactionSource
     ) {
         Box(
             modifier = Modifier
-                .clip(noMemoG2RoundedShape(18.dp))
+                .fillMaxWidth()
+                .height(48.dp)
+                .clip(noMemoG2RoundedShape(999.dp))
                 .background(backgroundColor)
-                .border(1.dp, borderColor, noMemoG2RoundedShape(18.dp))
-                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .border(1.dp, borderColor, noMemoG2RoundedShape(999.dp))
         ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(noMemoG2RoundedShape(999.dp))
+                    .background(highlightOverlay)
+            )
             Text(
                 text = text,
                 color = textColor,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Medium,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier.align(Alignment.Center)
             )
         }
     }
+}
+
+@Composable
+private fun rememberDialogTapHighlightColor(
+    interactionSource: MutableInteractionSource,
+    isDark: Boolean,
+    enabled: Boolean,
+    label: String
+): Pair<Color, () -> Unit> {
+    if (!enabled) return Color.Transparent to {}
+
+    val scope = rememberCoroutineScope()
+    val pressed by interactionSource.collectIsPressedAsState()
+    var holdHighlight by remember { mutableStateOf(false) }
+    var holdJob by remember { mutableStateOf<Job?>(null) }
+
+    val highlightActive = pressed || holdHighlight
+    val highlightFactor by animateFloatAsState(
+        targetValue = if (highlightActive) 1f else 0f,
+        animationSpec = if (highlightActive) {
+            tween(durationMillis = 75)
+        } else {
+            tween(durationMillis = 220, easing = FastOutSlowInEasing)
+        },
+        label = "${label}Factor"
+    )
+
+    val backgroundColor = if (isDark) {
+        Color.White.copy(alpha = 0.055f * highlightFactor)
+    } else {
+        Color.Black.copy(alpha = 0.04f * highlightFactor)
+    }
+
+    val triggerHighlight = {
+        holdJob?.cancel()
+        holdHighlight = true
+        holdJob = scope.launch {
+            delay(150)
+            holdHighlight = false
+        }
+    }
+    return backgroundColor to triggerHighlight
 }
 
 private class NoMemoAnchoredMenuPositionProvider(
