@@ -415,8 +415,6 @@ class SettingsActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        // 默认背景色（无主题色）
-        val defaultBgColors = rememberDefaultBackgroundColors()
         val cardSurface = if (isDark) {
             noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.92f))
         } else {
@@ -459,11 +457,14 @@ class SettingsActivity : BaseComposeActivity() {
         var themeAccent by remember { mutableStateOf(settingsStore.themeAccent) }
         var autoRetry by remember { mutableStateOf(settingsStore.autoRetry) }
         var economyMode by remember { mutableStateOf(settingsStore.economyMode) }
-        // 根据 themeGlobalEnabled 决定是否应用主题色背景
-        val pageBackgroundColor = if (themeGlobalEnabled) {
-            palette.memoBgStart
-        } else {
-            defaultBgColors.first()
+        val pageBackgroundBrush = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd) {
+            Brush.verticalGradient(
+                colors = listOf(
+                    palette.memoBgStart,
+                    palette.memoBgMid,
+                    palette.memoBgEnd
+                )
+            )
         }
         val dividerColor = if (showDividers) {
             if (isDark) palette.glassStroke.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.055f)
@@ -481,7 +482,7 @@ class SettingsActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(pageBackgroundColor)
+                .background(pageBackgroundBrush)
         ) {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Column(
@@ -1212,8 +1213,8 @@ class SettingsActivity : BaseComposeActivity() {
 
                     Spacer(modifier = Modifier.height(24.dp))
                     SettingsSectionLabel("主题", sectionLabelColor)
-                    val defaultThemeSwatch = Color(0xFFF5F5F5)
-                    val themeOptions = appearanceThemeOptions(defaultThemeSwatch)
+                    val defaultThemeSwatch = rememberLightThemeTokenColor(R.color.memo_bg_start)
+                    val themeOptions = noMemoThemePresets(defaultThemeSwatch)
                     SettingsSurfaceCard(
                         surface = cardSurface,
                         borderColor = borderColor,
@@ -1221,9 +1222,10 @@ class SettingsActivity : BaseComposeActivity() {
                     ) {
                         Column {
                             themeOptions.forEachIndexed { index, option ->
+                                val optionSwatch = option.swatchColor ?: defaultThemeSwatch
                                 SettingsThemeAccentRow(
                                     title = option.title,
-                                    accentColor = option.swatchColor,
+                                    accentColor = optionSwatch,
                                     selected = themeAccent == option.key,
                                     titleColor = titleColor,
                                     selectedColor = appearanceSelectionColor,
@@ -2237,19 +2239,6 @@ class SettingsActivity : BaseComposeActivity() {
         }
     }
 
-    private fun appearanceThemeOptions(defaultSwatch: Color): List<SettingsThemeOption> {
-        return listOf(
-            SettingsThemeOption("默认", SettingsStore.THEME_ACCENT_DEFAULT, defaultSwatch),
-            SettingsThemeOption("米灰", SettingsStore.THEME_ACCENT_WARM_GRAY, Color(0xFFB8AF9D)),
-            SettingsThemeOption("便签黄", SettingsStore.THEME_ACCENT_NOTE_YELLOW, Color(0xFFFFC83D)),
-            SettingsThemeOption("樱花粉", SettingsStore.THEME_ACCENT_SAKURA_PINK, Color(0xFFFF6B96)),
-            SettingsThemeOption("天空蓝", SettingsStore.THEME_ACCENT_SKY_BLUE, Color(0xFF4AA3FF)),
-            SettingsThemeOption("薄荷绿", SettingsStore.THEME_ACCENT_MINT_GREEN, Color(0xFF39D98A)),
-            SettingsThemeOption("蜜桃橙", SettingsStore.THEME_ACCENT_PEACH_ORANGE, Color(0xFFFF9A3D)),
-            SettingsThemeOption("薰衣草紫", SettingsStore.THEME_ACCENT_LAVENDER_PURPLE, Color(0xFFB587FF))
-        )
-    }
-
     @Composable
     private fun rememberLightThemeTokenColor(colorRes: Int): Color {
         val context = LocalContext.current
@@ -2709,9 +2698,4 @@ class SettingsActivity : BaseComposeActivity() {
         val subtitle: String
     )
 
-    private data class SettingsThemeOption(
-        val title: String,
-        val key: String,
-        val swatchColor: Color
-    )
 }

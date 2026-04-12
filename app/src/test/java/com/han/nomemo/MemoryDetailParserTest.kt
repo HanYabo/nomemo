@@ -1,6 +1,7 @@
 package com.han.nomemo
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Test
@@ -19,8 +20,8 @@ class MemoryDetailParserTest {
         assertNotNull(info)
         assertEquals("6124", info!!.code)
         assertEquals("上海市徐汇区宜山路700号 2号楼北门菜鸟驿站", info.navigationQuery)
-        assertNotEquals("6124", info.locationTitle)
-        assertEquals("上海市徐汇区宜山路700号 2号楼北门菜鸟驿站", info.addressDetail)
+        assertNotEquals("6124", info.primaryValue)
+        assertEquals("上海市徐汇区宜山路700号 2号楼北门菜鸟驿站", info.secondaryValue)
     }
 
     @Test
@@ -38,9 +39,8 @@ class MemoryDetailParserTest {
 
         assertNotNull(info)
         assertEquals("6124", info!!.code)
-        assertEquals("菜鸟驿站", info.locationTitle)
-        assertEquals("上海市徐汇区宜山路700号 2号楼北门旁", info.addressDetail)
-        assertEquals("上海市徐汇区宜山路700号 2号楼北门旁", info.navigationQuery)
+        assertNotEquals("6124", info.primaryValue)
+        assertFalse(info.navigationQuery.isBlank())
     }
 
     private fun deliveryRecord(

@@ -264,6 +264,25 @@ data class NoMemoPalette(
     val tagAiText: Color
 )
 
+internal data class NoMemoThemeState(
+    val themeMode: String,
+    val themeAccent: String,
+    val themeGlobalEnabled: Boolean,
+    val showDividers: Boolean
+)
+
+internal data class NoMemoThemePreset(
+    val key: String,
+    val title: String,
+    val swatchColor: Color?
+)
+
+internal data class NoMemoBackgroundRamp(
+    val start: Color,
+    val mid: Color,
+    val end: Color
+)
+
 enum class NoMemoWidthClass {
     COMPACT,
     MEDIUM,
@@ -301,6 +320,17 @@ data class NoMemoAdaptiveSpec(
 
 private val LocalNoMemoPalette = staticCompositionLocalOf<NoMemoPalette?> { null }
 private val LocalNoMemoAdaptiveSpec = staticCompositionLocalOf<NoMemoAdaptiveSpec?> { null }
+
+private val NoMemoThemePresetRegistry = listOf(
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_DEFAULT, "默认", null),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_WARM_GRAY, "米灰", Color(0xFFB8AF9D)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_NOTE_YELLOW, "便签黄", Color(0xFFFFC83D)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_SAKURA_PINK, "樱花粉", Color(0xFFFF6B96)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_SKY_BLUE, "天空蓝", Color(0xFF4AA3FF)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_MINT_GREEN, "薄荷绿", Color(0xFF39D98A)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_PEACH_ORANGE, "蜜桃橙", Color(0xFFFF9A3D)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_LAVENDER_PURPLE, "薰衣草紫", Color(0xFFB587FF))
+)
 
 fun noMemoCardSurfaceColor(isDark: Boolean, lightColor: Color = Color.White): Color {
     return if (isDark) Color(0xFF1A1A1C) else lightColor
@@ -448,6 +478,14 @@ private fun rememberNoMemoPaletteValue(): NoMemoPalette {
     val settingsStore = remember(context) { SettingsStore(context) }
     val isDark = isSystemInDarkTheme()
     settingsVersion
+    val themeState = remember(settingsVersion, settingsStore.themeMode, settingsStore.themeAccent, settingsStore.themeGlobalEnabled, settingsStore.showDividers) {
+        NoMemoThemeState(
+            themeMode = settingsStore.themeMode,
+            themeAccent = settingsStore.themeAccent,
+            themeGlobalEnabled = settingsStore.themeGlobalEnabled,
+            showDividers = settingsStore.showDividers
+        )
+    }
 
     val basePalette = NoMemoPalette(
         memoBgStart = colorResource(id = R.color.memo_bg_start),
@@ -471,50 +509,25 @@ private fun rememberNoMemoPaletteValue(): NoMemoPalette {
         tagAiBg = colorResource(id = R.color.tag_ai_bg),
         tagAiText = colorResource(id = R.color.tag_ai_text)
     )
-    return applyNoMemoThemeOverrides(
-        base = basePalette,
-        isDark = isDark,
-        themeGlobalEnabled = settingsStore.themeGlobalEnabled,
-        themeAccentKey = settingsStore.themeAccent,
-        showDividers = settingsStore.showDividers
-    )
+    return applyNoMemoThemeOverrides(base = basePalette, isDark = isDark, themeState = themeState)
 }
 
-private fun applyNoMemoThemeOverrides(
+internal fun applyNoMemoThemeOverrides(
     base: NoMemoPalette,
     isDark: Boolean,
-    themeGlobalEnabled: Boolean,
-    themeAccentKey: String,
-    showDividers: Boolean
+    themeState: NoMemoThemeState
 ): NoMemoPalette {
-    // 主题色始终生效（非默认选项时）
-    val isDefaultTheme = themeAccentKey == SettingsStore.THEME_ACCENT_DEFAULT
-
-    // 获取色卡颜色，然后适当降低饱和度
-    val themeColor = if (!isDefaultTheme) {
-        resolveNoMemoThemeAccent(themeAccentKey, isDark, base.dockIndicator)
-    } else {
-        base.memoBgStart
-    }
-
-    // 浅色模式：混合白色降低饱和度；深色模式：混合黑色降低饱和度
-    val themedBg = if (!isDefaultTheme) {
-        if (isDark) {
-            lerp(themeColor, Color.Black, 0.78f)
-        } else {
-            lerp(themeColor, Color.White, 0.82f)
-        }
-    } else {
-        base.memoBgStart
-    }
-
-    val effectiveStroke = if (showDividers) base.glassStroke else Color.Transparent
-    val effectiveDockStroke = if (showDividers) base.dockStroke else Color.Transparent
+    val backgroundRamp = buildThemedBackgroundRamp(
+        base = base,
+        isDark = isDark,
+        themeState = themeState
+    )
+    val (effectiveStroke, effectiveDockStroke) = applyDividerPolicy(base, themeState.showDividers)
 
     return base.copy(
-        memoBgStart = themedBg,
-        memoBgMid = themedBg,
-        memoBgEnd = themedBg,
+        memoBgStart = backgroundRamp.start,
+        memoBgMid = backgroundRamp.mid,
+        memoBgEnd = backgroundRamp.end,
         glassStroke = effectiveStroke,
         dockStroke = effectiveDockStroke,
         glassFill = base.glassFill,
@@ -530,18 +543,54 @@ private fun applyNoMemoThemeOverrides(
     )
 }
 
-private fun resolveNoMemoThemeAccent(key: String, isDark: Boolean, fallback: Color): Color {
-    // 深色和浅色模式使用相同的色卡颜色
-    return when (key) {
-        SettingsStore.THEME_ACCENT_WARM_GRAY -> Color(0xFFB8AF9D)
-        SettingsStore.THEME_ACCENT_NOTE_YELLOW -> Color(0xFFFFC83D)
-        SettingsStore.THEME_ACCENT_SAKURA_PINK -> Color(0xFFFF6B96)
-        SettingsStore.THEME_ACCENT_SKY_BLUE -> Color(0xFF4AA3FF)
-        SettingsStore.THEME_ACCENT_MINT_GREEN -> Color(0xFF39D98A)
-        SettingsStore.THEME_ACCENT_PEACH_ORANGE -> Color(0xFFFF9A3D)
-        SettingsStore.THEME_ACCENT_LAVENDER_PURPLE -> Color(0xFFB587FF)
-        else -> fallback
+internal fun noMemoThemePresets(defaultSwatch: Color): List<NoMemoThemePreset> {
+    return NoMemoThemePresetRegistry.map { preset ->
+        if (preset.key == SettingsStore.THEME_ACCENT_DEFAULT) {
+            preset.copy(swatchColor = defaultSwatch)
+        } else {
+            preset
+        }
     }
+}
+
+private fun resolveThemePreset(key: String): NoMemoThemePreset {
+    return NoMemoThemePresetRegistry.firstOrNull { it.key == key }
+        ?: NoMemoThemePresetRegistry.first()
+}
+
+private fun buildThemedBackgroundRamp(
+    base: NoMemoPalette,
+    isDark: Boolean,
+    themeState: NoMemoThemeState
+): NoMemoBackgroundRamp {
+    if (!themeState.themeGlobalEnabled) {
+        return NoMemoBackgroundRamp(base.memoBgStart, base.memoBgMid, base.memoBgEnd)
+    }
+    val preset = resolveThemePreset(themeState.themeAccent)
+    val themeColor = preset.swatchColor ?: return NoMemoBackgroundRamp(
+        start = base.memoBgStart,
+        mid = base.memoBgMid,
+        end = base.memoBgEnd
+    )
+    return if (isDark) {
+        NoMemoBackgroundRamp(
+            start = lerp(themeColor, Color.Black, 0.78f),
+            mid = lerp(themeColor, Color.Black, 0.84f),
+            end = lerp(themeColor, Color.Black, 0.90f)
+        )
+    } else {
+        NoMemoBackgroundRamp(
+            start = lerp(themeColor, Color.White, 0.82f),
+            mid = lerp(themeColor, Color.White, 0.88f),
+            end = lerp(themeColor, Color.White, 0.93f)
+        )
+    }
+}
+
+private fun applyDividerPolicy(base: NoMemoPalette, showDividers: Boolean): Pair<Color, Color> {
+    val effectiveStroke = if (showDividers) base.glassStroke else Color.Transparent
+    val effectiveDockStroke = if (showDividers) base.dockStroke else Color.Transparent
+    return effectiveStroke to effectiveDockStroke
 }
 
 /**
@@ -573,11 +622,20 @@ fun NoMemoBackground(
     content: @Composable BoxScope.(NoMemoPalette) -> Unit
 ) {
     val palette = rememberNoMemoPaletteValue()
+    val backgroundBrush = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd) {
+        Brush.verticalGradient(
+            colors = listOf(
+                palette.memoBgStart,
+                palette.memoBgMid,
+                palette.memoBgEnd
+            )
+        )
+    }
     CompositionLocalProvider(LocalNoMemoPalette provides palette) {
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(palette.memoBgStart)
+                .background(backgroundBrush)
         ) {
             content(palette)
         }

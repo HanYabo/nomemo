@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -163,7 +162,7 @@ private fun LiquidGlassDockTabs(
     val baseColor = if (isLightTheme) Color(0xFF5B6A7D) else palette.textPrimary.copy(alpha = 0.64f)
     val tabsBackdrop = rememberLayerBackdrop()
 
-    BoxWithConstraints(
+    Box(
         modifier = Modifier
             .width(dockWidth)
             .height(dockHeight),
@@ -172,14 +171,15 @@ private fun LiquidGlassDockTabs(
         val density = LocalDensity.current
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
+        val dockWidthPx = with(density) { dockWidth.toPx() }
         val tabWidth = with(density) {
-            (constraints.maxWidth.toFloat() - 8.dp.toPx()) / tabs.size
+            (dockWidthPx - 8.dp.toPx()) / tabs.size
         }
 
         val offsetAnimation = remember { Animatable(0f) }
-        val panelOffset by remember(density, constraints.maxWidth) {
+        val panelOffset by remember(density, dockWidthPx) {
             derivedStateOf {
-                val fraction = (offsetAnimation.value / constraints.maxWidth).fastCoerceIn(-1f, 1f)
+                val fraction = (offsetAnimation.value / dockWidthPx).fastCoerceIn(-1f, 1f)
                 with(density) {
                     4.dp.toPx() * fraction.sign * EaseOut.transform(abs(fraction))
                 }
