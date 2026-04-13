@@ -755,7 +755,7 @@ class GroupActivity : BaseComposeActivity() {
                                     NoMemoEmptyState(
                                         iconRes = R.drawable.ic_nm_memory,
                                         title = "分组里还没有记忆",
-                                        subtitle = "点击右上角新增记忆"
+                                        subtitle = "点击右上角添加记忆"
                                     )
                                 }
                             }
@@ -783,9 +783,11 @@ class GroupActivity : BaseComposeActivity() {
                     } else if (albumSelectionModeActive && selectedAlbumRecords.isNotEmpty()) {
                         NoMemoSelectionActionDock(
                             selectedRecords = selectedAlbumRecords,
+                            allSelected = allOpenedRecordsSelected,
                             archiveTextOverride = if (allOpenedRecordsSelected) "全部移出" else "移出",
                             onArchiveClick = { showRemoveFromAlbumConfirm = true },
                             onDeleteClick = { showDeleteSelectedConfirm = true },
+                            backdrop = backdrop,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
@@ -844,7 +846,7 @@ class GroupActivity : BaseComposeActivity() {
                             ),
                             NoMemoMenuActionItem(
                                 iconRes = R.drawable.ic_nm_add,
-                                label = "新增记忆",
+                                label = "添加记忆",
                                 onClick = {
                                     detailMoreExpanded = false
                                     selectedExistingRecordIds = emptySet()
@@ -1553,6 +1555,11 @@ class GroupActivity : BaseComposeActivity() {
         } else {
             Color.White.copy(alpha = 0.995f)
         }
+        val dragHandleColor = if (isDark) {
+            Color(0xFF8E8E93).copy(alpha = 0.72f)
+        } else {
+            Color(0xFF8E8E93).copy(alpha = 0.68f)
+        }
         val bodyHeight = if (adaptive.isNarrow) 620.dp else 700.dp
         var visible by remember { mutableStateOf(false) }
         var dismissCommitted by remember { mutableStateOf(false) }
@@ -1641,13 +1648,7 @@ class GroupActivity : BaseComposeActivity() {
                             .width(56.dp)
                             .height(5.dp)
                             .clip(NoMemoG2CapsuleShape)
-                            .background(
-                                if (isDark) {
-                                    Color.White.copy(alpha = 0.16f)
-                                } else {
-                                    palette.glassStroke.copy(alpha = 0.92f)
-                                }
-                            )
+                            .background(dragHandleColor)
                     )
 
                     Row(
@@ -1814,6 +1815,11 @@ class GroupActivity : BaseComposeActivity() {
         } else {
             Color.White.copy(alpha = 0.995f)
         }
+        val dragHandleColor = if (isDark) {
+            Color(0xFF8E8E93).copy(alpha = 0.72f)
+        } else {
+            Color(0xFF8E8E93).copy(alpha = 0.68f)
+        }
         val bodyHeight = if (adaptive.isNarrow) 450.dp else 500.dp
         val descriptionScrollState = rememberScrollState()
         var visible by remember { mutableStateOf(false) }
@@ -1902,13 +1908,7 @@ class GroupActivity : BaseComposeActivity() {
                                 .width(56.dp)
                                 .height(5.dp)
                                 .clip(NoMemoG2CapsuleShape)
-                                .background(
-                                    if (isDark) {
-                                        Color.White.copy(alpha = 0.16f)
-                                    } else {
-                                        palette.glassStroke.copy(alpha = 0.92f)
-                                    }
-                                )
+                                .background(dragHandleColor)
                         )
 
                         Row(

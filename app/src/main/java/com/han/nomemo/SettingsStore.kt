@@ -144,10 +144,15 @@ class SettingsStore(context: Context) {
     }
 
     fun isAiAvailable(): Boolean {
-        return aiEnabled &&
-            resolvedApiBaseUrl().isNotBlank() &&
-            resolvedApiKey().isNotBlank() &&
-            resolvedApiModel().isNotBlank()
+        return aiEnabled && hasAiConfigured()
+    }
+
+    fun hasAiConfigured(): Boolean {
+        return apiBaseUrl.trim().isNotBlank() &&
+            apiKey.trim().isNotBlank() &&
+            hasValidModelSelection(imageModelPreset, imageCustomModel) &&
+            hasValidModelSelection(textModelPreset, textCustomModel) &&
+            hasValidModelSelection(multimodalModelPreset, multimodalCustomModel)
     }
 
     private fun resolveModelByPreset(preset: String, fallback: String, customValue: String): String {
@@ -159,6 +164,17 @@ class SettingsStore(context: Context) {
             MODEL_TEXT_FLASH_47 -> MODEL_TEXT_FLASH_47
             MODEL_MULTIMODAL_FLASH -> MODEL_MULTIMODAL_FLASH
             else -> fallback
+        }
+    }
+
+    private fun hasValidModelSelection(preset: String, customValue: String): Boolean {
+        if (preset.isBlank()) {
+            return false
+        }
+        return if (preset == MODEL_PRESET_CUSTOM) {
+            customValue.trim().isNotBlank()
+        } else {
+            true
         }
     }
 

@@ -810,6 +810,8 @@ class MainActivity : BaseComposeActivity() {
                                 selectedRecordIds = emptySet()
                             },
                             onDeleteClick = { showDeleteConfirm = true },
+                            allSelected = allVisibleRecordsSelected,
+                            backdrop = backdrop,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()

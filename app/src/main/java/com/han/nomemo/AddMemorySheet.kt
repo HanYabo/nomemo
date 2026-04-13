@@ -92,7 +92,7 @@ fun AddMemorySheet(
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
 
-    val aiEnabled = remember { settingsStore.aiEnabled }
+    val aiEnabled = remember { settingsStore.isAiAvailable() }
     var aiMode by remember(aiEnabled) { mutableStateOf(aiEnabled) }
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
@@ -1419,7 +1419,7 @@ private fun saveRecord(
     reminderAt: Long
 ) {
     val imageUriText = imageUri?.toString().orEmpty()
-    val aiEnabled = SettingsStore(context).aiEnabled
+    val aiEnabled = SettingsStore(context).isAiAvailable()
     val quickNoteCategory = CategoryCatalog.getQuickCategories().first()
     val finalReminderAt = if (reminderEnabled) {
         if (reminderAt > 0L) reminderAt else System.currentTimeMillis() + 60L * 60L * 1000L

@@ -1411,28 +1411,46 @@ fun NoMemoLiquidGlassCapsuleButton(
     modifier: Modifier = Modifier,
     backdrop: Backdrop = rememberLayerBackdrop(),
     fontSize: TextUnit = 16.sp,
-    fontWeight: FontWeight = FontWeight.Bold
+    fontWeight: FontWeight = FontWeight.Bold,
+    matchCircleGlassStyle: Boolean = false
 ) {
     val isDark = isSystemInDarkTheme()
     val animationScope = rememberCoroutineScope()
     val interactiveHighlight = remember(animationScope) {
         LiquidGlassInteractiveHighlight(animationScope = animationScope)
     }
-    val buttonSurface = if (isDark) {
-        Color(0xFF303238).copy(alpha = 0.62f)
+    val buttonSurface = if (matchCircleGlassStyle) {
+        if (isDark) {
+            Color(0xFF121212).copy(alpha = 0.40f)
+        } else {
+            Color(0xFFFAFAFA).copy(alpha = 0.40f)
+        }
     } else {
-        Color.White.copy(alpha = 0.18f)
+        if (isDark) {
+            Color(0xFF303238).copy(alpha = 0.62f)
+        } else {
+            Color.White.copy(alpha = 0.18f)
+        }
     }
-    val buttonOverlay = if (isDark) {
-        Color.White.copy(alpha = 0.05f)
+    val buttonOverlay = if (matchCircleGlassStyle) {
+        Color.Transparent
     } else {
-        Color.Black.copy(alpha = 0.028f)
+        if (isDark) {
+            Color.White.copy(alpha = 0.05f)
+        } else {
+            Color.Black.copy(alpha = 0.028f)
+        }
     }
-    val borderColor = if (isDark) {
-        Color.White.copy(alpha = 0.26f)
+    val borderColor = if (matchCircleGlassStyle) {
+        Color.Transparent
     } else {
-        Color.Black.copy(alpha = 0.09f)
+        if (isDark) {
+            Color.White.copy(alpha = 0.26f)
+        } else {
+            Color.Black.copy(alpha = 0.09f)
+        }
     }
+    val blurRadius = if (matchCircleGlassStyle) 2.dp else if (isDark) 3.dp else 2.dp
 
     Box(
         modifier = modifier
@@ -1442,7 +1460,7 @@ fun NoMemoLiquidGlassCapsuleButton(
                 shape = { NoMemoG2CapsuleShape },
                 effects = {
                     vibrancy()
-                    blur(if (isDark) 3.dp.toPx() else 2.dp.toPx())
+                    blur(blurRadius.toPx())
                     lens(12.dp.toPx(), 24.dp.toPx())
                 },
                 layerBlock = {
@@ -1472,11 +1490,13 @@ fun NoMemoLiquidGlassCapsuleButton(
                 },
                 onDrawSurface = {
                     drawRect(buttonSurface)
-                    drawRect(buttonOverlay)
+                    if (buttonOverlay.alpha > 0f) {
+                        drawRect(buttonOverlay)
+                    }
                 }
             )
             .clip(NoMemoG2CapsuleShape)
-            .border(1.dp, borderColor, NoMemoG2CapsuleShape)
+            .border(if (matchCircleGlassStyle) 0.dp else 1.dp, borderColor, NoMemoG2CapsuleShape)
             .clickable(
                 interactionSource = null,
                 indication = null,

@@ -550,7 +550,9 @@ class ReminderActivity : BaseComposeActivity() {
                             selectedRecords = selectedRecords,
                             onArchiveClick = {},
                             onDeleteClick = { showDeleteConfirm = true },
+                            allSelected = allVisibleRecordsSelected,
                             showArchiveAction = false,
+                            backdrop = backdrop,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()

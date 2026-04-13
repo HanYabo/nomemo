@@ -177,7 +177,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         memoryStore = MemoryStore(this)
         settingsStore = SettingsStore(this)
         aiMemoryService = AiMemoryService(this)
-        aiEnabled = settingsStore.aiEnabled
+        aiEnabled = settingsStore.isAiAvailable()
         loadRecordOrFinish()
         val statusBarResourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
         val statusBarHeightPx = if (statusBarResourceId > 0) resources.getDimensionPixelSize(statusBarResourceId) else 0
@@ -197,7 +197,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     override fun onResume() {
         super.onResume()
-        aiEnabled = settingsStore.aiEnabled
+        aiEnabled = settingsStore.isAiAvailable()
         loadRecordOrFinish()
     }
 
