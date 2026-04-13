@@ -403,7 +403,6 @@ class ReminderActivity : BaseComposeActivity() {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(spec.topActionButtonSize)
-                                    .padding(top = 2.dp)
                             ) {
                                 NoMemoTopActionButtons(
                                     spec = spec,

@@ -2,7 +2,9 @@ package com.han.nomemo
 
 import androidx.compose.ui.graphics.Color
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ThemePaletteOverrideTest {
@@ -30,7 +32,7 @@ class ThemePaletteOverrideTest {
     )
 
     @Test
-    fun themeGlobalDisabled_keepsDefaultBackgrounds() {
+    fun themePaletteDisabled_keepsDefaultBackgrounds() {
         val result = applyNoMemoThemeOverrides(
             base = basePalette,
             isDark = false,
@@ -39,7 +41,8 @@ class ThemePaletteOverrideTest {
                 themeAccent = SettingsStore.THEME_ACCENT_SAKURA_PINK,
                 themeGlobalEnabled = false,
                 showDividers = true
-            )
+            ),
+            applyThemePalette = false
         )
 
         assertEquals(basePalette.memoBgStart, result.memoBgStart)
@@ -49,6 +52,50 @@ class ThemePaletteOverrideTest {
         assertEquals(basePalette.glassFill, result.glassFill)
         assertEquals(basePalette.dockSurface, result.dockSurface)
         assertEquals(basePalette.tagAiBg, result.tagAiBg)
+    }
+
+    @Test
+    fun themeGlobalDisabled_stillAppliesAccentOutsideSettingsPage() {
+        val result = applyNoMemoThemeOverrides(
+            base = basePalette,
+            isDark = false,
+            themeState = NoMemoThemeState(
+                themeMode = SettingsStore.THEME_LIGHT,
+                themeAccent = SettingsStore.THEME_ACCENT_SAKURA_PINK,
+                themeGlobalEnabled = false,
+                showDividers = true
+            ),
+            applyThemePalette = shouldApplyThemePalette(
+                isSettingsPage = false,
+                themeGlobalEnabled = false
+            )
+        )
+
+        assertNotEquals(basePalette.memoBgStart, result.memoBgStart)
+        assertNotEquals(basePalette.memoBgMid, result.memoBgMid)
+        assertNotEquals(basePalette.memoBgEnd, result.memoBgEnd)
+    }
+
+    @Test
+    fun themeGlobalFlag_onlyControlsSettingsPageParticipation() {
+        assertFalse(
+            shouldApplyThemePalette(
+                isSettingsPage = true,
+                themeGlobalEnabled = false
+            )
+        )
+        assertTrue(
+            shouldApplyThemePalette(
+                isSettingsPage = true,
+                themeGlobalEnabled = true
+            )
+        )
+        assertTrue(
+            shouldApplyThemePalette(
+                isSettingsPage = false,
+                themeGlobalEnabled = false
+            )
+        )
     }
 
     @Test

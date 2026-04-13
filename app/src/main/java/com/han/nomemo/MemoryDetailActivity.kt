@@ -898,7 +898,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     .fillMaxWidth()
                                     .height(spec.topActionButtonSize)
                                     .align(Alignment.TopStart)
-                                    .padding(top = 2.dp)
                                     .zIndex(6f),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -3208,6 +3207,5 @@ class MemoryDetailActivity : BaseComposeActivity() {
         return if (remainder < 0) remainder + mod else remainder
     }
 }
-
 
 

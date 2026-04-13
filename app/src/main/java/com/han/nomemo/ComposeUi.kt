@@ -1,6 +1,8 @@
 ﻿package com.han.nomemo
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -10,6 +12,12 @@ import android.net.Uri
 import android.os.Build
 import android.util.LruCache
 import android.util.Size
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
+import android.widget.FrameLayout
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -95,6 +103,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -103,6 +112,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInWindow
@@ -115,6 +125,7 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -129,13 +140,21 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.WindowInsetsCompat
+import com.kyant.backdrop.Backdrop
+import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.drawBackdrop
+import com.kyant.backdrop.effects.blur
+import com.kyant.backdrop.effects.lens
+import com.kyant.backdrop.effects.vibrancy
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -144,7 +163,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
+import kotlin.math.atan2
+import kotlin.math.cos
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.tanh
 import com.kyant.capsule.ContinuousCapsule
 import com.kyant.capsule.ContinuousRoundedRectangle
 import com.kyant.capsule.continuities.G2Continuity
@@ -466,9 +490,10 @@ fun rememberNoMemoPalette(): NoMemoPalette {
 
 @Composable
 private fun rememberNoMemoPaletteValue(): NoMemoPalette {
-    val context = LocalContext.current.applicationContext
-    val prefs = remember(context) {
-        context.getSharedPreferences(SettingsStore.PREF_NAME, Context.MODE_PRIVATE)
+    val context = LocalContext.current
+    val appContext = context.applicationContext
+    val prefs = remember(appContext) {
+        appContext.getSharedPreferences(SettingsStore.PREF_NAME, Context.MODE_PRIVATE)
     }
     var settingsVersion by remember { mutableStateOf(0) }
     DisposableEffect(prefs) {
@@ -478,7 +503,7 @@ private fun rememberNoMemoPaletteValue(): NoMemoPalette {
         prefs.registerOnSharedPreferenceChangeListener(listener)
         onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
     }
-    val settingsStore = remember(context) { SettingsStore(context) }
+    val settingsStore = remember(appContext) { SettingsStore(appContext) }
     val isDark = isSystemInDarkTheme()
     settingsVersion
     val themeState = remember(settingsVersion, settingsStore.themeMode, settingsStore.themeAccent, settingsStore.themeGlobalEnabled, settingsStore.showDividers) {
@@ -512,18 +537,29 @@ private fun rememberNoMemoPaletteValue(): NoMemoPalette {
         tagAiBg = colorResource(id = R.color.tag_ai_bg),
         tagAiText = colorResource(id = R.color.tag_ai_text)
     )
-    return applyNoMemoThemeOverrides(base = basePalette, isDark = isDark, themeState = themeState)
+    val shouldApplyThemePalette = shouldApplyThemePalette(
+        isSettingsPage = context.findActivity() is SettingsActivity,
+        themeGlobalEnabled = themeState.themeGlobalEnabled
+    )
+    return applyNoMemoThemeOverrides(
+        base = basePalette,
+        isDark = isDark,
+        themeState = themeState,
+        applyThemePalette = shouldApplyThemePalette
+    )
 }
 
 internal fun applyNoMemoThemeOverrides(
     base: NoMemoPalette,
     isDark: Boolean,
-    themeState: NoMemoThemeState
+    themeState: NoMemoThemeState,
+    applyThemePalette: Boolean = true
 ): NoMemoPalette {
     val backgroundRamp = buildThemedBackgroundRamp(
         base = base,
         isDark = isDark,
-        themeState = themeState
+        themeState = themeState,
+        applyThemePalette = applyThemePalette
     )
     val (effectiveStroke, effectiveDockStroke) = applyDividerPolicy(base, themeState.showDividers)
 
@@ -546,6 +582,13 @@ internal fun applyNoMemoThemeOverrides(
     )
 }
 
+internal fun shouldApplyThemePalette(
+    isSettingsPage: Boolean,
+    themeGlobalEnabled: Boolean
+): Boolean {
+    return !isSettingsPage || themeGlobalEnabled
+}
+
 internal fun noMemoThemePresets(defaultSwatch: Color): List<NoMemoThemePreset> {
     return NoMemoThemePresetRegistry.map { preset ->
         if (preset.key == SettingsStore.THEME_ACCENT_DEFAULT) {
@@ -564,9 +607,10 @@ private fun resolveThemePreset(key: String): NoMemoThemePreset {
 private fun buildThemedBackgroundRamp(
     base: NoMemoPalette,
     isDark: Boolean,
-    themeState: NoMemoThemeState
+    themeState: NoMemoThemeState,
+    applyThemePalette: Boolean
 ): NoMemoBackgroundRamp {
-    if (!themeState.themeGlobalEnabled) {
+    if (!applyThemePalette) {
         return NoMemoBackgroundRamp(base.memoBgStart, base.memoBgMid, base.memoBgEnd)
     }
     val preset = resolveThemePreset(themeState.themeAccent)
@@ -587,6 +631,14 @@ private fun buildThemedBackgroundRamp(
             mid = lerp(themeColor, Color.White, 0.88f),
             end = lerp(themeColor, Color.White, 0.93f)
         )
+    }
+}
+
+private tailrec fun Context.findActivity(): Activity? {
+    return when (this) {
+        is Activity -> this
+        is ContextWrapper -> baseContext.findActivity()
+        else -> null
     }
 }
 
@@ -771,10 +823,26 @@ fun GlassIconCircleButton(
     size: Dp = 56.dp,
     onBoundsChanged: ((IntRect) -> Unit)? = null
 ) {
-    val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    PressScaleBox(
-        onClick = onClick,
+    val backdrop = rememberLayerBackdrop()
+    val animationScope = rememberCoroutineScope()
+    val interactiveHighlight = remember(animationScope) {
+        LiquidGlassInteractiveHighlight(animationScope = animationScope)
+    }
+    val effectScale = (size.value / 60f).coerceIn(0.76f, 1.08f)
+    val blurRadius = (2f * effectScale).dp
+    val lensInnerRadius = (12f * effectScale).dp
+    val lensOuterRadius = (24f * effectScale).dp
+    val stretchTravel = (4f * effectScale).dp
+    val surfaceColor = if (isDark) {
+        Color(0xFF121212).copy(alpha = 0.40f)
+    } else {
+        Color(0xFFFAFAFA).copy(alpha = 0.40f)
+    }
+    val iconTint = if (isDark) Color.White.copy(alpha = 0.96f) else Color(0xFF253244).copy(alpha = 0.92f)
+    val iconSize = if (size <= 48.dp) 22.dp else 24.dp
+
+    Box(
         modifier = modifier
             .size(size)
             .onGloballyPositioned { coordinates ->
@@ -788,22 +856,58 @@ fun GlassIconCircleButton(
                     )
                 )
             }
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .clip(CircleShape)
-                .background(if (isDark) palette.glassFill else Color.White)
-        ) {
-            Icon(
-                painter = painterResource(id = iconRes),
-                contentDescription = contentDescription,
-                tint = palette.textPrimary,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .size(24.dp)
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { CircleShape },
+                effects = {
+                    vibrancy()
+                    blur(blurRadius.toPx())
+                    lens(lensInnerRadius.toPx(), lensOuterRadius.toPx())
+                },
+                layerBlock = {
+                    val width = this.size.width
+                    val height = this.size.height
+                    val progress = interactiveHighlight.pressProgress
+                    val baseScale = androidx.compose.ui.util.lerp(1f, 1f + stretchTravel.toPx() / this.size.height, progress)
+                    val maxOffset = this.size.minDimension
+                    val initialDerivative = 0.05f
+                    val offset = interactiveHighlight.offset
+                    translationX =
+                        if (maxOffset == 0f) 0f else maxOffset * tanh(initialDerivative * offset.x / maxOffset)
+                    translationY =
+                        if (maxOffset == 0f) 0f else maxOffset * tanh(initialDerivative * offset.y / maxOffset)
+                    val maxDragScale = stretchTravel.toPx() / this.size.height
+                    val angle = atan2(offset.y, offset.x)
+                    scaleX =
+                        baseScale +
+                            maxDragScale *
+                            abs(cos(angle) * offset.x / this.size.maxDimension) *
+                            (width / height).coerceAtMost(1f)
+                    scaleY =
+                        baseScale +
+                            maxDragScale *
+                            abs(sin(angle) * offset.y / this.size.maxDimension) *
+                            (height / width).coerceAtMost(1f)
+                },
+                onDrawSurface = { drawRect(surfaceColor) }
             )
-        }
+            .clip(CircleShape)
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                role = Role.Button,
+                onClick = onClick
+            )
+            .then(interactiveHighlight.modifier)
+            .then(interactiveHighlight.gestureModifier),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            painter = painterResource(id = iconRes),
+            contentDescription = contentDescription,
+            tint = iconTint,
+            modifier = Modifier.size(iconSize)
+        )
     }
 }
 
@@ -1022,95 +1126,271 @@ private fun NoMemoDialogShell(
     onDismissRequest: () -> Unit,
     actions: List<NoMemoDialogActionSpec>
 ) {
+    val context = LocalContext.current
+    val hostView = LocalView.current
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val panelShape = noMemoG2RoundedShape(34.dp)
+    val actionsBackdrop = rememberLayerBackdrop()
     val panelSurface = if (isDark) {
-        Color(0xFF1F1F22)
+        Color(0xFF1F1F22).copy(alpha = 0.96f)
     } else {
-        Color.White.copy(alpha = 0.998f)
+        Color.White.copy(alpha = 0.985f)
     }
     val panelStroke = if (isDark) {
         Color.White.copy(alpha = 0.26f)
     } else {
-        Color.Black.copy(alpha = 0.10f)
+        Color.Black.copy(alpha = 0.085f)
     }
     val scrimColor = Color.Black.copy(alpha = if (isDark) 0.56f else 0.32f)
     val outsideInteraction = remember { MutableInteractionSource() }
     val panelInteraction = remember { MutableInteractionSource() }
+    var overlayBoundsInWindow by remember { mutableStateOf(Rect.Zero) }
+    val dialogPositionReady = overlayBoundsInWindow != Rect.Zero
+    val dialogWindowCenterOffset = remember(
+        overlayBoundsInWindow,
+        hostView.rootView.width,
+        hostView.rootView.height
+    ) {
+        val windowWidth = hostView.rootView.width
+        val windowHeight = hostView.rootView.height
+        if (
+            windowWidth <= 0
+            || windowHeight <= 0
+            || overlayBoundsInWindow == Rect.Zero
+        ) {
+            IntOffset.Zero
+        } else {
+            val leftGap = overlayBoundsInWindow.left
+            val topGap = overlayBoundsInWindow.top
+            val rightGap = windowWidth - overlayBoundsInWindow.right
+            val bottomGap = windowHeight - overlayBoundsInWindow.bottom
+            IntOffset(
+                x = ((rightGap - leftGap) * 0.5f).roundToInt(),
+                y = ((bottomGap - topGap) * 0.5f).roundToInt()
+            )
+        }
+    }
 
-    Dialog(
-        onDismissRequest = onDismissRequest,
-        properties = DialogProperties(
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false,
-            usePlatformDefaultWidth = false
+    DisposableEffect(context) {
+        val activity = context.findActivity()
+        val window = activity?.window
+        val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        val decorGroup = window?.decorView as? ViewGroup
+        val previousStatusBarColor = window?.statusBarColor
+        val previousNavigationBarColor = window?.navigationBarColor
+        val previousLightStatusBars = controller?.isAppearanceLightStatusBars
+        val previousLightNavigationBars = controller?.isAppearanceLightNavigationBars
+        val previousNavigationContrastEnforced = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window?.isNavigationBarContrastEnforced
+        } else {
+            null
+        }
+        val hadTranslucentStatus = window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS) != 0
+        val hadTranslucentNavigation = window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION) != 0
+        val scrimBarColor = scrimColor.toArgb()
+        val rootInsets = decorGroup?.let { ViewCompat.getRootWindowInsets(it) }
+        val statusBarHeight = rootInsets
+            ?.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
+            ?.top
+            ?.coerceAtLeast(0)
+            ?: 0
+        val navigationInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())
+        val systemGestureInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.systemGestures())
+        val mandatoryGestureInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures())
+        val tappableElementInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.tappableElement())
+        val bottomInsetCandidates = listOf(
+            navigationInsets?.bottom ?: 0,
+            systemGestureInsets?.bottom ?: 0,
+            mandatoryGestureInsets?.bottom ?: 0,
+            tappableElementInsets?.bottom ?: 0
         )
+        val bottomGestureInset = bottomInsetCandidates.maxOrNull() ?: 0
+        val navigationBarHeight = when {
+            bottomGestureInset > 0 -> bottomGestureInset
+            navigationInsets?.right ?: 0 > 0 -> navigationInsets?.right ?: 0
+            navigationInsets?.left ?: 0 > 0 -> navigationInsets?.left ?: 0
+            else -> 0
+        }
+        val topScrimView = if (activity != null && decorGroup != null && statusBarHeight > 0) {
+            View(activity).apply {
+                setBackgroundColor(scrimBarColor)
+                isClickable = false
+                isFocusable = false
+            }
+        } else {
+            null
+        }
+        val bottomScrimView = if (activity != null && decorGroup != null && navigationBarHeight > 0) {
+            View(activity).apply {
+                setBackgroundColor(scrimBarColor)
+                isClickable = false
+                isFocusable = false
+            }
+        } else {
+            null
+        }
+
+        if (window != null && controller != null) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
+            window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+            window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
+            window.statusBarColor = scrimBarColor
+            window.navigationBarColor = scrimBarColor
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                window.isNavigationBarContrastEnforced = false
+            }
+            controller.isAppearanceLightStatusBars = false
+            controller.isAppearanceLightNavigationBars = true
+        }
+        if (decorGroup is FrameLayout) {
+            topScrimView?.let { view ->
+                decorGroup.addView(
+                    view,
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT,
+                        statusBarHeight,
+                        Gravity.TOP
+                    )
+                )
+            }
+            bottomScrimView?.let { view ->
+                val gravity = when {
+                    navigationBarHeight > 0 && (
+                        bottomGestureInset > 0
+                    ) -> Gravity.BOTTOM
+                    navigationInsets?.right ?: 0 > 0 -> Gravity.END
+                    navigationInsets?.left ?: 0 > 0 -> Gravity.START
+                    else -> Gravity.BOTTOM
+                }
+                val width = if (gravity == Gravity.BOTTOM) {
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                } else {
+                    navigationBarHeight
+                }
+                val height = if (gravity == Gravity.BOTTOM) {
+                    navigationBarHeight
+                } else {
+                    FrameLayout.LayoutParams.MATCH_PARENT
+                }
+                decorGroup.addView(
+                    view,
+                    FrameLayout.LayoutParams(width, height, gravity)
+                )
+            }
+        }
+
+        onDispose {
+            topScrimView?.let { decorGroup?.removeView(it) }
+            bottomScrimView?.let { decorGroup?.removeView(it) }
+            if (window != null && controller != null) {
+                if (previousStatusBarColor != null) {
+                    window.statusBarColor = previousStatusBarColor
+                }
+                if (previousNavigationBarColor != null) {
+                    window.navigationBarColor = previousNavigationBarColor
+                }
+                if (previousLightStatusBars != null) {
+                    controller.isAppearanceLightStatusBars = previousLightStatusBars
+                }
+                if (previousLightNavigationBars != null) {
+                    controller.isAppearanceLightNavigationBars = previousLightNavigationBars
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && previousNavigationContrastEnforced != null) {
+                    window.isNavigationBarContrastEnforced = previousNavigationContrastEnforced
+                }
+                if (!hadTranslucentStatus) {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
+                }
+                if (!hadTranslucentNavigation) {
+                    window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
+                }
+            } else if (activity != null) {
+                WindowStyleManager.apply(activity, UiConfig.windowStyleFor(activity))
+            }
+        }
+    }
+
+    BackHandler(onBack = onDismissRequest)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(1000f)
+            .background(scrimColor)
+            .onGloballyPositioned { coordinates ->
+                overlayBoundsInWindow = coordinates.boundsInWindow()
+            }
     ) {
         Box(
             modifier = Modifier
-                .fillMaxSize()
-                .background(scrimColor)
+                .matchParentSize()
+                .clickable(
+                    interactionSource = outsideInteraction,
+                    indication = null,
+                    onClick = onDismissRequest
+                )
         ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clickable(
-                        interactionSource = outsideInteraction,
-                        indication = null,
-                        onClick = onDismissRequest
-                    )
-            )
-            Box(
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(horizontal = 18.dp)
-                    .fillMaxWidth()
-                    .widthIn(max = 560.dp)
-                    .shadow(
-                        elevation = 20.dp,
-                        shape = panelShape,
-                        ambientColor = Color.Black.copy(alpha = if (isDark) 0.30f else 0.10f),
-                        spotColor = Color.Black.copy(alpha = if (isDark) 0.30f else 0.10f)
-                    )
-                    .clip(panelShape)
-                    .background(panelSurface)
-                    .border(1.dp, panelStroke, panelShape)
-                    .clickable(
-                        interactionSource = panelInteraction,
-                        indication = null,
-                        onClick = {}
-                    )
-                    .padding(horizontal = 26.dp, vertical = 28.dp)
-            ) {
-                Column {
-                    Text(
-                        text = title,
-                        color = palette.textPrimary,
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = message,
-                        color = palette.textSecondary,
-                        fontSize = 15.sp,
-                        lineHeight = 24.sp,
-                        modifier = Modifier.padding(top = 18.dp)
-                    )
-                    Row(
+            if (dialogPositionReady) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .offset { dialogWindowCenterOffset }
+                        .padding(horizontal = 18.dp)
+                        .fillMaxWidth()
+                        .widthIn(max = 560.dp)
+                        .shadow(
+                            elevation = 20.dp,
+                            shape = panelShape,
+                            ambientColor = Color.Black.copy(alpha = if (isDark) 0.30f else 0.10f),
+                            spotColor = Color.Black.copy(alpha = if (isDark) 0.30f else 0.10f)
+                        )
+                        .clip(panelShape)
+                        .clickable(
+                            interactionSource = panelInteraction,
+                            indication = null,
+                            onClick = {}
+                        )
+                ) {
+                    Box(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 28.dp),
-                        horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            .matchParentSize()
+                            .clip(panelShape)
+                            .background(panelSurface)
+                            .border(1.dp, panelStroke, panelShape)
+                            .layerBackdrop(actionsBackdrop)
+                    )
+                    Column(
+                        modifier = Modifier.padding(horizontal = 26.dp, vertical = 28.dp)
                     ) {
-                        actions.forEach { action ->
-                            NoMemoDialogActionButton(
-                                modifier = Modifier.weight(1f),
-                                text = action.text,
-                                primary = action.primary,
-                                destructive = action.destructive,
-                                onClick = action.onClick
-                            )
+                        Text(
+                            text = title,
+                            color = palette.textPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = message,
+                            color = palette.textSecondary,
+                            fontSize = 15.sp,
+                            lineHeight = 24.sp,
+                            modifier = Modifier.padding(top = 18.dp)
+                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 28.dp),
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            actions.forEach { action ->
+                                NoMemoDialogActionButton(
+                                    backdrop = actionsBackdrop,
+                                    modifier = Modifier.weight(1f),
+                                    text = action.text,
+                                    primary = action.primary,
+                                    destructive = action.destructive,
+                                    onClick = action.onClick
+                                )
+                            }
                         }
                     }
                 }
@@ -1120,7 +1400,100 @@ private fun NoMemoDialogShell(
 }
 
 @Composable
+fun NoMemoLiquidGlassCapsuleButton(
+    text: String,
+    textColor: Color,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    backdrop: Backdrop = rememberLayerBackdrop(),
+    fontSize: TextUnit = 16.sp,
+    fontWeight: FontWeight = FontWeight.Bold
+) {
+    val isDark = isSystemInDarkTheme()
+    val animationScope = rememberCoroutineScope()
+    val interactiveHighlight = remember(animationScope) {
+        LiquidGlassInteractiveHighlight(animationScope = animationScope)
+    }
+    val buttonSurface = if (isDark) {
+        Color(0xFF303238).copy(alpha = 0.62f)
+    } else {
+        Color.White.copy(alpha = 0.18f)
+    }
+    val buttonOverlay = if (isDark) {
+        Color.White.copy(alpha = 0.05f)
+    } else {
+        Color.Black.copy(alpha = 0.028f)
+    }
+    val borderColor = if (isDark) {
+        Color.White.copy(alpha = 0.26f)
+    } else {
+        Color.Black.copy(alpha = 0.09f)
+    }
+
+    Box(
+        modifier = modifier
+            .height(48.dp)
+            .drawBackdrop(
+                backdrop = backdrop,
+                shape = { NoMemoG2CapsuleShape },
+                effects = {
+                    vibrancy()
+                    blur(if (isDark) 3.dp.toPx() else 2.dp.toPx())
+                    lens(12.dp.toPx(), 24.dp.toPx())
+                },
+                layerBlock = {
+                    val width = size.width
+                    val height = size.height
+                    val progress = interactiveHighlight.pressProgress
+                    val baseScale = androidx.compose.ui.util.lerp(1f, 1f + 4.dp.toPx() / size.height, progress)
+                    val maxOffset = size.minDimension
+                    val initialDerivative = 0.05f
+                    val offset = interactiveHighlight.offset
+                    translationX =
+                        if (maxOffset == 0f) 0f else maxOffset * tanh(initialDerivative * offset.x / maxOffset)
+                    translationY =
+                        if (maxOffset == 0f) 0f else maxOffset * tanh(initialDerivative * offset.y / maxOffset)
+                    val maxDragScale = 4.dp.toPx() / size.height
+                    val angle = atan2(offset.y, offset.x)
+                    scaleX =
+                        baseScale +
+                            maxDragScale *
+                            abs(cos(angle) * offset.x / size.maxDimension) *
+                            (width / height).coerceAtMost(1f)
+                    scaleY =
+                        baseScale +
+                            maxDragScale *
+                            abs(sin(angle) * offset.y / size.maxDimension) *
+                            (height / width).coerceAtMost(1f)
+                },
+                onDrawSurface = {
+                    drawRect(buttonSurface)
+                    drawRect(buttonOverlay)
+                }
+            )
+            .clip(NoMemoG2CapsuleShape)
+            .border(1.dp, borderColor, NoMemoG2CapsuleShape)
+            .clickable(
+                interactionSource = null,
+                indication = null,
+                onClick = onClick
+            )
+            .then(interactiveHighlight.modifier)
+            .then(interactiveHighlight.gestureModifier)
+    ) {
+        Text(
+            text = text,
+            color = textColor,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            modifier = Modifier.align(Alignment.Center)
+        )
+    }
+}
+
+@Composable
 private fun NoMemoDialogActionButton(
+    backdrop: Backdrop,
     modifier: Modifier = Modifier,
     text: String,
     primary: Boolean,
@@ -1130,103 +1503,18 @@ private fun NoMemoDialogActionButton(
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val destructiveBase = Color(0xFFFF4A43)
-    val backgroundColor = if (isDark) {
-        Color(0xFF434347)
-    } else {
-        Color(0xFFF3F4F7)
-    }
-    val borderColor = if (isDark) {
-        Color.White.copy(alpha = 0.26f)
-    } else {
-        Color.Black.copy(alpha = 0.12f)
-    }
-    val useSettingsTapStyle = true
-    val interactionSource = remember { MutableInteractionSource() }
-    val (highlightOverlay, triggerHighlight) = rememberDialogTapHighlightColor(
-        interactionSource = interactionSource,
-        isDark = isDark,
-        enabled = useSettingsTapStyle,
-        label = "dialogAction_$text"
-    )
     val textColor = when {
         destructive -> destructiveBase
         primary -> if (isDark) Color(0xFF4A9DFF) else palette.accent
         else -> palette.textPrimary
     }
-    PressScaleBox(
-        onClick = {
-            triggerHighlight()
-            onClick()
-        },
+    NoMemoLiquidGlassCapsuleButton(
+        text = text,
+        textColor = textColor,
+        onClick = onClick,
         modifier = modifier,
-        pressedScale = 1f,
-        interactionSource = interactionSource
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(48.dp)
-                .clip(noMemoG2RoundedShape(999.dp))
-                .background(backgroundColor)
-                .border(1.dp, borderColor, noMemoG2RoundedShape(999.dp))
-        ) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(noMemoG2RoundedShape(999.dp))
-                    .background(highlightOverlay)
-            )
-            Text(
-                text = text,
-                color = textColor,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.align(Alignment.Center)
-            )
-        }
-    }
-}
-
-@Composable
-private fun rememberDialogTapHighlightColor(
-    interactionSource: MutableInteractionSource,
-    isDark: Boolean,
-    enabled: Boolean,
-    label: String
-): Pair<Color, () -> Unit> {
-    if (!enabled) return Color.Transparent to {}
-
-    val scope = rememberCoroutineScope()
-    val pressed by interactionSource.collectIsPressedAsState()
-    var holdHighlight by remember { mutableStateOf(false) }
-    var holdJob by remember { mutableStateOf<Job?>(null) }
-
-    val highlightActive = pressed || holdHighlight
-    val highlightFactor by animateFloatAsState(
-        targetValue = if (highlightActive) 1f else 0f,
-        animationSpec = if (highlightActive) {
-            tween(durationMillis = 75)
-        } else {
-            tween(durationMillis = 220, easing = FastOutSlowInEasing)
-        },
-        label = "${label}Factor"
+        backdrop = backdrop
     )
-
-    val backgroundColor = if (isDark) {
-        Color.White.copy(alpha = 0.055f * highlightFactor)
-    } else {
-        Color.Black.copy(alpha = 0.04f * highlightFactor)
-    }
-
-    val triggerHighlight = {
-        holdJob?.cancel()
-        holdHighlight = true
-        holdJob = scope.launch {
-            delay(150)
-            holdHighlight = false
-        }
-    }
-    return backgroundColor to triggerHighlight
 }
 
 private class NoMemoAnchoredMenuPositionProvider(

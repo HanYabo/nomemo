@@ -579,7 +579,6 @@ class MainActivity : BaseComposeActivity() {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(spec.topActionButtonSize)
-                                    .padding(top = 2.dp)
                             ) {
                                 NoMemoTopActionButtons(
                                     spec = spec,
@@ -1132,7 +1131,6 @@ class MainActivity : BaseComposeActivity() {
     }
 
 }
-
 
 
 

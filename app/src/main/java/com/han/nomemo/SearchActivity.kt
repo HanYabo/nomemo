@@ -220,7 +220,6 @@ class SearchActivity : BaseComposeActivity() {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(spec.topActionButtonSize)
-                                .padding(top = 2.dp)
                         ) {
                             GlassIconCircleButton(
                                 iconRes = R.drawable.ic_sheet_back,

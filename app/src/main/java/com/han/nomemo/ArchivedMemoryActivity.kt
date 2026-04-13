@@ -246,8 +246,8 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
+                                    .padding(bottom = 12.dp)
                                     .height(spec.topActionButtonSize)
-                                    .padding(top = 2.dp, bottom = 12.dp)
                             ) {
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_sheet_close,
@@ -291,7 +291,6 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(spec.topActionButtonSize)
-                                    .padding(top = 2.dp)
                             ) {
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_sheet_back,
