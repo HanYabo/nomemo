@@ -749,6 +749,8 @@ class SettingsActivity : BaseComposeActivity() {
         onShowResetConfirm: () -> Unit,
         onRunApiTest: (AiTestTarget, String, String) -> Unit
     ) {
+        val isDark = isSystemInDarkTheme()
+        val context = LocalContext.current
         when (currentRoute) {
             SettingsRoute.Home -> {
                 Column {
@@ -1333,25 +1335,60 @@ class SettingsActivity : BaseComposeActivity() {
             }
 
             SettingsRoute.StorageClean -> {
+                val storageCardSurface = if (isDark) {
+                    Color(0xFF141515).copy(alpha = 0.98f)
+                } else {
+                    Color.White.copy(alpha = 0.985f)
+                }
+                val storageAccentColor = if (isDark) Color(0xFF1784FF) else Color(0xFF1677FF)
+                val storageLabelColor = if (isDark) {
+                    Color.White.copy(alpha = 0.90f)
+                } else {
+                    titleColor.copy(alpha = 0.92f)
+                }
+                val storageMetaColor = if (isDark) {
+                    Color.White.copy(alpha = 0.48f)
+                } else {
+                    subtitleColor.copy(alpha = 0.82f)
+                }
+                val storageDividerColor = if (isDark) {
+                    Color.White.copy(alpha = 0.08f)
+                } else {
+                    Color.Black.copy(alpha = 0.06f)
+                }
+                val storageCleanItems = remember {
+                    listOf(
+                        StorageCleanItemUi("未使用的图片", "无未使用的图片"),
+                        StorageCleanItemUi("损坏的图片引用", "无损坏的图片引用"),
+                        StorageCleanItemUi("安装包文件", "无安装包文件"),
+                        StorageCleanItemUi("缓存文件", "无缓存文件"),
+                        StorageCleanItemUi("崩溃日志", "无崩溃日志"),
+                        StorageCleanItemUi("损坏的备份", "无损坏的备份")
+                    )
+                }
                 Column {
-                    Spacer(modifier = Modifier.height(22.dp))
-                    SettingsSectionLabel("存储空间清理", sectionLabelColor)
-                    SettingsSurfaceCard(
-                        surface = cardSurface,
-                        borderColor = borderColor,
-                        modifier = Modifier.padding(top = 10.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = "存储空间清理功能即将上线",
-                                color = subtitleColor,
-                                fontSize = 15.sp
-                            )
+                    Spacer(modifier = Modifier.height(18.dp))
+                    StorageCleanSummaryCard(
+                        releaseSize = "0 B",
+                        surface = storageCardSurface,
+                        labelColor = storageLabelColor,
+                        valueColor = storageAccentColor,
+                        actionColor = storageAccentColor,
+                        onRescan = {
+                            Toast.makeText(context, "当前没有检测到可释放空间", Toast.LENGTH_SHORT).show()
                         }
-                    }
+                    )
+                    Spacer(modifier = Modifier.height(28.dp))
+                    SettingsSectionLabel("可清理项目", storageMetaColor)
+                    StorageCleanItemsCard(
+                        items = storageCleanItems,
+                        surface = storageCardSurface,
+                        titleColor = storageLabelColor,
+                        subtitleColor = storageMetaColor,
+                        dividerColor = storageDividerColor,
+                        modifier = Modifier.padding(top = 12.dp)
+                    )
+                    Spacer(modifier = Modifier.height(28.dp))
                 }
             }
 
@@ -1409,7 +1446,7 @@ class SettingsActivity : BaseComposeActivity() {
             modifier = Modifier.padding(top = 10.dp),
             items = listOf(
                 SettingsMenuItem("AI 功能", route = SettingsRoute.AiConfig),
-                SettingsMenuItem("AI功能帮助", route = SettingsRoute.AiGuide)
+                SettingsMenuItem("AI 功能帮助", route = SettingsRoute.AiGuide)
             ),
             titleColor = titleColor,
             onClick = onNavigate
@@ -1502,6 +1539,144 @@ class SettingsActivity : BaseComposeActivity() {
             border = null
         ) {
             content()
+        }
+    }
+
+    private data class StorageCleanItemUi(
+        val title: String,
+        val subtitle: String
+    )
+
+    @Composable
+    private fun StorageCleanSummaryCard(
+        releaseSize: String,
+        surface: Color,
+        labelColor: Color,
+        valueColor: Color,
+        actionColor: Color,
+        modifier: Modifier = Modifier,
+        onRescan: () -> Unit
+    ) {
+        SettingsSurfaceCard(
+            surface = surface,
+            borderColor = Color.Transparent,
+            modifier = modifier
+        ) {
+            Column(
+                modifier = Modifier.padding(horizontal = 22.dp, vertical = 18.dp)
+            ) {
+                Text(
+                    text = "可释放空间",
+                    color = labelColor,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Text(
+                        text = releaseSize,
+                        color = valueColor,
+                        fontSize = 42.sp,
+                        fontWeight = FontWeight.Black,
+                        letterSpacing = (-1).sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StorageCleanActionButton(
+                        text = "重新扫描",
+                        accentColor = actionColor,
+                        onClick = onRescan
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun StorageCleanActionButton(
+        text: String,
+        accentColor: Color,
+        onClick: () -> Unit
+    ) {
+        PressScaleBox(
+            onClick = onClick,
+            pressedScale = 1f
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(NoMemoG2CapsuleShape)
+                    .background(accentColor.copy(alpha = 0.22f))
+                    .padding(horizontal = 18.dp, vertical = 11.dp)
+            ) {
+                Text(
+                    text = text,
+                    color = accentColor,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun StorageCleanItemsCard(
+        items: List<StorageCleanItemUi>,
+        surface: Color,
+        titleColor: Color,
+        subtitleColor: Color,
+        dividerColor: Color,
+        modifier: Modifier = Modifier
+    ) {
+        SettingsSurfaceCard(
+            surface = surface,
+            borderColor = Color.Transparent,
+            modifier = modifier
+        ) {
+            Column {
+                items.forEachIndexed { index, item ->
+                    StorageCleanItemRow(
+                        item = item,
+                        titleColor = titleColor,
+                        subtitleColor = subtitleColor
+                    )
+                    if (index != items.lastIndex) {
+                        SettingsInfoDivider(
+                            color = dividerColor,
+                            modifier = Modifier.padding(horizontal = 18.dp),
+                            thickness = 0.7.dp
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun StorageCleanItemRow(
+        item: StorageCleanItemUi,
+        titleColor: Color,
+        subtitleColor: Color
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 18.dp)
+        ) {
+            Text(
+                text = item.title,
+                color = titleColor,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                text = item.subtitle,
+                color = subtitleColor,
+                fontSize = 13.sp,
+                lineHeight = 18.sp,
+                modifier = Modifier.padding(top = 4.dp)
+            )
         }
     }
 

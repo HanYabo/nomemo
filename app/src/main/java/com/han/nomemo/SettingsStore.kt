@@ -145,7 +145,6 @@ class SettingsStore(context: Context) {
 
     fun isAiAvailable(): Boolean {
         return aiEnabled &&
-            aiConfigVerified &&
             resolvedApiBaseUrl().isNotBlank() &&
             resolvedApiKey().isNotBlank() &&
             resolvedApiModel().isNotBlank()

@@ -106,15 +106,17 @@ fun LiquidGlassDock(
             DockTabSpec(NoMemoDockTab.REMINDER, R.drawable.ic_nm_reminder, "", onOpenReminder)
         )
     }
-    val dockHeight = if (spec.isNarrow) 60.dp else 64.dp
-    val buttonSize = dockHeight
-    val dockWidth = if (spec.isNarrow) 266.dp else 292.dp
+    val dockHeight = if (spec.isNarrow) 56.dp else 60.dp
+    val buttonSize = if (spec.isNarrow) 54.dp else 58.dp
+    val dockWidth = if (spec.isNarrow) 258.dp else 282.dp
+    val horizontalInset = if (spec.isNarrow) 6.dp else 8.dp
     val backdrop = sharedBackdrop ?: rememberLayerBackdrop { drawContent() }
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(dockHeight),
+            .height(dockHeight)
+            .padding(horizontal = horizontalInset),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically
     ) {

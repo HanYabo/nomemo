@@ -197,11 +197,11 @@ fun noMemoG2RoundedShape(
 }
 
 object AiProcessingStateRegistry {
-    private val processingState = mutableStateMapOf<String, Boolean>()
+    private val processingState = mutableStateMapOf<String, Int>()
 
-    fun markProcessing(recordId: String) {
+    fun markProcessing(recordId: String, attempt: Int = 1) {
         if (recordId.isNotBlank()) {
-            processingState[recordId] = true
+            processingState[recordId] = attempt.coerceAtLeast(1)
         }
     }
 
@@ -212,7 +212,11 @@ object AiProcessingStateRegistry {
     }
 
     fun isProcessing(recordId: String): Boolean {
-        return processingState[recordId] == true
+        return processingState.containsKey(recordId)
+    }
+
+    fun attempt(recordId: String): Int {
+        return processingState[recordId] ?: 0
     }
 }
 
@@ -2640,8 +2644,9 @@ fun RecordCard(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val isDark = isSystemInDarkTheme()
-    val transientAiProcessing = AiProcessingStateRegistry.isProcessing(record.recordId)
-    val aiProcessing = transientAiProcessing || remember(
+    val transientAiAttempt = AiProcessingStateRegistry.attempt(record.recordId)
+    val transientAiProcessing = transientAiAttempt > 0
+    val persistedAiProcessing = remember(
         record.recordId,
         record.mode,
         record.engine,
@@ -2650,6 +2655,12 @@ fun RecordCard(
         record.summary
     ) {
         isAiProcessingRecord(record)
+    }
+    val aiProcessing = transientAiProcessing || persistedAiProcessing
+    val aiProcessingChipText = if (transientAiAttempt >= 2) {
+        "重试中"
+    } else {
+        "分析中"
     }
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val titleText = remember(record.recordId, record.title, record.memory) {
@@ -2753,18 +2764,26 @@ fun RecordCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
-                    if (aiProcessing) {
-                        AiProcessingStatusChip(isDark = isDark)
-                        Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (aiProcessing) {
+                            AiProcessingStatusChip(
+                                isDark = isDark,
+                                text = aiProcessingChipText,
+                                modifier = Modifier.padding(end = 10.dp)
+                            )
+                        }
+                        Text(
+                            text = titleText,
+                            color = palette.textPrimary,
+                            fontSize = adaptive.recordTitleSize,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = if (aiProcessing) 1 else if (compactCard) 2 else 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
-                    Text(
-                        text = titleText,
-                        color = palette.textPrimary,
-                        fontSize = adaptive.recordTitleSize,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = if (compactCard) 2 else 3,
-                        overflow = TextOverflow.Ellipsis
-                    )
                     if (!summaryText.isNullOrBlank()) {
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
@@ -2850,6 +2869,7 @@ private fun isAiProcessingPlaceholderText(value: String?): Boolean {
 @Composable
 private fun AiProcessingStatusChip(
     isDark: Boolean,
+    text: String,
     modifier: Modifier = Modifier
 ) {
     val chipBackground = if (isDark) {
@@ -2888,7 +2908,7 @@ private fun AiProcessingStatusChip(
         )
         Spacer(modifier = Modifier.width(6.dp))
         Text(
-            text = "正在分析",
+            text = text,
             color = Color.White.copy(alpha = 0.98f),
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold

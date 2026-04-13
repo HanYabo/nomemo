@@ -29,6 +29,13 @@ public class AiMemoryService {
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 30_000;
     private static final int IMAGE_MAX_SIZE = 1024;
+    private static final int ECONOMY_IMAGE_MAX_SIZE = 640;
+    private static final int IMAGE_JPEG_QUALITY = 80;
+    private static final int ECONOMY_IMAGE_JPEG_QUALITY = 60;
+    private static final int MAX_AUTO_RETRY_COUNT = 6;
+    private static final int ECONOMY_TOTAL_ATTEMPTS = 2;
+    private static final long RETRY_BASE_DELAY_MS = 1_500L;
+    private static final long RETRY_MAX_DELAY_MS = 8_000L;
 
     private final Context context;
     private final SettingsStore settingsStore;
@@ -39,13 +46,25 @@ public class AiMemoryService {
         MULTIMODAL
     }
 
+    public interface AttemptListener {
+        void onAttempt(int attempt, int attemptLimit);
+    }
+
     public AiMemoryService(Context context) {
         this.context = context.getApplicationContext();
         this.settingsStore = new SettingsStore(this.context);
     }
 
     public GenerationResult generateMemory(String userText, @Nullable Uri imageUri) {
-        return generateMemoryInternal(userText, imageUri, false, null);
+        return generateMemory(userText, imageUri, null);
+    }
+
+    public GenerationResult generateMemory(
+            String userText,
+            @Nullable Uri imageUri,
+            @Nullable AttemptListener attemptListener
+    ) {
+        return generateMemoryInternal(userText, imageUri, false, null, attemptListener, false);
     }
 
     public GenerationResult generateEnhancedMemory(
@@ -53,27 +72,113 @@ public class AiMemoryService {
             @Nullable Uri imageUri,
             @Nullable String detailContext
     ) {
-        return generateMemoryInternal(userText, imageUri, true, detailContext);
+        return generateEnhancedMemory(userText, imageUri, detailContext, null);
+    }
+
+    public GenerationResult generateEnhancedMemory(
+            String userText,
+            @Nullable Uri imageUri,
+            @Nullable String detailContext,
+            @Nullable AttemptListener attemptListener
+    ) {
+        return generateMemoryInternal(userText, imageUri, true, detailContext, attemptListener, false);
+    }
+
+    public GenerationResult generateEnhancedMemoryStrict(
+            String userText,
+            @Nullable Uri imageUri,
+            @Nullable String detailContext,
+            @Nullable AttemptListener attemptListener
+    ) {
+        return generateMemoryInternal(userText, imageUri, true, detailContext, attemptListener, true);
     }
 
     private GenerationResult generateMemoryInternal(
             String userText,
             @Nullable Uri imageUri,
             boolean enhanced,
-            @Nullable String detailContext
+            @Nullable String detailContext,
+            @Nullable AttemptListener attemptListener,
+            boolean requireCloudSuccess
     ) {
         String safeText = userText == null ? "" : userText.trim();
         String safeContext = detailContext == null ? "" : detailContext.trim();
         if (hasCloudConfig()) {
-            try {
-                return generateByCloud(safeText, imageUri, enhanced, safeContext);
-            } catch (Exception ignored) {
-                // Falls back to local generation below.
+            Exception lastCloudError = null;
+            int attemptLimit = resolveCloudAttemptLimit();
+            for (int attempt = 1; attempt <= attemptLimit; attempt++) {
+                if (attemptListener != null) {
+                    attemptListener.onAttempt(attempt, attemptLimit);
+                }
+                try {
+                    return generateByCloud(safeText, imageUri, enhanced, safeContext);
+                } catch (Exception exception) {
+                    lastCloudError = exception;
+                    if (attempt < attemptLimit) {
+                        if (!sleepBeforeRetry(attempt)) {
+                            break;
+                        }
+                    }
+                }
             }
+            if (lastCloudError != null) {
+                if (enhanced || requireCloudSuccess) {
+                    throw new IllegalStateException("Cloud AI request failed after retries", lastCloudError);
+                }
+                // Falls back to local generation below after cloud attempts are exhausted.
+            }
+        }
+        if (requireCloudSuccess) {
+            throw new IllegalStateException("Cloud AI config unavailable");
+        }
+        if (attemptListener != null) {
+            attemptListener.onAttempt(1, 1);
         }
         return enhanced
                 ? generateByRulesEnhanced(safeText, imageUri, safeContext)
                 : generateByRules(safeText, imageUri);
+    }
+
+    private int resolveCloudAttemptLimit() {
+        if (settingsStore.getEconomyMode()) {
+            return settingsStore.getAutoRetry()
+                    ? ECONOMY_TOTAL_ATTEMPTS
+                    : 1;
+        }
+        return settingsStore.getAutoRetry()
+                ? MAX_AUTO_RETRY_COUNT + 1
+                : 1;
+    }
+
+    private boolean isEconomyMode() {
+        return settingsStore.getEconomyMode();
+    }
+
+    @Nullable
+    private Integer resolveMaxTokens(CloudRequestMode requestMode, boolean enhanced) {
+        if (!isEconomyMode()) {
+            return null;
+        }
+        switch (requestMode) {
+            case IMAGE:
+                return enhanced ? 200 : 160;
+            case MULTIMODAL:
+                return enhanced ? 220 : 180;
+            case TEXT:
+            default:
+                return enhanced ? 180 : 140;
+        }
+    }
+
+    private boolean sleepBeforeRetry(int retryIndex) {
+        long delayMs = Math.min(RETRY_BASE_DELAY_MS * retryIndex, RETRY_MAX_DELAY_MS);
+        try {
+            Thread.sleep(delayMs);
+            return true;
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
     }
 
     private boolean hasCloudConfig() {
@@ -92,7 +197,11 @@ public class AiMemoryService {
         CloudRequestMode requestMode = resolveRequestMode(userText, imageUri);
         JSONObject payload = new JSONObject();
         payload.put("model", resolveModelForMode(requestMode));
-        payload.put("temperature", 0.35);
+        payload.put("temperature", isEconomyMode() ? 0.2 : 0.35);
+        Integer maxTokens = resolveMaxTokens(requestMode, enhanced);
+        if (maxTokens != null) {
+            payload.put("max_tokens", maxTokens);
+        }
         payload.put("messages", buildMessages(requestMode, userText, imageUri, enhanced, detailContext));
 
         Exception firstError = null;
@@ -325,6 +434,9 @@ public class AiMemoryService {
     }
 
     private String buildSystemPrompt(boolean enhanced) {
+        if (isEconomyMode()) {
+            return buildEconomySystemPrompt(enhanced);
+        }
         if (!enhanced) {
             return SYSTEM_PROMPT;
         }
@@ -341,6 +453,9 @@ public class AiMemoryService {
             boolean enhanced,
             @Nullable String detailContext
     ) {
+        if (isEconomyMode()) {
+            return buildEconomyUserPrompt(userText, enhanced, detailContext);
+        }
         if (!enhanced) {
             return "User text:\n" + (TextUtils.isEmpty(userText) ? "(none)" : userText) + "\n\n" +
                     "If screenshot exists, include important visual cues. " +
@@ -368,6 +483,9 @@ public class AiMemoryService {
             boolean enhanced,
             @Nullable String detailContext
     ) {
+        if (isEconomyMode()) {
+            return buildEconomyImagePrompt(enhanced, detailContext);
+        }
         if (!enhanced) {
             return "Analyze the screenshot only. Extract visible text, codes, dates, times, addresses, pickup numbers and other hard facts. Return a short title and a short summary suitable for a memory card.";
         }
@@ -386,6 +504,72 @@ public class AiMemoryService {
         return builder.toString();
     }
 
+    private String buildEconomySystemPrompt(boolean enhanced) {
+        StringBuilder builder = new StringBuilder();
+        builder.append("Return JSON only with keys title, summary, analysis, memory, suggestedCategoryCode.\n");
+        builder.append("Use concise Chinese and keep codes, dates, times, names and addresses exact.\n");
+        builder.append("suggestedCategoryCode must be one of WORK_SCHEDULE, WORK_TODO, LIFE_PICKUP, LIFE_DELIVERY, LIFE_CARD, LIFE_TICKET, QUICK_NOTE.\n");
+        builder.append("Keep title and summary short, analysis in one sentence, and memory concise.\n");
+        if (enhanced) {
+            builder.append("Improve the existing memory conservatively without inventing facts.\n");
+        }
+        return builder.toString();
+    }
+
+    private String buildEconomyUserPrompt(
+            String userText,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) {
+        String compactText = limitPromptText(userText, enhanced ? 260 : 320);
+        String compactContext = limitPromptText(detailContext, 220);
+        StringBuilder builder = new StringBuilder();
+        builder.append(enhanced ? "Reanalyze and improve this memory.\n" : "Analyze this memory input.\n");
+        builder.append("Text:\n")
+                .append(TextUtils.isEmpty(compactText) ? "(none)" : compactText)
+                .append("\n");
+        if (!TextUtils.isEmpty(compactContext)) {
+            builder.append("Context:\n")
+                    .append(compactContext)
+                    .append("\n");
+        }
+        builder.append("Prefer confirmed facts and concise output.");
+        return builder.toString();
+    }
+
+    private String buildEconomyImagePrompt(
+            boolean enhanced,
+            @Nullable String detailContext
+    ) {
+        String compactContext = limitPromptText(detailContext, 220);
+        StringBuilder builder = new StringBuilder();
+        builder.append(enhanced
+                ? "Reanalyze this screenshot-based memory.\n"
+                : "Analyze this screenshot.\n");
+        if (!TextUtils.isEmpty(compactContext)) {
+            builder.append("Context:\n")
+                    .append(compactContext)
+                    .append("\n");
+        }
+        builder.append("Extract visible hard facts and keep output concise.");
+        return builder.toString();
+    }
+
+    private String limitPromptText(@Nullable String value, int maxLength) {
+        if (TextUtils.isEmpty(value)) {
+            return "";
+        }
+        String normalized = value
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (normalized.length() <= maxLength) {
+            return normalized;
+        }
+        return normalized.substring(0, maxLength).trim();
+    }
+
     private String requireImageDataUri(@Nullable Uri uri) {
         String dataUri = uri == null ? null : buildImageDataUri(uri);
         if (TextUtils.isEmpty(dataUri)) {
@@ -402,9 +586,13 @@ public class AiMemoryService {
             if (bitmap == null) {
                 return null;
             }
-            Bitmap scaled = scaleBitmap(bitmap, IMAGE_MAX_SIZE);
+            Bitmap scaled = scaleBitmap(bitmap, isEconomyMode() ? ECONOMY_IMAGE_MAX_SIZE : IMAGE_MAX_SIZE);
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
-            scaled.compress(Bitmap.CompressFormat.JPEG, 80, baos);
+            scaled.compress(
+                    Bitmap.CompressFormat.JPEG,
+                    isEconomyMode() ? ECONOMY_IMAGE_JPEG_QUALITY : IMAGE_JPEG_QUALITY,
+                    baos
+            );
             byte[] bytes = baos.toByteArray();
             return "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP);
         } catch (Exception ignored) {

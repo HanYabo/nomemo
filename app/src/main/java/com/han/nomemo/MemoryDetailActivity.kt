@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaScannerConnection
 import android.net.Uri
+import android.os.SystemClock
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
@@ -128,6 +129,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -140,6 +142,9 @@ import kotlin.math.roundToInt
 private object MemoryDetailReanalyzeScope {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 }
+
+private const val MinReanalyzeFeedbackMs = 650L
+private const val ReanalyzeStateRevealDelayMs = 120L
 
 class MemoryDetailActivity : BaseComposeActivity() {
     companion object {
@@ -155,6 +160,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     private lateinit var memoryStore: MemoryStore
     private lateinit var settingsStore: SettingsStore
     private lateinit var aiMemoryService: AiMemoryService
+    private var aiEnabled by mutableStateOf(false)
     private var record by mutableStateOf<MemoryRecord?>(null)
     private var reanalyzing by mutableStateOf(false)
     private var memoryChangeRegistered = false
@@ -171,13 +177,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
         memoryStore = MemoryStore(this)
         settingsStore = SettingsStore(this)
         aiMemoryService = AiMemoryService(this)
+        aiEnabled = settingsStore.aiEnabled
         loadRecordOrFinish()
         val statusBarResourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
         val statusBarHeightPx = if (statusBarResourceId > 0) resources.getDimensionPixelSize(statusBarResourceId) else 0
         setContent {
             DetailContent(
                 record = record,
-                aiEnabled = settingsStore.isAiAvailable(),
+                aiEnabled = aiEnabled,
                 reanalyzing = reanalyzing,
                 statusBarHeightPx = statusBarHeightPx,
                 onBack = { finish() },
@@ -190,6 +197,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     override fun onResume() {
         super.onResume()
+        aiEnabled = settingsStore.aiEnabled
         loadRecordOrFinish()
     }
 
@@ -419,14 +427,16 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun reanalyzeRecord(currentRecord: MemoryRecord) {
         val recordId = currentRecord.recordId
-        if (reanalyzing || AiProcessingStateRegistry.isProcessing(recordId)) {
+        if (!aiEnabled || reanalyzing || AiProcessingStateRegistry.isProcessing(recordId)) {
             return
         }
         val previousRecord = normalizeStableAiRecord(currentRecord)
         val appContext = applicationContext
-        AiProcessingStateRegistry.markProcessing(recordId)
+        AiProcessingStateRegistry.markProcessing(recordId, attempt = 1)
         reanalyzing = true
         MemoryDetailReanalyzeScope.scope.launch {
+            val startedAt = SystemClock.elapsedRealtime()
+            delay(ReanalyzeStateRevealDelayMs)
             try {
                 val updated = withContext(Dispatchers.IO) {
                     try {
@@ -435,11 +445,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         val imageUri = previousRecord.imageUri
                             ?.takeIf { it.isNotBlank() }
                             ?.let(Uri::parse)
-                        val result = service.generateEnhancedMemory(
+                        val result = service.generateEnhancedMemoryStrict(
                             input,
                             imageUri,
                             buildEnhancedAiContext(previousRecord)
-                        )
+                        ) { attempt, _ ->
+                            runOnUiThread {
+                                AiProcessingStateRegistry.markProcessing(recordId, attempt)
+                            }
+                        }
                         val resolvedTitle = result.title
                             .trim()
                             .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
@@ -483,6 +497,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
                 }
                 if (updated == null) {
+                    waitForMinimumReanalyzeFeedback(startedAt)
                     withContext(Dispatchers.Main) {
                         reanalyzing = false
                         Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
@@ -493,12 +508,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     memoryStore.updateRecord(updated)
                 }
                 if (!updateSuccess) {
+                    waitForMinimumReanalyzeFeedback(startedAt)
                     withContext(Dispatchers.Main) {
                         reanalyzing = false
                         Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
                     }
                     return@launch
                 }
+                waitForMinimumReanalyzeFeedback(startedAt)
                 withContext(Dispatchers.Main) {
                     reanalyzing = false
                     Toast.makeText(appContext, "已重新分析", Toast.LENGTH_SHORT).show()
@@ -512,6 +529,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     AiProcessingStateRegistry.clearProcessing(recordId)
                 }
             }
+        }
+    }
+
+    private suspend fun waitForMinimumReanalyzeFeedback(startedAt: Long) {
+        val elapsed = SystemClock.elapsedRealtime() - startedAt
+        val remaining = MinReanalyzeFeedbackMs - elapsed
+        if (remaining > 0L) {
+            delay(remaining)
         }
     }
 
@@ -576,23 +601,63 @@ class MemoryDetailActivity : BaseComposeActivity() {
     }
 
     private fun buildAiInput(record: MemoryRecord): String {
+        val economyMode = settingsStore.economyMode
         val parts = buildList {
-            record.sourceText?.trim()?.takeIf { it.isNotEmpty() }?.let { add(it) }
-            record.note?.trim()?.takeIf { it.isNotEmpty() && it != record.sourceText }?.let { add(it) }
-            record.memory?.trim()?.takeIf { it.isNotEmpty() && it != record.sourceText }?.let { add(it) }
+            record.sourceText
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { add(compactAiField(it, if (economyMode) 240 else 1200)) }
+            record.note
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && it != record.sourceText }
+                ?.let { add(compactAiField(it, if (economyMode) 120 else 600)) }
+            record.memory
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && it != record.sourceText }
+                ?.let { add(compactAiField(it, if (economyMode) 120 else 600)) }
         }
-        return parts.joinToString("\n").ifBlank { deriveTitle(record) }
+        return parts.joinToString("\n")
+            .ifBlank { deriveTitle(record) }
+            .let { compactAiField(it, if (economyMode) 320 else 1800) }
     }
 
     private fun buildEnhancedAiContext(record: MemoryRecord): String {
+        val economyMode = settingsStore.economyMode
         val parts = buildList {
             add("当前分类: ${record.categoryName ?: "小记"}")
-            record.title?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有标题: $it") }
-            record.summary?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有摘要: $it") }
-            record.analysis?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有分析: $it") }
-            record.memory?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有记忆正文: $it") }
+            record.title?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                add("现有标题: ${compactAiField(it, if (economyMode) 24 else 80)}")
+            }
+            record.summary?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                add("现有摘要: ${compactAiField(it, if (economyMode) 42 else 140)}")
+            }
+            if (economyMode) {
+                record.analysis?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    add("分析要点: ${compactAiField(it, 60)}")
+                }
+                record.memory?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                    add("正文片段: ${compactAiField(it, 80)}")
+                }
+            } else {
+                record.analysis?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有分析: $it") }
+                record.memory?.trim()?.takeIf { it.isNotEmpty() }?.let { add("现有记忆正文: $it") }
+            }
         }
         return parts.joinToString("\n")
+            .let { compactAiField(it, if (economyMode) 260 else 2200) }
+    }
+
+    private fun compactAiField(value: String, maxLength: Int): String {
+        val normalized = value
+            .replace("\r", " ")
+            .replace("\n", " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+        return if (normalized.length <= maxLength) {
+            normalized
+        } else {
+            normalized.take(maxLength).trim()
+        }
     }
 
     @Composable
