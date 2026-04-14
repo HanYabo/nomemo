@@ -1,4 +1,4 @@
-﻿package com.han.nomemo
+package com.han.nomemo
 
 import android.content.BroadcastReceiver
 import android.content.Intent
@@ -596,6 +596,14 @@ class ReminderActivity : BaseComposeActivity() {
                                         selectionModeActive = false
                                         selectedRecordIds = emptySet()
                                     }
+                                }
+                            ),
+                            NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_memory,
+                                label = "已归档记忆",
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    startActivity(ArchivedMemoryActivity.createIntent(this@ReminderActivity))
                                 }
                             ),
                             NoMemoMenuActionItem(

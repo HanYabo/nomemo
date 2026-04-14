@@ -1,9 +1,13 @@
-﻿package com.han.nomemo
+package com.han.nomemo
 
+import android.app.Activity
 import android.content.BroadcastReceiver
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -39,6 +43,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -55,6 +60,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -547,10 +553,14 @@ class GroupActivity : BaseComposeActivity() {
                             }
 
                             if (albumList.isEmpty()) {
+                                val dockHeight = if (spec.isNarrow) 56.dp else 60.dp
+                                val dockOuterBottomPadding = if (spec.isNarrow) 10.dp else 14.dp
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .weight(1f),
+                                        .weight(1f)
+                                        // Dock 是覆盖在内容之上的；空态需要为其预留空间才能视觉居中
+                                        .padding(bottom = spec.pageBottomPadding + dockHeight + dockOuterBottomPadding + 8.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     NoMemoEmptyState(
@@ -813,6 +823,14 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             ),
                             NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_memory,
+                                label = "已归档记忆",
+                                onClick = {
+                                    groupListMoreExpanded = false
+                                    startActivity(ArchivedMemoryActivity.createIntent(albumContext))
+                                }
+                            ),
+                            NoMemoMenuActionItem(
                                 iconRes = R.drawable.ic_nm_settings,
                                 label = stringResource(R.string.action_settings),
                                 onClick = {
@@ -897,6 +915,11 @@ class GroupActivity : BaseComposeActivity() {
                                     Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
                                     return@GroupEditAlbumSheet false
                                 }
+                                val normalized = finalName.lowercase(Locale.ROOT)
+                                if (albumList.any { it.name.trim().lowercase(Locale.ROOT) == normalized }) {
+                                    Toast.makeText(albumContext, "已存在同名分组", Toast.LENGTH_SHORT).show()
+                                    return@GroupEditAlbumSheet false
+                                }
                                 albumStore.addAlbum(finalName, albumDescriptionInput)
                                 albumList = albumStore.loadAlbums()
                                 Toast.makeText(albumContext, "分组已创建", Toast.LENGTH_SHORT).show()
@@ -962,6 +985,11 @@ class GroupActivity : BaseComposeActivity() {
                                 val finalName = albumNameInput.trim()
                                 if (finalName.isBlank()) {
                                     Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
+                                    return@GroupEditAlbumSheet false
+                                }
+                                val normalized = finalName.lowercase(Locale.ROOT)
+                                if (albumList.any { it.albumId != targetId && it.name.trim().lowercase(Locale.ROOT) == normalized }) {
+                                    Toast.makeText(albumContext, "已存在同名分组", Toast.LENGTH_SHORT).show()
                                     return@GroupEditAlbumSheet false
                                 }
                                 if (albumStore.updateAlbum(targetId, finalName, albumDescriptionInput)) {
@@ -1560,7 +1588,13 @@ class GroupActivity : BaseComposeActivity() {
         } else {
             Color(0xFF8E8E93).copy(alpha = 0.68f)
         }
-        val bodyHeight = if (adaptive.isNarrow) 620.dp else 700.dp
+        val bodyHeight = rememberNoMemoSheetHeight(
+            compactPreferredHeight = 620.dp,
+            regularPreferredHeight = 700.dp,
+            compactScreenFraction = 0.86f,
+            regularScreenFraction = 0.82f,
+            minimumHeight = 340.dp
+        )
         var visible by remember { mutableStateOf(false) }
         var dismissCommitted by remember { mutableStateOf(false) }
 
@@ -1594,6 +1628,7 @@ class GroupActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .zIndex(20f)
         ) {
             AnimatedVisibility(
@@ -1639,7 +1674,7 @@ class GroupActivity : BaseComposeActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(bodyHeight)
+                            .heightIn(max = bodyHeight)
                             .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
                     ) {
                     Box(
@@ -1805,6 +1840,8 @@ class GroupActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
+        val context = LocalContext.current
+        val activity = remember(context) { context.findActivity() }
         val panelSurface = if (isDark) {
             Color(0xFF121316)
         } else {
@@ -1820,10 +1857,27 @@ class GroupActivity : BaseComposeActivity() {
         } else {
             Color(0xFF8E8E93).copy(alpha = 0.68f)
         }
-        val bodyHeight = if (adaptive.isNarrow) 450.dp else 500.dp
+        val bodyHeight = rememberNoMemoSheetHeight(
+            compactPreferredHeight = 450.dp,
+            regularPreferredHeight = 500.dp,
+            compactScreenFraction = 0.76f,
+            regularScreenFraction = 0.70f,
+            minimumHeight = 300.dp
+        )
         val descriptionScrollState = rememberScrollState()
         var visible by remember { mutableStateOf(false) }
         var dismissCommitted by remember { mutableStateOf(false) }
+
+        DisposableEffect(activity) {
+            val window = activity?.window
+            val previousSoftInputMode = window?.attributes?.softInputMode
+            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            onDispose {
+                if (window != null && previousSoftInputMode != null) {
+                    window.setSoftInputMode(previousSoftInputMode)
+                }
+            }
+        }
 
         LaunchedEffect(Unit) {
             visible = true
@@ -1855,6 +1909,7 @@ class GroupActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .zIndex(20f)
         ) {
             AnimatedVisibility(
@@ -1899,7 +1954,7 @@ class GroupActivity : BaseComposeActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(bodyHeight)
+                            .heightIn(max = bodyHeight)
                             .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
                     ) {
                         Box(
@@ -2028,6 +2083,14 @@ class GroupActivity : BaseComposeActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private tailrec fun Context.findActivity(): Activity? {
+        return when (this) {
+            is Activity -> this
+            is ContextWrapper -> baseContext.findActivity()
+            else -> null
         }
     }
 

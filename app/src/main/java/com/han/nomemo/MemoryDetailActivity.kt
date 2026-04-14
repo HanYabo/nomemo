@@ -56,6 +56,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -110,6 +111,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
@@ -887,6 +889,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             detailImageCardWidthFraction(detailImageAspectRatio)
                         }
                         val collapsedTitleText = if (editing) draftTitle.ifBlank { titleText } else titleText
+                        val deleteTargetTitle = titleText
+                            .replace("\\s+".toRegex(), " ")
+                            .trim()
+                            .ifBlank { "未命名记忆" }
                         val hasEditDraftChanges by remember(
                             draftTitle,
                             draftSummary,
@@ -1330,7 +1336,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         if (showDeleteConfirm) {
                             NoMemoDeleteConfirmDialog(
                                 title = "确认删除",
-                                message = "确定删除这条记忆吗？",
+                                message = "确定删除“$deleteTargetTitle”这条记忆吗？",
                                 onConfirm = {
                                     showDeleteConfirm = false
                                     onDelete(currentRecord)
@@ -2318,7 +2324,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
         } else {
             palette.accent.copy(alpha = 0.28f)
         }
-        val dragHandleColor = if (isDark) Color.White.copy(alpha = 0.16f) else palette.glassStroke.copy(alpha = 0.92f)
+        val dragHandleColor = if (isDark) {
+            Color(0xFF8E8E93).copy(alpha = 0.72f)
+        } else {
+            Color(0xFF8E8E93).copy(alpha = 0.68f)
+        }
         val wheelHighlightColor = if (isDark) {
             palette.accent.copy(alpha = 0.18f)
         } else {
@@ -2344,13 +2354,23 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 Color.Transparent
             )
         )
-        val sheetBodyHeight = if (adaptive.isNarrow) 664.dp else 720.dp
+        val sheetBodyHeight = rememberNoMemoSheetHeight(
+            compactPreferredHeight = 664.dp,
+            regularPreferredHeight = 720.dp,
+            compactScreenFraction = 0.88f,
+            regularScreenFraction = 0.84f,
+            minimumHeight = 360.dp
+        )
+        val reminderWheelHeight = if (adaptive.isNarrow) 124.dp else 138.dp
+        val reminderWheelHighlightHeight = if (adaptive.isNarrow) 44.dp else 48.dp
+        val reminderTimeFieldWidth = if (adaptive.isNarrow) 88.dp else 100.dp
         val eventTimeLabel = remember(eventAt) { formatReminderSheetDateTime(eventAt) }
         val finalReminderLabel = remember(finalReminderAt) { formatReminderSheetDateTime(finalReminderAt) }
 
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .zIndex(28f)
         ) {
             AnimatedVisibility(
@@ -2395,7 +2415,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(sheetBodyHeight)
+                            .heightIn(max = sheetBodyHeight)
                             .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 0.dp)
                     ) {
                         Box(
@@ -2490,6 +2510,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                                 normalTextColor = wheelNormalTextColor,
                                                 onSelected = { year = it },
                                                 modifier = Modifier.weight(1.2f),
+                                                wheelHeight = reminderWheelHeight,
+                                                highlightHeight = reminderWheelHighlightHeight,
                                                 showContainer = false
                                             )
                                             DetailReminderWheelCard(
@@ -2504,6 +2526,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                                 normalTextColor = wheelNormalTextColor,
                                                 onSelected = { month = it },
                                                 modifier = Modifier.weight(1f),
+                                                wheelHeight = reminderWheelHeight,
+                                                highlightHeight = reminderWheelHighlightHeight,
                                                 showContainer = false
                                             )
                                             DetailReminderWheelCard(
@@ -2518,6 +2542,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                                 normalTextColor = wheelNormalTextColor,
                                                 onSelected = { day = it },
                                                 modifier = Modifier.weight(1f),
+                                                wheelHeight = reminderWheelHeight,
+                                                highlightHeight = reminderWheelHighlightHeight,
                                                 showContainer = false
                                             )
                                         }
@@ -2540,7 +2566,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                                 selectedTextColor = wheelSelectedTextColor,
                                                 normalTextColor = wheelNormalTextColor,
                                                 onSelected = { hour = it },
-                                                modifier = Modifier.width(100.dp),
+                                                modifier = Modifier.width(reminderTimeFieldWidth),
+                                                wheelHeight = reminderWheelHeight,
+                                                highlightHeight = reminderWheelHighlightHeight,
                                                 showContainer = false
                                             )
                                             Text(
@@ -2561,7 +2589,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                                 selectedTextColor = wheelSelectedTextColor,
                                                 normalTextColor = wheelNormalTextColor,
                                                 onSelected = { minute = it },
-                                                modifier = Modifier.width(100.dp),
+                                                modifier = Modifier.width(reminderTimeFieldWidth),
+                                                wheelHeight = reminderWheelHeight,
+                                                highlightHeight = reminderWheelHighlightHeight,
                                                 showContainer = false
                                             )
                                         }
@@ -2701,6 +2731,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         normalTextColor: Color,
         onSelected: (Int) -> Unit,
         modifier: Modifier = Modifier,
+        wheelHeight: Dp = 138.dp,
+        highlightHeight: Dp = 48.dp,
         showContainer: Boolean = true
     ) {
         Column(
@@ -2710,7 +2742,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(138.dp)
+                    .height(wheelHeight)
                     .graphicsLayer {
                         shape = noMemoG2RoundedShape(18.dp)
                         clip = true
@@ -2724,7 +2756,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(highlightHeight)
                         .padding(horizontal = 8.dp)
                         .clip(noMemoG2RoundedShape(15.dp))
                         .background(highlightColor)
@@ -2733,7 +2765,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     modifier = Modifier
                         .align(Alignment.Center)
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(highlightHeight)
                         .padding(horizontal = 8.dp)
                         .clip(noMemoG2RoundedShape(15.dp))
                         .background(
@@ -2754,7 +2786,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     onSelected = onSelected,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(138.dp)
+                        .height(wheelHeight)
                         .clip(noMemoG2RoundedShape(18.dp))
                 )
             }

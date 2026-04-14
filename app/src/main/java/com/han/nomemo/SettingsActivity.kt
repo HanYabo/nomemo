@@ -220,7 +220,7 @@ class SettingsActivity : BaseComposeActivity() {
         title: String,
         onResult: (Boolean, String) -> Unit
     ) {
-        val resolvedBaseUrl = baseUrl.trim().ifBlank { BuildConfig.OPENAI_BASE_URL }
+        val resolvedBaseUrl = baseUrl.trim()
         val resolvedApiKey = apiKey.trim().ifBlank { BuildConfig.OPENAI_API_KEY }
         val resolvedModel = model.trim().ifBlank { BuildConfig.OPENAI_MODEL }
 
@@ -460,7 +460,7 @@ class SettingsActivity : BaseComposeActivity() {
         val aiToggleColor = if (isDark) Color(0xFF3BD166) else Color(0xFF30C85A)
         val aiActionColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
         var aiEnabled by remember { mutableStateOf(settingsStore.aiEnabled) }
-        var baseUrl by remember { mutableStateOf(settingsStore.apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }) }
+        var baseUrl by remember { mutableStateOf(settingsStore.apiBaseUrl) }
         var apiKey by remember { mutableStateOf(settingsStore.apiKey) }
         var imageCustomModel by remember {
             mutableStateOf(settingsStore.imageCustomModel)
@@ -683,7 +683,7 @@ class SettingsActivity : BaseComposeActivity() {
                 destructive = true,
                 onConfirm = {
                     showResetConfirm = false
-                    onBaseUrlChange("https://open.bigmodel.cn/api/paas/v4")
+                    onBaseUrlChange(BuildConfig.OPENAI_BASE_URL)
                 },
                 onDismiss = { showResetConfirm = false }
             )

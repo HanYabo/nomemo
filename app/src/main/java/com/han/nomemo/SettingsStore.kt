@@ -120,7 +120,7 @@ class SettingsStore(context: Context) {
         set(value) = prefs.edit().putBoolean(KEY_ECONOMY_MODE, value).apply()
 
     fun resolvedApiBaseUrl(): String {
-        return apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }
+        return apiBaseUrl.trim()
     }
 
     fun resolvedApiKey(): String {

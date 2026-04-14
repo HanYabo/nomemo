@@ -26,6 +26,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -595,6 +597,11 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
+        val dragHandleColor = if (isDark) {
+            Color(0xFF8E8E93).copy(alpha = 0.72f)
+        } else {
+            Color(0xFF8E8E93).copy(alpha = 0.68f)
+        }
         val panelSurface = if (isDark) {
             Color(0xFF121316)
         } else {
@@ -605,7 +612,13 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
         } else {
             Color.White.copy(alpha = 0.995f)
         }
-        val bodyHeight = if (adaptive.isNarrow) 620.dp else 700.dp
+        val bodyHeight = rememberNoMemoSheetHeight(
+            compactPreferredHeight = 620.dp,
+            regularPreferredHeight = 700.dp,
+            compactScreenFraction = 0.86f,
+            regularScreenFraction = 0.82f,
+            minimumHeight = 340.dp
+        )
         var visible by remember { mutableStateOf(false) }
         var dismissCommitted by remember { mutableStateOf(false) }
 
@@ -639,6 +652,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .imePadding()
                 .zIndex(20f)
         ) {
             AnimatedVisibility(
@@ -683,7 +697,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(bodyHeight)
+                            .heightIn(max = bodyHeight)
                             .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
                     ) {
                         Box(
@@ -692,13 +706,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                 .width(56.dp)
                                 .height(5.dp)
                                 .clip(NoMemoG2CapsuleShape)
-                                .background(
-                                    if (isDark) {
-                                        Color.White.copy(alpha = 0.16f)
-                                    } else {
-                                        palette.glassStroke.copy(alpha = 0.92f)
-                                    }
-                                )
+                                .background(dragHandleColor)
                         )
 
                         Row(

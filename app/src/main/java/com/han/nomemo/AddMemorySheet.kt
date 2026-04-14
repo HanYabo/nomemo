@@ -37,6 +37,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -120,7 +122,13 @@ fun AddMemorySheet(
     }
     val inputTextColor = palette.textPrimary
     val inputHintColor = palette.textTertiary
-    val sheetBodyHeight = if (adaptive.isNarrow) 650.dp else 720.dp
+    val sheetBodyHeight = rememberNoMemoSheetHeight(
+        compactPreferredHeight = 650.dp,
+        regularPreferredHeight = 720.dp,
+        compactScreenFraction = 0.86f,
+        regularScreenFraction = 0.82f,
+        minimumHeight = 360.dp
+    )
     val dragHandleColor = if (isDark) {
         Color(0xFF8E8E93).copy(alpha = 0.72f)
     } else {
@@ -157,7 +165,7 @@ fun AddMemorySheet(
     DisposableEffect(activity) {
         val window = activity?.window
         val previousSoftInputMode = window?.attributes?.softInputMode
-        window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         onDispose {
             if (window != null && previousSoftInputMode != null) {
                 window.setSoftInputMode(previousSoftInputMode)
@@ -259,6 +267,7 @@ fun AddMemorySheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .imePadding()
             .zIndex(12f)
     ) {
         AnimatedVisibility(
@@ -302,7 +311,7 @@ fun AddMemorySheet(
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(sheetBodyHeight)
+                        .heightIn(max = sheetBodyHeight)
                         .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
                 ) {
                     Box(
@@ -384,7 +393,7 @@ fun AddMemorySheet(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 18.dp, vertical = 18.dp)
-                                    .height(if (adaptive.isNarrow) 142.dp else 150.dp)
+                                    .height(adaptive.addInputHeight)
                             ) { inner ->
                                 Box(Modifier.fillMaxWidth()) {
                                     Box(

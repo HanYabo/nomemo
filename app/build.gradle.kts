@@ -7,7 +7,7 @@ fun String.toBuildConfigString(): String = "\"" +
     replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 val openAiBaseUrl = (project.findProperty("OPENAI_BASE_URL") as String?)
-    ?: "https://open.bigmodel.cn/api/paas/v4"
+    ?: "https://open.bigmodel.cn/api/paas/v4/chat/completions"
 val openAiModel = (project.findProperty("OPENAI_MODEL") as String?)
     ?: "gpt-4o-mini"
 val openAiApiKey = (project.findProperty("OPENAI_API_KEY") as String?)

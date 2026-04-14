@@ -1,4 +1,4 @@
-﻿package com.han.nomemo
+package com.han.nomemo
 
 import android.app.Activity
 import android.content.Context
@@ -385,6 +385,22 @@ fun noMemoSelectedCardGradient(isDark: Boolean): List<Color> {
 fun rememberNoMemoAdaptiveSpec(): NoMemoAdaptiveSpec {
     LocalNoMemoAdaptiveSpec.current?.let { return it }
     return rememberNoMemoAdaptiveSpecValue()
+}
+
+@Composable
+fun rememberNoMemoSheetHeight(
+    compactPreferredHeight: Dp,
+    regularPreferredHeight: Dp,
+    compactScreenFraction: Float = 0.88f,
+    regularScreenFraction: Float = 0.84f,
+    minimumHeight: Dp = 320.dp
+): Dp {
+    val spec = rememberNoMemoAdaptiveSpec()
+    val configuration = LocalConfiguration.current
+    val preferredHeight = if (spec.isNarrow) compactPreferredHeight else regularPreferredHeight
+    val screenFraction = if (spec.isNarrow) compactScreenFraction else regularScreenFraction
+    val maxHeight = configuration.screenHeightDp.dp * screenFraction
+    return maxOf(minimumHeight, minOf(preferredHeight, maxHeight))
 }
 
 @Composable
@@ -1510,6 +1526,8 @@ fun NoMemoLiquidGlassCapsuleButton(
             color = textColor,
             fontSize = fontSize,
             fontWeight = fontWeight,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier.align(Alignment.Center)
         )
     }
