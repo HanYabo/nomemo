@@ -5,7 +5,6 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -13,7 +12,6 @@ import android.os.SystemClock
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
-import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -32,7 +30,6 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -47,6 +44,7 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -92,7 +90,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
@@ -115,12 +112,13 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntRect
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import androidx.lifecycle.lifecycleScope
 import java.io.File
 import java.io.FileOutputStream
@@ -678,10 +676,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val view = LocalView.current
         val configuration = LocalConfiguration.current
         val statusBarHeightDp = with(density) { statusBarHeightPx.toDp() }
-        val previewDecodeMaxSize = remember(configuration.screenWidthDp, configuration.screenHeightDp, density.density) {
-            val screenMaxPx = maxOf(configuration.screenWidthDp, configuration.screenHeightDp) * density.density
-            (screenMaxPx * 4f).roundToInt().coerceIn(2048, 6144)
-        }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var moreMenuAnchorBounds by remember { mutableStateOf<IntRect?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -695,7 +689,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         var imageCardBounds by remember(record?.recordId) { mutableStateOf(Rect.Zero) }
         val previewRecord = record?.takeIf { !it.imageUri.isNullOrBlank() }
         var previewImageAspectRatio by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf<Float?>(null) }
-        var previewBitmap by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf<Bitmap?>(null) }
         var previewScale by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(1f) }
         var previewOffsetX by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
         var previewOffsetY by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
@@ -710,12 +703,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         LaunchedEffect(previewRecord?.recordId, previewRecord?.imageUri) {
             previewImageAspectRatio = withContext(Dispatchers.IO) {
                 resolveImageAspectRatio(previewRecord?.imageUri)
-            }
-            previewBitmap = withContext(Dispatchers.IO) {
-                decodePreviewBitmap(
-                    uriString = previewRecord?.imageUri,
-                    requestedMaxSize = previewDecodeMaxSize
-                )
             }
         }
 
@@ -887,6 +874,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         val detailImageWidthFraction = remember(detailImageAspectRatio) {
                             detailImageCardWidthFraction(detailImageAspectRatio)
                         }
+                        val detailImageDisplayAspectRatio = detailImageAspectRatio ?: 1f
                         val collapsedTitleText = if (editing) draftTitle.ifBlank { titleText } else titleText
                         val deleteTargetTitle = titleText
                             .replace("\\s+".toRegex(), " ")
@@ -1045,24 +1033,18 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 colors = CardDefaults.cardColors(containerColor = noMemoCardSurfaceColor(isSystemInDarkTheme(), palette.glassFill)),
                                 border = BorderStroke(1.dp, palette.glassStroke)
                             ) {
-                                AndroidView(
-                                    factory = { ctx ->
-                                        ImageView(ctx).apply {
-                                            adjustViewBounds = true
-                                            scaleType = ImageView.ScaleType.CENTER_CROP
-                                            setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                        }
+                                AsyncImage(
+                                    model = remember(displayImageUri) {
+                                        ImageRequest.Builder(this@MemoryDetailActivity)
+                                            .data(displayImageUri)
+                                            .build()
                                     },
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Crop,
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .clip(noMemoG2RoundedShape(28.dp)),
-                                    update = { imageView ->
-                                        try {
-                                            imageView.setImageURI(Uri.parse(displayImageUri))
-                                        } catch (_: Exception) {
-                                            imageView.setImageDrawable(null)
-                                        }
-                                    }
+                                        .aspectRatio(detailImageDisplayAspectRatio)
+                                        .clip(noMemoG2RoundedShape(28.dp))
                                 )
                             }
                             if (editing) {
@@ -1468,42 +1450,17 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val dismissProgress = (abs(previewDismissOffsetY) / dismissThresholdPx).coerceIn(0f, 1f)
                     val previewBackdropAlpha = previewAlpha * (1f - dismissProgress * 0.45f)
                     val previewImageContent: @Composable (Modifier) -> Unit = { imageModifier ->
-                        val bitmap = previewBitmap
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "预览图片",
-                                contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
-                                modifier = imageModifier
-                            )
-                        } else {
-                            AndroidView(
-                                factory = { ctx ->
-                                    ImageView(ctx).apply {
-                                        adjustViewBounds = false
-                                        scaleType = if (previewFillScreen) {
-                                            ImageView.ScaleType.CENTER_CROP
-                                        } else {
-                                            ImageView.ScaleType.FIT_CENTER
-                                        }
-                                        setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                    }
-                                },
-                                modifier = imageModifier,
-                                update = { imageView ->
-                                    try {
-                                        imageView.setImageURI(Uri.parse(previewRecord.imageUri))
-                                        imageView.scaleType = if (previewFillScreen) {
-                                            ImageView.ScaleType.CENTER_CROP
-                                        } else {
-                                            ImageView.ScaleType.FIT_CENTER
-                                        }
-                                    } catch (_: Exception) {
-                                        imageView.setImageDrawable(null)
-                                    }
-                                }
-                            )
+                        val previewRequest = remember(previewRecord.imageUri) {
+                            ImageRequest.Builder(this@MemoryDetailActivity)
+                                .data(previewRecord.imageUri)
+                                .build()
                         }
+                        AsyncImage(
+                            model = previewRequest,
+                            contentDescription = "预览图片",
+                            contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                            modifier = imageModifier
+                        )
                     }
 
                     Box(
@@ -1880,47 +1837,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
             imageAspectRatio <= 0.82f -> 0.58f
             else -> 0.64f
         }
-    }
-
-    private fun decodePreviewBitmap(uriString: String?, requestedMaxSize: Int): Bitmap? {
-        if (uriString.isNullOrBlank()) {
-            return null
-        }
-        return runCatching {
-            val bounds = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            openImageInputStream(uriString)?.use { input ->
-                BitmapFactory.decodeStream(input, null, bounds)
-            }
-            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                return null
-            }
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = calculatePreviewInSampleSize(
-                    width = bounds.outWidth,
-                    height = bounds.outHeight,
-                    requestedMaxSize = requestedMaxSize
-                )
-                inPreferredConfig = Bitmap.Config.ARGB_8888
-                inScaled = false
-            }
-            openImageInputStream(uriString)?.use { input ->
-                BitmapFactory.decodeStream(input, null, decodeOptions)
-            }
-        }.getOrNull()
-    }
-
-    private fun calculatePreviewInSampleSize(width: Int, height: Int, requestedMaxSize: Int): Int {
-        var inSampleSize = 1
-        var currentWidth = width
-        var currentHeight = height
-        while (currentWidth > requestedMaxSize || currentHeight > requestedMaxSize) {
-            currentWidth /= 2
-            currentHeight /= 2
-            inSampleSize *= 2
-        }
-        return inSampleSize.coerceAtLeast(1)
     }
 
     private fun calculatePreviewContentSize(

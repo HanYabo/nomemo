@@ -4,14 +4,9 @@ import android.app.Activity
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.SharedPreferences
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.graphics.PathMeasure
 import android.graphics.RectF
-import android.net.Uri
 import android.os.Build
-import android.util.LruCache
-import android.util.Size
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
@@ -106,7 +101,6 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -148,6 +142,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowInsetsCompat
+import coil3.SingletonImageLoader
+import coil3.compose.AsyncImage
+import coil3.request.ImageRequest
 import com.kyant.backdrop.Backdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -220,34 +217,6 @@ object AiProcessingStateRegistry {
     }
 }
 
-private object MemoryThumbnailCache {
-    private val exactCache = object : LruCache<String, Bitmap>(24 * 1024) {
-        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
-    }
-    private val uriCache = object : LruCache<String, Bitmap>(24 * 1024) {
-        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount / 1024
-    }
-
-    fun getExact(key: String): Bitmap? = exactCache.get(key)
-
-    fun getByUri(uri: String): Bitmap? = uriCache.get(uri)
-
-    fun put(key: String, uri: String, bitmap: Bitmap) {
-        exactCache.put(key, bitmap)
-        if (uri.isNotBlank()) {
-            uriCache.put(uri, bitmap)
-        }
-    }
-}
-
-private fun memoryThumbnailCacheKey(
-    uriString: String,
-    widthPx: Int,
-    heightPx: Int
-): String {
-    return "$uriString@${widthPx}x${heightPx}"
-}
-
 private const val MemoryThumbnailPrewarmWidthPx = 240
 private const val MemoryThumbnailPrewarmHeightPx = 320
 private const val MemoryThumbnailPrewarmLimit = 8
@@ -263,12 +232,17 @@ internal suspend fun prewarmMemoryThumbnailCache(
         return
     }
     val appContext = context.applicationContext
+    val imageLoader = SingletonImageLoader.get(appContext)
     records.asSequence()
         .mapNotNull { it.imageUri?.trim()?.takeIf(String::isNotEmpty) }
         .distinct()
         .take(limit)
         .forEach { uriString ->
-            loadMemoryThumbnail(appContext, uriString, widthPx, heightPx)
+            val request = ImageRequest.Builder(appContext)
+                .data(uriString)
+                .size(widthPx, heightPx)
+                .build()
+            imageLoader.execute(request)
         }
 }
 
@@ -2501,114 +2475,6 @@ private fun DockGlowLayer(
     )
 }
 
-private fun loadSampledBitmap(context: android.content.Context, uri: Uri, widthPx: Int, heightPx: Int): Bitmap? {
-    return runCatching {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, bounds)
-        } ?: return null
-
-        val targetWidth = widthPx.coerceAtLeast(1)
-        val targetHeight = heightPx.coerceAtLeast(1)
-        var sampleSize = 1
-        var sourceWidth = bounds.outWidth
-        var sourceHeight = bounds.outHeight
-        while (sourceWidth / 2 >= targetWidth && sourceHeight / 2 >= targetHeight) {
-            sourceWidth /= 2
-            sourceHeight /= 2
-            sampleSize *= 2
-        }
-
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        context.contentResolver.openInputStream(uri)?.use { stream ->
-            BitmapFactory.decodeStream(stream, null, options)
-        }
-    }.getOrNull()
-}
-
-private fun loadSampledBitmapFromFile(filePath: String, widthPx: Int, heightPx: Int): Bitmap? {
-    return runCatching {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(filePath, bounds)
-
-        val targetWidth = widthPx.coerceAtLeast(1)
-        val targetHeight = heightPx.coerceAtLeast(1)
-        var sampleSize = 1
-        var sourceWidth = bounds.outWidth
-        var sourceHeight = bounds.outHeight
-        while (sourceWidth / 2 >= targetWidth && sourceHeight / 2 >= targetHeight) {
-            sourceWidth /= 2
-            sourceHeight /= 2
-            sampleSize *= 2
-        }
-
-        val options = BitmapFactory.Options().apply {
-            inSampleSize = sampleSize
-            inPreferredConfig = Bitmap.Config.ARGB_8888
-        }
-        BitmapFactory.decodeFile(filePath, options)
-    }.getOrNull()
-}
-
-private fun loadMemoryThumbnail(
-    context: android.content.Context,
-    uriString: String,
-    widthPx: Int,
-    heightPx: Int
-): Bitmap? {
-    if (uriString.isBlank()) return null
-    val key = memoryThumbnailCacheKey(uriString, widthPx, heightPx)
-    MemoryThumbnailCache.getExact(key)?.let { return it }
-    MemoryThumbnailCache.getByUri(uriString)?.let { return it }
-
-    // Try multiple strategies to load the thumbnail:
-    // 1) Treat as content/file URI and use ContentResolver (loadThumbnail / openInputStream)
-    // 2) Treat as absolute file path and decode directly
-    // 3) If it's a file:// URI, decode by path
-    var bitmap: Bitmap? = null
-    // Strategy A: parse as URI and try ContentResolver
-    val parsedUri = runCatching { Uri.parse(uriString) }.getOrNull()
-    if (parsedUri != null) {
-        bitmap = runCatching {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                context.contentResolver.loadThumbnail(parsedUri, Size(widthPx.coerceAtLeast(1), heightPx.coerceAtLeast(1)), null)
-            } else {
-                loadSampledBitmap(context, parsedUri, widthPx, heightPx)
-            }
-        }.getOrNull()
-        if (bitmap == null) {
-            bitmap = loadSampledBitmap(context, parsedUri, widthPx, heightPx)
-        }
-    }
-
-    // Strategy B: treat uriString as a raw file path
-    if (bitmap == null) {
-        try {
-            val file = java.io.File(uriString)
-            if (file.exists()) {
-                bitmap = loadSampledBitmapFromFile(file.absolutePath, widthPx, heightPx)
-            }
-        } catch (_: Exception) {
-        }
-    }
-
-    // Strategy C: if parsedUri is file://, try decode by its path
-    if (bitmap == null && parsedUri != null && parsedUri.scheme == "file") {
-        val path = parsedUri.path
-        if (!path.isNullOrBlank()) {
-            bitmap = loadSampledBitmapFromFile(path, widthPx, heightPx)
-        }
-    }
-
-    if (bitmap != null) {
-        MemoryThumbnailCache.put(key, uriString, bitmap)
-    }
-    return bitmap
-}
-
 @Composable
 fun MemoryThumbnail(
     uriString: String,
@@ -2619,45 +2485,19 @@ fun MemoryThumbnail(
     cornerRadius: Dp
 ) {
     val context = LocalContext.current
-    val density = LocalDensity.current
-    val widthPx = with(density) { width.roundToPx().coerceAtLeast(1) }
-    val heightPx = with(density) { height.roundToPx().coerceAtLeast(1) }
-    val cacheKey = remember(uriString, widthPx, heightPx) {
-        memoryThumbnailCacheKey(uriString, widthPx, heightPx)
-    }
-    var bitmap by remember(uriString) {
-        mutableStateOf<Bitmap?>(MemoryThumbnailCache.getByUri(uriString))
-    }
-
-    LaunchedEffect(uriString, widthPx, heightPx, cacheKey) {
-        if (uriString.isBlank()) {
-            bitmap = null
-            return@LaunchedEffect
-        }
-        val cached = MemoryThumbnailCache.getExact(cacheKey) ?: MemoryThumbnailCache.getByUri(uriString)
-        if (cached != null) {
-            if (bitmap !== cached) {
-                bitmap = cached
-            }
-            return@LaunchedEffect
-        }
-        val loaded = withContext(Dispatchers.IO) {
-            loadMemoryThumbnail(context.applicationContext, uriString, widthPx, heightPx)
-        }
-        if (loaded != null) {
-            bitmap = loaded
-        }
-    }
     Box(
         modifier = modifier
             .size(width = width, height = height)
             .clip(noMemoG2RoundedShape(cornerRadius))
             .background(backgroundColor)
     ) {
-        val shownBitmap = bitmap
-        if (shownBitmap != null) {
-            Image(
-                bitmap = shownBitmap.asImageBitmap(),
+        if (uriString.isNotBlank()) {
+            AsyncImage(
+                model = remember(uriString) {
+                    ImageRequest.Builder(context)
+                        .data(uriString)
+                        .build()
+                },
                 contentDescription = null,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
