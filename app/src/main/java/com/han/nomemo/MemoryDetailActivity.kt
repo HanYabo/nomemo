@@ -19,8 +19,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
@@ -33,9 +33,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.detectVerticalDragGestures
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -76,6 +73,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -117,9 +115,15 @@ import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import androidx.lifecycle.lifecycleScope
+import me.saket.telephoto.zoomable.EnabledZoomGestures
+import me.saket.telephoto.zoomable.ZoomSpec
+import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
+import me.saket.telephoto.zoomable.rememberZoomableImageState
+import me.saket.telephoto.zoomable.rememberZoomableState
 import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
@@ -676,6 +680,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val view = LocalView.current
         val configuration = LocalConfiguration.current
         val statusBarHeightDp = with(density) { statusBarHeightPx.toDp() }
+        val previewRequestWidthPx = with(density) { configuration.screenWidthDp.dp.roundToPx() }
+        val previewRequestHeightPx = with(density) { configuration.screenHeightDp.dp.roundToPx() }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var moreMenuAnchorBounds by remember { mutableStateOf<IntRect?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
@@ -688,17 +694,37 @@ class MemoryDetailActivity : BaseComposeActivity() {
         var editing by remember(record?.recordId) { mutableStateOf(false) }
         var imageCardBounds by remember(record?.recordId) { mutableStateOf(Rect.Zero) }
         val previewRecord = record?.takeIf { !it.imageUri.isNullOrBlank() }
+        val previewRequest = remember(
+            previewRecord?.recordId,
+            previewRecord?.imageUri,
+            previewRequestWidthPx,
+            previewRequestHeightPx
+        ) {
+            previewRecord?.imageUri?.let { imageUri ->
+                ImageRequest.Builder(this@MemoryDetailActivity)
+                    .data(imageUri)
+                    .size(previewRequestWidthPx, previewRequestHeightPx)
+                    .build()
+            }
+        }
         var previewImageAspectRatio by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf<Float?>(null) }
-        var previewScale by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(1f) }
-        var previewOffsetX by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
-        var previewOffsetY by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
-        var previewDismissOffsetY by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf(0f) }
-        val previewGestureScope = rememberCoroutineScope()
+        var previewImagePrepared by remember(
+            previewRecord?.recordId,
+            previewRecord?.imageUri,
+            previewRequestWidthPx,
+            previewRequestHeightPx
+        ) {
+            mutableStateOf(previewRequest == null)
+        }
+        var previewOpenPending by remember(previewRecord?.recordId, previewRecord?.imageUri) {
+            mutableStateOf(false)
+        }
         val previewTransition = updateTransition(
             targetState = showImagePreview && previewRecord != null,
             label = "memoryDetailPreview"
         )
         val previewOverlayVisible = previewTransition.currentState || previewTransition.targetState
+        val previewSourceCardHidden = previewOverlayVisible
 
         LaunchedEffect(previewRecord?.recordId, previewRecord?.imageUri) {
             previewImageAspectRatio = withContext(Dispatchers.IO) {
@@ -706,18 +732,28 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
         }
 
-        LaunchedEffect(showImagePreview) {
-            if (!showImagePreview) {
-                showPreviewActionMenu = false
+        LaunchedEffect(previewRequest) {
+            if (previewRequest == null) {
+                previewImagePrepared = true
+                return@LaunchedEffect
+            }
+            previewImagePrepared = false
+            runCatching {
+                SingletonImageLoader.get(applicationContext).execute(previewRequest)
+            }
+            previewImagePrepared = true
+        }
+
+        LaunchedEffect(previewImagePrepared, previewOpenPending, previewRecord?.recordId) {
+            if (previewImagePrepared && previewOpenPending && previewRecord != null) {
+                previewOpenPending = false
+                showImagePreview = true
             }
         }
 
-        LaunchedEffect(previewOverlayVisible, previewRecord?.recordId) {
-            if (!previewOverlayVisible) {
-                previewScale = 1f
-                previewOffsetX = 0f
-                previewOffsetY = 0f
-                previewDismissOffsetY = 0f
+        LaunchedEffect(showImagePreview) {
+            if (!showImagePreview) {
+                showPreviewActionMenu = false
             }
         }
 
@@ -1021,12 +1057,16 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     .onGloballyPositioned { coordinates ->
                                         imageCardBounds = coordinates.boundsInRoot()
                                     }
-                                    .alpha(if (previewOverlayVisible) 0f else 1f)
+                                    .alpha(if (previewSourceCardHidden) 0f else 1f)
                                     .clickable {
                                         if (editing) {
                                             imagePickerLauncher.launch(arrayOf("image/*"))
                                         } else {
-                                            showImagePreview = true
+                                            if (previewImagePrepared) {
+                                                showImagePreview = true
+                                            } else {
+                                                previewOpenPending = true
+                                            }
                                         }
                                     },
                                 shape = noMemoG2RoundedShape(28.dp),
@@ -1414,53 +1454,57 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val animatedCornerRadius = with(density) {
                         ((1f - previewProgress) * 28.dp.value).dp
                     }
-                    val previewInteractive = previewProgress >= 0.98f
                     val previewInteractionSource = remember(previewRecord?.recordId, previewRecord?.imageUri) {
                         MutableInteractionSource()
                     }
-                    val clampedPreviewScale = previewScale.coerceIn(1f, 4f)
-                    val displayedContentSize = remember(
-                        interactiveRect.width,
-                        interactiveRect.height,
-                        previewImageAspectRatio,
-                        previewFillScreen
-                    ) {
-                        calculatePreviewContentSize(
-                            containerWidthPx = interactiveRect.width,
-                            containerHeightPx = interactiveRect.height,
-                            imageAspectRatio = previewImageAspectRatio,
-                            fillScreen = previewFillScreen
-                        )
-                    }
-                    val previewMinimumFillScale = remember(
-                        interactiveRect.width,
-                        interactiveRect.height,
-                        displayedContentSize
-                    ) {
-                        calculatePreviewMinimumFillScale(
-                            containerWidthPx = interactiveRect.width,
-                            containerHeightPx = interactiveRect.height,
-                            contentWidthPx = displayedContentSize.first,
-                            contentHeightPx = displayedContentSize.second
-                        )
-                    }
                     val previewButtonSize = adaptive.topActionButtonSize
                     val previewCloseButtonSize = if (adaptive.isNarrow) 68.dp else 76.dp
-                    val dismissThresholdPx = with(density) { 128.dp.toPx() }
-                    val dismissProgress = (abs(previewDismissOffsetY) / dismissThresholdPx).coerceIn(0f, 1f)
-                    val previewBackdropAlpha = previewAlpha * (1f - dismissProgress * 0.45f)
-                    val previewImageContent: @Composable (Modifier) -> Unit = { imageModifier ->
-                        val previewRequest = remember(previewRecord.imageUri) {
-                            ImageRequest.Builder(this@MemoryDetailActivity)
-                                .data(previewRecord.imageUri)
-                                .build()
-                        }
-                        AsyncImage(
-                            model = previewRequest,
-                            contentDescription = "预览图片",
-                            contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
-                            modifier = imageModifier
+                    val previewBackdropAlpha = previewAlpha
+                    val previewZoomableImageState = key(
+                        previewRecord.recordId,
+                        previewRecord.imageUri,
+                        showImagePreview
+                    ) {
+                        rememberZoomableImageState(
+                            rememberZoomableState(
+                                zoomSpec = ZoomSpec(maxZoomFactor = 4f)
+                            )
                         )
+                    }
+                    val previewZoomableActive =
+                        previewTransition.targetState &&
+                            previewProgress >= 0.92f
+                    val previewZoomableAlpha by animateFloatAsState(
+                        targetValue = if (previewZoomableActive) 1f else 0f,
+                        animationSpec = tween(durationMillis = 90),
+                        label = "previewZoomableAlpha"
+                    )
+                    val previewShowBaseImage = !previewZoomableActive || previewZoomableAlpha < 0.999f
+                    val previewImageContainerModifier = if (previewZoomableActive) {
+                        Modifier
+                            .offset {
+                                IntOffset(
+                                    x = interactiveRect.left.roundToInt(),
+                                    y = interactiveRect.top.roundToInt()
+                                )
+                            }
+                            .size(
+                                width = with(density) { interactiveRect.width.toDp() },
+                                height = with(density) { interactiveRect.height.toDp() }
+                            )
+                    } else {
+                        Modifier
+                            .offset {
+                                IntOffset(
+                                    x = animatedLeft.roundToInt(),
+                                    y = animatedTop.roundToInt()
+                                )
+                            }
+                            .size(
+                                width = with(density) { animatedWidth.toDp() },
+                                height = with(density) { animatedHeight.toDp() }
+                            )
+                            .clip(noMemoG2RoundedShape(animatedCornerRadius))
                     }
 
                     Box(
@@ -1473,180 +1517,36 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 indication = null
                             ) { showImagePreview = false }
                     ) {
-                        if (!previewInteractive) {
+                        Box(
+                            modifier = previewImageContainerModifier
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .offset {
-                                        IntOffset(
-                                            x = animatedLeft.roundToInt(),
-                                            y = animatedTop.roundToInt()
-                                        )
-                                    }
-                                    .size(
-                                        width = with(density) { animatedWidth.toDp() },
-                                        height = with(density) { animatedHeight.toDp() }
-                                    )
-                                    .clip(noMemoG2RoundedShape(animatedCornerRadius))
+                                    .fillMaxSize()
+                                    .background(Color.Black)
                             ) {
-                                previewImageContent(Modifier.fillMaxSize())
-                            }
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .offset {
-                                        IntOffset(
-                                            x = interactiveRect.left.roundToInt(),
-                                            y = (interactiveRect.top + previewDismissOffsetY).roundToInt()
-                                        )
-                                    }
-                                    .size(
-                                        width = with(density) { interactiveRect.width.toDp() },
-                                        height = with(density) { interactiveRect.height.toDp() }
+                                if (previewShowBaseImage) {
+                                    AsyncImage(
+                                        model = previewRequest,
+                                        contentDescription = "预览图片",
+                                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                                        modifier = Modifier.fillMaxSize()
                                     )
-                                    .pointerInput(previewInteractive, clampedPreviewScale, previewMinimumFillScale, displayedContentSize) {
-                                        if (!previewInteractive) return@pointerInput
-                                        detectTapGestures(
-                                            onDoubleTap = { tapOffset ->
-                                                if (clampedPreviewScale > 1f) {
-                                                    previewGestureScope.launch {
-                                                        animatePreviewTransform(
-                                                            startScale = previewScale,
-                                                            endScale = 1f,
-                                                            startOffsetX = previewOffsetX,
-                                                            endOffsetX = 0f,
-                                                            startOffsetY = previewOffsetY,
-                                                            endOffsetY = 0f
-                                                        ) { scale, offsetX, offsetY ->
-                                                            previewScale = scale
-                                                            previewOffsetX = offsetX
-                                                            previewOffsetY = offsetY
-                                                        }
-                                                    }
-                                                } else {
-                                                    val targetScale = maxOf(2.4f, previewMinimumFillScale).coerceIn(1f, 4f)
-                                                    val centerX = interactiveRect.width / 2f
-                                                    val centerY = interactiveRect.height / 2f
-                                                    val relativeTapX = tapOffset.x - centerX
-                                                    val relativeTapY = tapOffset.y - centerY
-                                                    val targetOffsetX = clampPreviewTranslation(
-                                                        containerSizePx = interactiveRect.width,
-                                                        contentSizePx = displayedContentSize.first,
-                                                        scale = targetScale,
-                                                        translation = relativeTapX * (1f - targetScale)
-                                                    )
-                                                    val targetOffsetY = clampPreviewTranslation(
-                                                        containerSizePx = interactiveRect.height,
-                                                        contentSizePx = displayedContentSize.second,
-                                                        scale = targetScale,
-                                                        translation = relativeTapY * (1f - targetScale)
-                                                    )
-                                                    previewGestureScope.launch {
-                                                        animatePreviewTransform(
-                                                            startScale = previewScale,
-                                                            endScale = targetScale,
-                                                            startOffsetX = previewOffsetX,
-                                                            endOffsetX = targetOffsetX,
-                                                            startOffsetY = previewOffsetY,
-                                                            endOffsetY = targetOffsetY
-                                                        ) { scale, offsetX, offsetY ->
-                                                            previewScale = scale
-                                                            previewOffsetX = offsetX
-                                                            previewOffsetY = offsetY
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                                    .pointerInput(previewInteractive, clampedPreviewScale) {
-                                        if (!previewInteractive || clampedPreviewScale > 1.02f) return@pointerInput
-                                        detectVerticalDragGestures(
-                                            onVerticalDrag = { change, dragAmount ->
-                                                change.consume()
-                                                previewDismissOffsetY += dragAmount
-                                            },
-                                            onDragEnd = {
-                                                if (abs(previewDismissOffsetY) >= dismissThresholdPx) {
-                                                    showImagePreview = false
-                                                } else {
-                                                    previewGestureScope.launch {
-                                                        animatePreviewDismissOffset(
-                                                            startOffsetY = previewDismissOffsetY,
-                                                            endOffsetY = 0f
-                                                        ) { offsetY ->
-                                                            previewDismissOffsetY = offsetY
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                            onDragCancel = {
-                                                previewGestureScope.launch {
-                                                    animatePreviewDismissOffset(
-                                                        startOffsetY = previewDismissOffsetY,
-                                                        endOffsetY = 0f
-                                                    ) { offsetY ->
-                                                        previewDismissOffsetY = offsetY
-                                                    }
-                                                }
-                                            }
-                                        )
-                                    }
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .background(Color.Black)
-                                        .pointerInput(previewInteractive, interactiveRect.width, interactiveRect.height, displayedContentSize) {
-                                            if (!previewInteractive) return@pointerInput
-                                            detectTransformGestures { centroid, pan, zoom, _ ->
-                                                val currentScale = previewScale.coerceIn(1f, 4f)
-                                                val nextScale = (currentScale * zoom).coerceIn(1f, 4f)
-                                                val scaleFactor = if (currentScale == 0f) 1f else nextScale / currentScale
-                                                val centroidX = centroid.x - (interactiveRect.width / 2f)
-                                                val centroidY = centroid.y - (interactiveRect.height / 2f)
-                                                val nextOffsetX =
-                                                    (previewOffsetX * scaleFactor) +
-                                                        (centroidX * (1f - scaleFactor)) +
-                                                        pan.x
-                                                val nextOffsetY =
-                                                    (previewOffsetY * scaleFactor) +
-                                                        (centroidY * (1f - scaleFactor)) +
-                                                        pan.y
-                                                previewScale = nextScale
-                                                previewOffsetX = clampPreviewTranslation(
-                                                    containerSizePx = interactiveRect.width,
-                                                    contentSizePx = displayedContentSize.first,
-                                                    scale = nextScale,
-                                                    translation = nextOffsetX
-                                                )
-                                                previewOffsetY = clampPreviewTranslation(
-                                                    containerSizePx = interactiveRect.height,
-                                                    contentSizePx = displayedContentSize.second,
-                                                    scale = nextScale,
-                                                    translation = nextOffsetY
-                                                )
-                                            }
-                                        }
-                                ) {
-                                    previewImageContent(
-                                        Modifier
+                                }
+                                if (previewZoomableActive) {
+                                    ZoomableAsyncImage(
+                                        model = previewRequest,
+                                        state = previewZoomableImageState,
+                                        gestures = if (previewZoomableActive) {
+                                            EnabledZoomGestures.ZoomAndPan
+                                        } else {
+                                            EnabledZoomGestures.None
+                                        },
+                                        contentDescription = "预览图片",
+                                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                                        modifier = Modifier
                                             .fillMaxSize()
-                                            .graphicsLayer {
-                                                scaleX = clampedPreviewScale
-                                                scaleY = clampedPreviewScale
-                                                translationX = clampPreviewTranslation(
-                                                    containerSizePx = interactiveRect.width,
-                                                    contentSizePx = displayedContentSize.first,
-                                                    scale = clampedPreviewScale,
-                                                    translation = previewOffsetX
-                                                )
-                                                translationY = clampPreviewTranslation(
-                                                    containerSizePx = interactiveRect.height,
-                                                    contentSizePx = displayedContentSize.second,
-                                                    scale = clampedPreviewScale,
-                                                    translation = previewOffsetY
-                                                )
-                                            }
+                                            .alpha(previewZoomableAlpha)
                                     )
                                 }
                             }
@@ -1872,54 +1772,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }
     }
 
-    private fun clampPreviewTranslation(
-        containerSizePx: Float,
-        contentSizePx: Float,
-        scale: Float,
-        translation: Float
-    ): Float {
-        val maxTranslation = ((contentSizePx * scale) - containerSizePx) / 2f
-        if (maxTranslation <= 0f) {
-            return 0f
-        }
-        return translation.coerceIn(-maxTranslation, maxTranslation)
-    }
-
-    private suspend fun animatePreviewTransform(
-        startScale: Float,
-        endScale: Float,
-        startOffsetX: Float,
-        endOffsetX: Float,
-        startOffsetY: Float,
-        endOffsetY: Float,
-        onUpdate: (Float, Float, Float) -> Unit
-    ) {
-        animate(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-        ) { progress, _ ->
-            val scale = lerp(startScale, endScale, progress)
-            val offsetX = lerp(startOffsetX, endOffsetX, progress)
-            val offsetY = lerp(startOffsetY, endOffsetY, progress)
-            onUpdate(scale, offsetX, offsetY)
-        }
-    }
-
-    private suspend fun animatePreviewDismissOffset(
-        startOffsetY: Float,
-        endOffsetY: Float,
-        onUpdate: (Float) -> Unit
-    ) {
-        animate(
-            initialValue = 0f,
-            targetValue = 1f,
-            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)
-        ) { progress, _ ->
-            onUpdate(lerp(startOffsetY, endOffsetY, progress))
-        }
-    }
-
     private fun lerp(start: Float, end: Float, progress: Float): Float {
         return start + (end - start) * progress
     }
@@ -2080,17 +1932,22 @@ class MemoryDetailActivity : BaseComposeActivity() {
         } else {
             Color.White.copy(alpha = 0.94f)
         }
-        val iconTint = if (isDark) Color.White else palette.textPrimary
         val borderColor = if (isDark) {
             Color.White.copy(alpha = 0.16f)
         } else {
             Color.Black.copy(alpha = 0.08f)
+        }
+        val iconTint = if (isDark) {
+            Color.White.copy(alpha = 0.96f)
+        } else {
+            palette.textPrimary
         }
         val shadowColor = if (isDark) {
             Color.Black.copy(alpha = 0.32f)
         } else {
             Color.Black.copy(alpha = 0.18f)
         }
+
         PressScaleBox(
             onClick = onClick,
             modifier = modifier
@@ -2126,7 +1983,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     tint = iconTint,
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .size(24.dp)
+                        .size(if (size <= 48.dp) 22.dp else 24.dp)
                 )
             }
         }
@@ -3161,25 +3018,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
             hours > 0 -> "${hours}小时前"
             else -> "${minutes}分钟前"
         }
-    }
-
-    private fun calculatePreviewMinimumFillScale(
-        containerWidthPx: Float,
-        containerHeightPx: Float,
-        contentWidthPx: Float,
-        contentHeightPx: Float
-    ): Float {
-        if (
-            containerWidthPx <= 0f ||
-            containerHeightPx <= 0f ||
-            contentWidthPx <= 0f ||
-            contentHeightPx <= 0f
-        ) {
-            return 1f
-        }
-        val widthScale = containerWidthPx / contentWidthPx
-        val heightScale = containerHeightPx / contentHeightPx
-        return maxOf(widthScale, heightScale).coerceAtLeast(1f)
     }
 
     private fun maxValidLeadMinutesFor(eventAt: Long, nowMillis: Long = System.currentTimeMillis()): Int {
