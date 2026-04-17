@@ -149,17 +149,20 @@ fun AddMemorySheet(
             visible = false
         }
     }
-    val requestDismiss = remember(saving, hasDraftChanges) {
+    val tryDismiss = remember(saving, hasDraftChanges) {
         {
             if (saving) {
-                Unit
+                false
             } else if (hasDraftChanges) {
                 showExitConfirm = true
+                false
             } else {
                 visible = false
+                true
             }
         }
     }
+    val sheetDrag = rememberNoMemoSheetDragController(onDismissRequest = tryDismiss)
 
     DisposableEffect(activity) {
         val window = activity?.window
@@ -260,7 +263,7 @@ fun AddMemorySheet(
     }
 
     BackHandler(enabled = true) {
-        requestDismiss()
+        tryDismiss()
     }
 
     Box(
@@ -276,11 +279,15 @@ fun AddMemorySheet(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f))
+                    .background(
+                        Color.Black.copy(
+                            alpha = (if (isDark) 0.56f else 0.28f) * sheetDrag.scrimAlphaFraction
+                        )
+                    )
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,
-                        onClick = requestDismiss
+                        onClick = { tryDismiss() }
                     )
             )
         }
@@ -298,6 +305,7 @@ fun AddMemorySheet(
         ) {
             Card(
                 modifier = Modifier
+                    .noMemoSheetDragOffset(sheetDrag)
                     .fillMaxWidth()
                     .shadow(
                         elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
@@ -312,12 +320,10 @@ fun AddMemorySheet(
                         .heightIn(max = sheetBodyHeight)
                         .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .size(width = 56.dp, height = 5.dp)
-                            .clip(NoMemoG2CapsuleShape)
-                            .background(dragHandleColor)
+                    NoMemoSheetDragHandle(
+                        color = dragHandleColor,
+                        controller = sheetDrag,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
                     Row(
                         modifier = Modifier
@@ -328,7 +334,7 @@ fun AddMemorySheet(
                         SheetHeaderButton(
                             iconRes = R.drawable.ic_sheet_close,
                             contentDescription = "关闭",
-                            onClick = requestDismiss,
+                            onClick = { tryDismiss() },
                             size = adaptive.topActionButtonSize
                         )
                         Box(

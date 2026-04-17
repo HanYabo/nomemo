@@ -1604,8 +1604,11 @@ class GroupActivity : BaseComposeActivity() {
             }
         }
 
-        val requestDismiss = remember {
-            { visible = false }
+        val tryDismiss = remember {
+            {
+                visible = false
+                true
+            }
         }
         val requestConfirm = remember(onConfirm) {
             {
@@ -1614,9 +1617,10 @@ class GroupActivity : BaseComposeActivity() {
                 }
             }
         }
+        val sheetDrag = rememberNoMemoSheetDragController(onDismissRequest = tryDismiss)
 
         BackHandler(enabled = visible) {
-            requestDismiss()
+            tryDismiss()
         }
 
         Box(
@@ -1632,11 +1636,15 @@ class GroupActivity : BaseComposeActivity() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f))
+                        .background(
+                            Color.Black.copy(
+                                alpha = (if (isDark) 0.56f else 0.28f) * sheetDrag.scrimAlphaFraction
+                            )
+                        )
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = requestDismiss
+                            onClick = { tryDismiss() }
                         )
                 )
             }
@@ -1656,6 +1664,7 @@ class GroupActivity : BaseComposeActivity() {
             ) {
                 Card(
                     modifier = Modifier
+                        .noMemoSheetDragOffset(sheetDrag)
                         .fillMaxWidth()
                         .shadow(
                             elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
@@ -1670,13 +1679,10 @@ class GroupActivity : BaseComposeActivity() {
                             .heightIn(max = bodyHeight)
                             .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
                     ) {
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.CenterHorizontally)
-                            .width(56.dp)
-                            .height(5.dp)
-                            .clip(NoMemoG2CapsuleShape)
-                            .background(dragHandleColor)
+                    NoMemoSheetDragHandle(
+                        color = dragHandleColor,
+                        controller = sheetDrag,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
                     )
 
                     Row(
@@ -1688,7 +1694,7 @@ class GroupActivity : BaseComposeActivity() {
                         GlassIconCircleButton(
                             iconRes = R.drawable.ic_sheet_close,
                             contentDescription = stringResource(R.string.cancel),
-                            onClick = requestDismiss,
+                            onClick = { tryDismiss() },
                             size = adaptive.topActionButtonSize
                         )
                         Column(
@@ -1884,8 +1890,11 @@ class GroupActivity : BaseComposeActivity() {
             }
         }
 
-        val requestDismiss = remember {
-            { visible = false }
+        val tryDismiss = remember {
+            {
+                visible = false
+                true
+            }
         }
         val requestConfirm = remember(onConfirm) {
             {
@@ -1894,9 +1903,10 @@ class GroupActivity : BaseComposeActivity() {
                 }
             }
         }
+        val sheetDrag = rememberNoMemoSheetDragController(onDismissRequest = tryDismiss)
 
         BackHandler(enabled = visible) {
-            requestDismiss()
+            tryDismiss()
         }
 
         Box(
@@ -1912,11 +1922,15 @@ class GroupActivity : BaseComposeActivity() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f))
+                        .background(
+                            Color.Black.copy(
+                                alpha = (if (isDark) 0.56f else 0.28f) * sheetDrag.scrimAlphaFraction
+                            )
+                        )
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
-                            onClick = requestDismiss
+                            onClick = { tryDismiss() }
                         )
                 )
             }
@@ -1935,6 +1949,7 @@ class GroupActivity : BaseComposeActivity() {
             ) {
                 Card(
                     modifier = Modifier
+                        .noMemoSheetDragOffset(sheetDrag)
                         .fillMaxWidth()
                         .shadow(
                             elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
@@ -1949,13 +1964,10 @@ class GroupActivity : BaseComposeActivity() {
                             .heightIn(max = bodyHeight)
                             .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .width(56.dp)
-                                .height(5.dp)
-                                .clip(NoMemoG2CapsuleShape)
-                                .background(dragHandleColor)
+                        NoMemoSheetDragHandle(
+                            color = dragHandleColor,
+                            controller = sheetDrag,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
 
                         Row(
@@ -1967,7 +1979,7 @@ class GroupActivity : BaseComposeActivity() {
                             GlassIconCircleButton(
                                 iconRes = R.drawable.ic_sheet_close,
                                 contentDescription = stringResource(R.string.cancel),
-                                onClick = requestDismiss,
+                                onClick = { tryDismiss() },
                                 size = adaptive.topActionButtonSize
                             )
                             Column(

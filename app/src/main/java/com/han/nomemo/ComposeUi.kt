@@ -18,6 +18,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
@@ -31,6 +32,9 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.Orientation
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -82,6 +86,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -375,6 +380,106 @@ fun rememberNoMemoSheetHeight(
     val screenFraction = if (spec.isNarrow) compactScreenFraction else regularScreenFraction
     val maxHeight = configuration.screenHeightDp.dp * screenFraction
     return maxOf(minimumHeight, minOf(preferredHeight, maxHeight))
+}
+
+data class NoMemoSheetDragController(
+    val offsetPx: Float,
+    val scrimAlphaFraction: Float,
+    val handleModifier: Modifier
+)
+
+fun Modifier.noMemoSheetDragOffset(controller: NoMemoSheetDragController): Modifier {
+    return this.graphicsLayer {
+        translationY = controller.offsetPx
+    }
+}
+
+@Composable
+fun rememberNoMemoSheetDragController(
+    onDismissRequest: () -> Boolean,
+    dismissThreshold: Dp = 96.dp,
+    velocityThreshold: Dp = 1250.dp,
+    scrimFadeDistance: Dp = 180.dp
+): NoMemoSheetDragController {
+    val density = LocalDensity.current
+    val scope = rememberCoroutineScope()
+    val latestOnDismissRequest by rememberUpdatedState(onDismissRequest)
+    var offsetPx by remember { mutableStateOf(0f) }
+    var settleJob by remember { mutableStateOf<Job?>(null) }
+    val dismissThresholdPx = with(density) { dismissThreshold.toPx() }
+    val velocityThresholdPx = with(density) { velocityThreshold.toPx() }
+    val scrimFadeDistancePx = with(density) { scrimFadeDistance.toPx().coerceAtLeast(1f) }
+
+    fun animateBackToRest() {
+        settleJob?.cancel()
+        settleJob = scope.launch {
+            animate(
+                initialValue = offsetPx,
+                targetValue = 0f,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioNoBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                )
+            ) { value, _ ->
+                offsetPx = value
+            }
+        }
+    }
+
+    val dragState = rememberDraggableState { delta ->
+        settleJob?.cancel()
+        settleJob = null
+        offsetPx = (offsetPx + delta).coerceAtLeast(0f)
+    }
+
+    val handleModifier = Modifier.draggable(
+        orientation = Orientation.Vertical,
+        state = dragState,
+        onDragStarted = {
+            settleJob?.cancel()
+            settleJob = null
+        },
+        onDragStopped = { velocity ->
+            val shouldDismiss = offsetPx >= dismissThresholdPx || velocity > velocityThresholdPx
+            if (shouldDismiss) {
+                val dismissed = latestOnDismissRequest()
+                if (!dismissed) {
+                    animateBackToRest()
+                }
+            } else {
+                animateBackToRest()
+            }
+        }
+    )
+    val scrimAlphaFraction = (1f - (offsetPx / scrimFadeDistancePx).coerceIn(0f, 0.65f))
+        .coerceIn(0.35f, 1f)
+
+    return NoMemoSheetDragController(
+        offsetPx = offsetPx,
+        scrimAlphaFraction = scrimAlphaFraction,
+        handleModifier = handleModifier
+    )
+}
+
+@Composable
+fun NoMemoSheetDragHandle(
+    color: Color,
+    controller: NoMemoSheetDragController,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .size(width = 56.dp, height = 5.dp)
+            .then(controller.handleModifier),
+        contentAlignment = Alignment.Center
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .clip(NoMemoG2CapsuleShape)
+                .background(color)
+        )
+    }
 }
 
 @Composable

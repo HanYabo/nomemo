@@ -2138,6 +2138,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val reminderTimeFieldWidth = if (adaptive.isNarrow) 88.dp else 100.dp
         val eventTimeLabel = remember(eventAt) { formatReminderSheetDateTime(eventAt) }
         val finalReminderLabel = remember(finalReminderAt) { formatReminderSheetDateTime(finalReminderAt) }
+        val sheetDrag = rememberNoMemoSheetDragController(
+            onDismissRequest = {
+                onDismiss()
+                true
+            }
+        )
 
         Box(
             modifier = Modifier
@@ -2152,7 +2158,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 Box(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = if (isDark) 0.56f else 0.28f))
+                        .background(
+                            Color.Black.copy(
+                                alpha = (if (isDark) 0.56f else 0.28f) * sheetDrag.scrimAlphaFraction
+                            )
+                        )
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null,
@@ -2175,6 +2185,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             ) {
                 Card(
                     modifier = Modifier
+                        .noMemoSheetDragOffset(sheetDrag)
                         .fillMaxWidth()
                         .shadow(
                             elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
@@ -2189,12 +2200,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             .heightIn(max = sheetBodyHeight)
                             .padding(start = 16.dp, top = 10.dp, end = 16.dp, bottom = 0.dp)
                     ) {
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.CenterHorizontally)
-                                .size(width = 56.dp, height = 5.dp)
-                                .clip(NoMemoG2CapsuleShape)
-                                .background(dragHandleColor)
+                        NoMemoSheetDragHandle(
+                            color = dragHandleColor,
+                            controller = sheetDrag,
+                            modifier = Modifier.align(Alignment.CenterHorizontally)
                         )
 
                         Row(
