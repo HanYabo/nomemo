@@ -27,7 +27,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -281,7 +280,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
             if (sanitized != selectedRecordIds) {
                 selectedRecordIds = sanitized
             }
-            if (sanitized.isEmpty()) {
+            if (sanitized.isEmpty() && records.isNotEmpty()) {
                 selectionModeActive = false
                 showDeleteConfirm = false
             }
@@ -528,13 +527,8 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                 onClick = {
                                     moreMenuExpanded = false
                                     showDeleteConfirm = false
-                                    if (records.isNotEmpty()) {
-                                        selectionModeActive = true
-                                        selectedRecordIds = records.map { it.recordId }.toSet()
-                                    } else {
-                                        selectionModeActive = false
-                                        selectedRecordIds = emptySet()
-                                    }
+                                    selectionModeActive = true
+                                    selectedRecordIds = records.map { it.recordId }.toSet()
                                 }
                             ),
                             NoMemoMenuActionItem(
@@ -652,7 +646,6 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
                 .zIndex(20f)
         ) {
             AnimatedVisibility(

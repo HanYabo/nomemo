@@ -847,13 +847,8 @@ class MainActivity : BaseComposeActivity() {
                                 onClick = {
                                     moreMenuExpanded = false
                                     showDeleteConfirm = false
-                                    if (filteredRecords.isNotEmpty()) {
-                                        selectionModeActive = true
-                                        selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
-                                    } else {
-                                        selectionModeActive = false
-                                        selectedRecordIds = emptySet()
-                                    }
+                                    selectionModeActive = true
+                                    selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
                                 }
                             ),
                             NoMemoMenuActionItem(

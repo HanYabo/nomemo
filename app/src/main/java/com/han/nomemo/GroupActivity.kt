@@ -43,7 +43,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -439,7 +438,7 @@ class GroupActivity : BaseComposeActivity() {
             if (sanitized != selectedAlbumRecordIds) {
                 selectedAlbumRecordIds = sanitized
             }
-            if (sanitized.isEmpty()) {
+            if (sanitized.isEmpty() && openedRecords.isNotEmpty()) {
                 albumSelectionModeActive = false
                 showRemoveFromAlbumConfirm = false
                 showDeleteSelectedConfirm = false
@@ -851,15 +850,10 @@ class GroupActivity : BaseComposeActivity() {
                                 label = "全选",
                                 onClick = {
                                     detailMoreExpanded = false
-                                    if (openedRecords.isNotEmpty()) {
-                                        albumSelectionModeActive = true
-                                        selectedAlbumRecordIds = openedRecords.map { it.recordId }.toSet()
-                                        showRemoveFromAlbumConfirm = false
-                                        showDeleteSelectedConfirm = false
-                                    } else {
-                                        albumSelectionModeActive = false
-                                        selectedAlbumRecordIds = emptySet()
-                                    }
+                                    albumSelectionModeActive = true
+                                    selectedAlbumRecordIds = openedRecords.map { it.recordId }.toSet()
+                                    showRemoveFromAlbumConfirm = false
+                                    showDeleteSelectedConfirm = false
                                 }
                             ),
                             NoMemoMenuActionItem(
@@ -1628,7 +1622,6 @@ class GroupActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
                 .zIndex(20f)
         ) {
             AnimatedVisibility(
@@ -1871,7 +1864,7 @@ class GroupActivity : BaseComposeActivity() {
         DisposableEffect(activity) {
             val window = activity?.window
             val previousSoftInputMode = window?.attributes?.softInputMode
-            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
             onDispose {
                 if (window != null && previousSoftInputMode != null) {
                     window.setSoftInputMode(previousSoftInputMode)
@@ -1909,7 +1902,6 @@ class GroupActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
                 .zIndex(20f)
         ) {
             AnimatedVisibility(

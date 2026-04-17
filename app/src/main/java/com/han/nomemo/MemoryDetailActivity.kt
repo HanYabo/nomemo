@@ -56,7 +56,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -2370,7 +2369,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .imePadding()
                 .zIndex(28f)
         ) {
             AnimatedVisibility(
@@ -2915,7 +2913,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 color = style.third,
                 fontSize = style.first,
                 lineHeight = style.first,
-                fontWeight = style.second
+                fontWeight = style.second,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
@@ -3304,5 +3304,3 @@ class MemoryDetailActivity : BaseComposeActivity() {
         return if (remainder < 0) remainder + mod else remainder
     }
 }
-
-
