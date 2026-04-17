@@ -114,6 +114,7 @@ class GroupActivity : BaseComposeActivity() {
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
     private var hasHandledInitialResume = false
+    private var startupDockPulseTab: NoMemoDockTab? = null
 
     private val settingsLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -134,6 +135,13 @@ class GroupActivity : BaseComposeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (initialOpenedAlbumId == null) {
+            startActivity(MainActivity.createPrimaryTabIntent(this, NoMemoDockTab.GROUP))
+            overridePendingTransition(R.anim.primary_page_enter, R.anim.primary_page_exit)
+            finish()
+            return
+        }
+        startupDockPulseTab = consumePrimaryDockPulse()
         memoryStore = MemoryStore(this)
         setContent {
             GroupContent(
@@ -151,6 +159,7 @@ class GroupActivity : BaseComposeActivity() {
                 showAddSheet = showAddSheet,
                 onAddClick = { showAddSheet = true },
                 onDismissAddSheet = { showAddSheet = false },
+                startupDockPulseTab = startupDockPulseTab,
                 albumRefreshTick = albumRefreshTick,
                 initialOpenedAlbumId = initialOpenedAlbumId,
                 openedAsStandaloneDetail = initialOpenedAlbumId != null,
@@ -219,11 +228,11 @@ class GroupActivity : BaseComposeActivity() {
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
-        switchPrimaryPage(intent)
+        switchPrimaryPage(intent, pulseTab = NoMemoDockTab.MEMORY)
     }
 
     private fun openReminderPage() {
-        switchPrimaryPage(Intent(this, ReminderActivity::class.java))
+        switchPrimaryPage(Intent(this, ReminderActivity::class.java), pulseTab = NoMemoDockTab.REMINDER)
     }
 
     private fun openDetailPage(recordId: String) {
@@ -280,6 +289,7 @@ class GroupActivity : BaseComposeActivity() {
         showAddSheet: Boolean,
         onAddClick: () -> Unit,
         onDismissAddSheet: () -> Unit,
+        startupDockPulseTab: NoMemoDockTab?,
         albumRefreshTick: Int,
         initialOpenedAlbumId: String?,
         openedAsStandaloneDetail: Boolean,
@@ -779,6 +789,8 @@ class GroupActivity : BaseComposeActivity() {
                             onOpenReminder = onOpenReminder,
                             onAddClick = onAddClick,
                             spec = spec,
+                            startupPulseTab = startupDockPulseTab,
+                            startupPulseDelayMs = 140L,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
@@ -2225,7 +2237,7 @@ class GroupActivity : BaseComposeActivity() {
 
 private const val EXTRA_OPEN_ALBUM_ID = "extra_open_album_id"
 
-private fun createGroupActivityIntent(
+internal fun createGroupActivityIntent(
     context: android.content.Context,
     albumId: String? = null
 ): Intent {

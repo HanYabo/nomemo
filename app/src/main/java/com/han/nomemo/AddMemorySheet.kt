@@ -269,7 +269,7 @@ fun AddMemorySheet(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .zIndex(12f)
+            .zIndex(40f)
     ) {
         AnimatedVisibility(
             visible = visible,

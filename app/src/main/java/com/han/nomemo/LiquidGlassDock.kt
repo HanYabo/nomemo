@@ -26,6 +26,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -98,16 +99,22 @@ fun LiquidGlassDock(
     onOpenGroup: () -> Unit,
     onOpenReminder: () -> Unit,
     onAddClick: () -> Unit,
+    enabled: Boolean = true,
     modifier: Modifier = Modifier,
     spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
     sharedBackdrop: Backdrop? = null,
     dockOrderOverride: List<NoMemoDockTab>? = null,
-    showAddButton: Boolean = true
+    showAddButton: Boolean = true,
+    startupPulseTab: NoMemoDockTab? = null,
+    startupPulseDelayMs: Long = 0L
 ) {
     val palette = rememberNoMemoPalette()
     val haptic = LocalHapticFeedback.current
     val context = LocalContext.current
     val appContext = remember(context) { context.applicationContext }
+    val latestOpenMemory = rememberUpdatedState(onOpenMemory)
+    val latestOpenGroup = rememberUpdatedState(onOpenGroup)
+    val latestOpenReminder = rememberUpdatedState(onOpenReminder)
     val settingsStore = remember(appContext) { SettingsStore(appContext) }
     val prefs = remember(appContext) {
         appContext.getSharedPreferences(SettingsStore.PREF_NAME, Context.MODE_PRIVATE)
@@ -131,9 +138,6 @@ fun LiquidGlassDock(
     val dockOrder = dockOrderOverride ?: persistedDockOrder
     val tabs = remember(
         dockOrder,
-        onOpenMemory,
-        onOpenGroup,
-        onOpenReminder,
         memoryLabel,
         groupLabel,
         reminderLabel
@@ -144,19 +148,19 @@ fun LiquidGlassDock(
                     tab = NoMemoDockTab.MEMORY,
                     iconRes = R.drawable.ic_nm_memory,
                     label = memoryLabel,
-                    onClick = onOpenMemory
+                    onClick = { latestOpenMemory.value.invoke() }
                 )
                 NoMemoDockTab.GROUP -> DockTabSpec(
                     tab = NoMemoDockTab.GROUP,
                     iconRes = R.drawable.ic_nm_group,
                     label = groupLabel,
-                    onClick = onOpenGroup
+                    onClick = { latestOpenGroup.value.invoke() }
                 )
                 NoMemoDockTab.REMINDER -> DockTabSpec(
                     tab = NoMemoDockTab.REMINDER,
                     iconRes = R.drawable.ic_nm_reminder,
                     label = reminderLabel,
-                    onClick = onOpenReminder
+                    onClick = { latestOpenReminder.value.invoke() }
                 )
             }
         }
@@ -181,13 +185,17 @@ fun LiquidGlassDock(
                 tabs = tabs,
                 dockWidth = dockWidth,
                 dockHeight = dockHeight,
+                enabled = enabled,
                 backdrop = backdrop,
                 palette = palette,
-                haptic = haptic
+                haptic = haptic,
+                startupPulseTab = startupPulseTab,
+                startupPulseDelayMs = startupPulseDelayMs
             )
 
             LiquidGlassAddButton(
                 onAddClick = onAddClick,
+                enabled = enabled,
                 buttonSize = buttonSize,
                 spec = spec,
                 backdrop = backdrop,
@@ -207,9 +215,12 @@ fun LiquidGlassDock(
                 tabs = tabs,
                 dockWidth = dockWidth,
                 dockHeight = dockHeight,
+                enabled = enabled,
                 backdrop = backdrop,
                 palette = palette,
-                haptic = haptic
+                haptic = haptic,
+                startupPulseTab = startupPulseTab,
+                startupPulseDelayMs = startupPulseDelayMs
             )
         }
     }
@@ -221,9 +232,12 @@ private fun LiquidGlassDockTabs(
     tabs: List<DockTabSpec>,
     dockWidth: Dp,
     dockHeight: Dp,
+    enabled: Boolean,
     backdrop: Backdrop,
     palette: NoMemoPalette,
-    haptic: HapticFeedback
+    haptic: HapticFeedback,
+    startupPulseTab: NoMemoDockTab? = null,
+    startupPulseDelayMs: Long = 0L
 ) {
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
@@ -258,8 +272,15 @@ private fun LiquidGlassDockTabs(
         val selectedIndex = remember(selectedTab, tabs) {
             tabs.indexOfFirst { it.tab == selectedTab }.coerceAtLeast(0)
         }
-        var currentIndex by remember(tabs) {
+        val tabOrderKey = tabs.map { it.tab }
+        var currentIndex by remember(tabOrderKey) {
             mutableIntStateOf(selectedIndex)
+        }
+        var hasBoundInitialSelection by remember(tabOrderKey) {
+            mutableStateOf(false)
+        }
+        var startupPulseConsumed by remember(startupPulseTab, selectedTab, tabOrderKey) {
+            mutableStateOf(startupPulseTab == null || startupPulseTab != selectedTab)
         }
         val latestTabs by rememberUpdatedState(tabs)
         val latestSelectedIndex by rememberUpdatedState(selectedIndex)
@@ -294,11 +315,27 @@ private fun LiquidGlassDockTabs(
         }
         LaunchedEffect(selectedIndex, dampedDragAnimation) {
             currentIndex = selectedIndex
-            dampedDragAnimation.animateToValue(selectedIndex.toFloat())
-            offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+            if (hasBoundInitialSelection) {
+                dampedDragAnimation.animateToValue(selectedIndex.toFloat())
+                offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+            } else {
+                hasBoundInitialSelection = true
+                offsetAnimation.snapTo(0f)
+            }
         }
 
-        LaunchedEffect(dampedDragAnimation, tabs) {
+        LaunchedEffect(startupPulseConsumed, selectedIndex, startupPulseDelayMs, dampedDragAnimation) {
+            if (!startupPulseConsumed) {
+                if (startupPulseDelayMs > 0) {
+                    kotlinx.coroutines.delay(startupPulseDelayMs)
+                }
+                dampedDragAnimation.animateToValue(selectedIndex.toFloat())
+                offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
+                startupPulseConsumed = true
+            }
+        }
+
+        LaunchedEffect(dampedDragAnimation, tabOrderKey) {
             snapshotFlow { currentIndex }
                 .drop(1)
                 .collectLatest { index ->
@@ -355,6 +392,7 @@ private fun LiquidGlassDockTabs(
                     iconRes = tab.iconRes,
                     label = tab.label,
                     contentColor = baseColor,
+                    enabled = enabled,
                     onClick = { currentIndex = index }
                 )
             }
@@ -413,8 +451,8 @@ private fun LiquidGlassDockTabs(
                         size.width - (dampedDragAnimation.value + 1f) * tabWidth + panelOffset
                     }
                 }
-                .then(interactiveHighlight.gestureModifier)
-                .then(dampedDragAnimation.modifier)
+                .then(if (enabled) interactiveHighlight.gestureModifier else Modifier)
+                .then(if (enabled) dampedDragAnimation.modifier else Modifier)
                 .drawBackdrop(
                     backdrop = rememberCombinedBackdrop(backdrop, tabsBackdrop),
                     shape = { DockShape },
@@ -518,6 +556,7 @@ private fun RowScope.LiquidGlassDockItem(
 @Composable
 private fun LiquidGlassAddButton(
     onAddClick: () -> Unit,
+    enabled: Boolean,
     buttonSize: Dp,
     spec: NoMemoAdaptiveSpec,
     backdrop: Backdrop,
@@ -569,6 +608,7 @@ private fun LiquidGlassAddButton(
             )
             .clip(DockShape)
             .clickable(
+                enabled = enabled,
                 interactionSource = null,
                 indication = null,
                 role = Role.Button,
@@ -578,7 +618,7 @@ private fun LiquidGlassAddButton(
                 }
             )
             .then(interactiveHighlight.modifier)
-            .then(interactiveHighlight.gestureModifier),
+            .then(if (enabled) interactiveHighlight.gestureModifier else Modifier),
         contentAlignment = Alignment.Center
     ) {
         androidx.compose.material3.Icon(

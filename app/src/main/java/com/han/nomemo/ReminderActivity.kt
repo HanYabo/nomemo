@@ -99,6 +99,7 @@ class ReminderActivity : BaseComposeActivity() {
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
     private var hasHandledInitialResume = false
+    private var startupDockPulseTab: NoMemoDockTab? = null
 
     private val settingsLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -119,6 +120,11 @@ class ReminderActivity : BaseComposeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        startActivity(MainActivity.createPrimaryTabIntent(this, NoMemoDockTab.REMINDER))
+        overridePendingTransition(R.anim.primary_page_enter, R.anim.primary_page_exit)
+        finish()
+        return
+        startupDockPulseTab = consumePrimaryDockPulse()
         memoryStore = MemoryStore(this)
         setContent {
             ReminderContent(
@@ -142,7 +148,8 @@ class ReminderActivity : BaseComposeActivity() {
                 onOpenSettings = { openSettingsPage() },
                 showAddSheet = showAddSheet,
                 onAddClick = { showAddSheet = true },
-                onDismissAddSheet = { showAddSheet = false }
+                onDismissAddSheet = { showAddSheet = false },
+                startupDockPulseTab = startupDockPulseTab
             )
         }
         refreshReminders()
@@ -215,11 +222,11 @@ class ReminderActivity : BaseComposeActivity() {
         val intent = Intent(this, MainActivity::class.java).apply {
             addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
         }
-        switchPrimaryPage(intent)
+        switchPrimaryPage(intent, pulseTab = NoMemoDockTab.MEMORY)
     }
 
     private fun openGroupPage() {
-        switchPrimaryPage(Intent(this, GroupActivity::class.java))
+        switchPrimaryPage(Intent(this, GroupActivity::class.java), pulseTab = NoMemoDockTab.GROUP)
     }
 
     private fun openDetailPage(recordId: String) {
@@ -263,7 +270,8 @@ class ReminderActivity : BaseComposeActivity() {
         onOpenSettings: () -> Unit,
         showAddSheet: Boolean,
         onAddClick: () -> Unit,
-        onDismissAddSheet: () -> Unit
+        onDismissAddSheet: () -> Unit,
+        startupDockPulseTab: NoMemoDockTab?
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -535,6 +543,8 @@ class ReminderActivity : BaseComposeActivity() {
                             onOpenReminder = {},
                             onAddClick = onAddClick,
                             spec = spec,
+                            startupPulseTab = startupDockPulseTab,
+                            startupPulseDelayMs = 140L,
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()

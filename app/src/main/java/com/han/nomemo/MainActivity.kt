@@ -1,6 +1,7 @@
 ﻿package com.han.nomemo
 
 import android.content.BroadcastReceiver
+import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.os.Bundle
@@ -28,6 +29,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -76,6 +78,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -87,12 +90,30 @@ import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
+import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.jvm.java
+
+internal sealed interface PrimaryHostOverlay {
+    data class AddMemory(
+        val onDismiss: () -> Unit,
+        val onSaved: (() -> Unit)? = null
+    ) : PrimaryHostOverlay
+
+    data class GroupCreateAlbum(
+        val title: String,
+        val albumName: String,
+        val albumDescription: String,
+        val onNameChange: (String) -> Unit,
+        val onDescriptionChange: (String) -> Unit,
+        val onDismiss: () -> Unit,
+        val onConfirm: () -> Boolean
+    ) : PrimaryHostOverlay
+}
 
 class MainActivity : BaseComposeActivity() {
     companion object {
@@ -102,6 +123,17 @@ class MainActivity : BaseComposeActivity() {
         private const val FILTER_WORK = "WORK"
         private const val FILTER_AI = "AI"
         private const val FILTER_ARCHIVED = "ARCHIVED"
+        private const val EXTRA_INITIAL_PRIMARY_TAB = "extra_initial_primary_tab"
+
+        fun createPrimaryTabIntent(
+            context: Context,
+            tab: NoMemoDockTab
+        ): Intent {
+            return Intent(context, MainActivity::class.java).apply {
+                putExtra(EXTRA_INITIAL_PRIMARY_TAB, tab.name)
+                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
+        }
     }
     private data class FilterChipCounts(
         val all: Int = 0,
@@ -122,6 +154,10 @@ class MainActivity : BaseComposeActivity() {
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
     private var hasHandledInitialResume = false
+    private var currentPrimaryTab by mutableStateOf(NoMemoDockTab.MEMORY)
+    private var primaryDockVisible by mutableStateOf(false)
+    private var primaryDockAddAction by mutableStateOf<(() -> Unit)?>(null)
+    private var primaryOverlay by mutableStateOf<PrimaryHostOverlay?>(null)
 
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
@@ -140,39 +176,20 @@ class MainActivity : BaseComposeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        maybeRedirectToConfiguredLaunchPage(savedInstanceState)?.let { targetTab ->
-            when (targetTab) {
-                NoMemoDockTab.MEMORY -> Unit
-                NoMemoDockTab.GROUP -> switchPrimaryPage(Intent(this, GroupActivity::class.java))
-                NoMemoDockTab.REMINDER -> switchPrimaryPage(Intent(this, ReminderActivity::class.java))
-            }
-            return
-        }
         memoryStore = MemoryStore(this)
+        currentPrimaryTab = resolveInitialPrimaryTab(savedInstanceState)
         setContent {
-            MainContent(
-                records = records,
-                filterChipCounts = filterChipCounts,
-                hasLoadedRecords = hasLoadedRecords,
-                selectedFilter = selectedFilter,
-                onFilterSelect = { filter ->
-                    selectedFilter = normalizeMainFilter(filter)
-                    refreshRecords()
-                },
-                onDeleteRecords = { recordIds -> deleteRecords(recordIds) },
-                onArchiveRecords = { selectedRecords -> toggleArchive(selectedRecords) },
-                onOpenDetail = { record -> openDetailPage(record.recordId) },
-                showAddSheet = showAddSheet,
-                onAddClick = { showAddSheet = true },
-                onDismissAddSheet = { showAddSheet = false },
-                onOpenGroup = { openGroupPage() },
-                onOpenReminder = { openReminderPage() },
-                onOpenSearch = { openSearchPage() },
-                onOpenSettings = { openSettingsPage() },
-                onOpenArchivedMemory = { openArchivedMemoryPage() }
-            )
+            PrimaryHostContent()
         }
         refreshRecords()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        consumeRequestedPrimaryTab(intent)?.let { tab ->
+            selectPrimaryTab(tab)
+        }
     }
 
     override fun onResume() {
@@ -196,19 +213,43 @@ class MainActivity : BaseComposeActivity() {
 
     override fun enableDoubleBackToDesktop(): Boolean = true
 
-    private fun maybeRedirectToConfiguredLaunchPage(savedInstanceState: Bundle?): NoMemoDockTab? {
+    private fun resolveInitialPrimaryTab(savedInstanceState: Bundle?): NoMemoDockTab {
         if (savedInstanceState != null) {
-            return null
+            return currentPrimaryTab
         }
-        val launchIntent = intent ?: return null
+        consumeRequestedPrimaryTab(intent)?.let { return it }
+        val launchIntent = intent
         val isLauncherLaunch =
-            launchIntent.action == Intent.ACTION_MAIN &&
-                launchIntent.hasCategory(Intent.CATEGORY_LAUNCHER)
-        if (!isLauncherLaunch) {
-            return null
+            launchIntent?.action == Intent.ACTION_MAIN &&
+                (launchIntent?.hasCategory(Intent.CATEGORY_LAUNCHER) == true)
+        if (isLauncherLaunch) {
+            return SettingsStore(this).defaultLaunchDockTab()
         }
-        val defaultTab = SettingsStore(this).defaultLaunchDockTab()
-        return defaultTab.takeUnless { it == NoMemoDockTab.MEMORY }
+        return NoMemoDockTab.MEMORY
+    }
+
+    private fun consumeRequestedPrimaryTab(sourceIntent: Intent?): NoMemoDockTab? {
+        val encoded = sourceIntent?.getStringExtra(EXTRA_INITIAL_PRIMARY_TAB) ?: return null
+        sourceIntent.removeExtra(EXTRA_INITIAL_PRIMARY_TAB)
+        return runCatching { NoMemoDockTab.valueOf(encoded) }.getOrNull()
+    }
+
+    private fun selectPrimaryTab(tab: NoMemoDockTab) {
+        currentPrimaryTab = tab
+        primaryOverlay = null
+        resetDoubleBackExitState()
+    }
+
+    private fun updatePrimaryDockState(
+        visible: Boolean,
+        onAddClick: (() -> Unit)?
+    ) {
+        primaryDockVisible = visible
+        primaryDockAddAction = onAddClick
+    }
+
+    private fun updatePrimaryOverlay(overlay: PrimaryHostOverlay?) {
+        primaryOverlay = overlay
     }
 
     private fun normalizeMainFilter(filter: String): String {
@@ -250,6 +291,161 @@ class MainActivity : BaseComposeActivity() {
         }
     }
 
+    @Composable
+    private fun PrimaryHostContent() {
+        val memoryBackdrop = rememberLayerBackdrop {
+            drawContent()
+        }
+        val groupBackdrop = rememberLayerBackdrop {
+            drawContent()
+        }
+        val reminderBackdrop = rememberLayerBackdrop {
+            drawContent()
+        }
+        val spec = rememberNoMemoAdaptiveSpec()
+        val currentDockBackdrop = when (currentPrimaryTab) {
+            NoMemoDockTab.MEMORY -> memoryBackdrop
+            NoMemoDockTab.GROUP -> groupBackdrop
+            NoMemoDockTab.REMINDER -> reminderBackdrop
+        }
+        Box(modifier = Modifier.fillMaxSize()) {
+            PrimaryStage(visible = currentPrimaryTab == NoMemoDockTab.MEMORY) {
+                MainContent(
+                    records = records,
+                    filterChipCounts = filterChipCounts,
+                    hasLoadedRecords = hasLoadedRecords,
+                    selectedFilter = selectedFilter,
+                    onFilterSelect = { filter ->
+                        selectedFilter = normalizeMainFilter(filter)
+                        refreshRecords()
+                    },
+                    onDeleteRecords = { recordIds -> deleteRecords(recordIds) },
+                    onArchiveRecords = { selectedRecords -> toggleArchive(selectedRecords) },
+                    onOpenDetail = { record -> openDetailPage(record.recordId) },
+                    showAddSheet = showAddSheet,
+                    onAddClick = { showAddSheet = true },
+                    onDismissAddSheet = { showAddSheet = false },
+                    onOpenGroup = { openGroupPage() },
+                    onOpenReminder = { openReminderPage() },
+                    onOpenSearch = { openSearchPage() },
+                    onOpenSettings = { openSettingsPage() },
+                    onOpenArchivedMemory = { openArchivedMemoryPage() },
+                    backdrop = memoryBackdrop,
+                    showPrimaryDock = false,
+                    isActive = currentPrimaryTab == NoMemoDockTab.MEMORY,
+                    onPrimaryDockStateChanged = { visible, onAddClick ->
+                        updatePrimaryDockState(visible, onAddClick)
+                    },
+                    onPrimaryOverlayChanged = { overlay ->
+                        updatePrimaryOverlay(overlay)
+                    }
+                )
+            }
+
+            PrimaryStage(visible = currentPrimaryTab == NoMemoDockTab.GROUP) {
+                GroupPrimaryScreenRoute(
+                    backdrop = groupBackdrop,
+                    isActive = currentPrimaryTab == NoMemoDockTab.GROUP,
+                    onPrimaryDockStateChanged = { visible, onAddClick ->
+                        updatePrimaryDockState(visible, onAddClick)
+                    },
+                    onPrimaryOverlayChanged = { overlay ->
+                        updatePrimaryOverlay(overlay)
+                    },
+                    onOpenSearch = { openSearchPage() },
+                    onOpenSettings = { openSettingsPage() },
+                    onOpenAlbumDetail = { albumId ->
+                        startActivity(createGroupActivityIntent(this@MainActivity, albumId))
+                    }
+                )
+            }
+
+            PrimaryStage(visible = currentPrimaryTab == NoMemoDockTab.REMINDER) {
+                ReminderPrimaryScreenRoute(
+                    backdrop = reminderBackdrop,
+                    isActive = currentPrimaryTab == NoMemoDockTab.REMINDER,
+                    onPrimaryDockStateChanged = { visible, onAddClick ->
+                        updatePrimaryDockState(visible, onAddClick)
+                    },
+                    onPrimaryOverlayChanged = { overlay ->
+                        updatePrimaryOverlay(overlay)
+                    },
+                    onOpenDetail = { record -> openDetailPage(record.recordId) },
+                    onOpenSearch = { openSearchPage() },
+                    onOpenSettings = { openSettingsPage() }
+                )
+            }
+
+            LiquidGlassDock(
+                selectedTab = currentPrimaryTab,
+                enabled = primaryDockVisible,
+                spec = spec,
+                modifier = Modifier
+                    .zIndex(20f)
+                    .graphicsLayer {
+                        alpha = if (primaryDockVisible) 1f else 0f
+                    }
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(
+                        start = spec.pageHorizontalPadding,
+                        end = spec.pageHorizontalPadding,
+                        bottom = if (spec.isNarrow) 10.dp else 14.dp
+                    ),
+                onOpenMemory = { openMemoryPage() },
+                onOpenGroup = { openGroupPage() },
+                onOpenReminder = { openReminderPage() },
+                onAddClick = { primaryDockAddAction?.invoke() },
+                sharedBackdrop = currentDockBackdrop
+            )
+
+            when (val overlay = primaryOverlay) {
+                is PrimaryHostOverlay.AddMemory -> {
+                    AddMemorySheet(
+                        onDismiss = overlay.onDismiss,
+                        onSaved = overlay.onSaved
+                    )
+                }
+                is PrimaryHostOverlay.GroupCreateAlbum -> {
+                    PrimaryGroupEditAlbumSheet(
+                        title = overlay.title,
+                        albumName = overlay.albumName,
+                        albumDescription = overlay.albumDescription,
+                        onNameChange = overlay.onNameChange,
+                        onDescriptionChange = overlay.onDescriptionChange,
+                        onDismiss = overlay.onDismiss,
+                        onConfirm = overlay.onConfirm
+                    )
+                }
+                null -> Unit
+            }
+        }
+    }
+
+    @Composable
+    private fun PrimaryStage(
+        visible: Boolean,
+        content: @Composable BoxScope.() -> Unit
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(if (visible) 3f else -1f)
+                .graphicsLayer {
+                    alpha = if (visible) 1f else 0f
+                }
+                .layout { measurable, constraints ->
+                    val placeable = measurable.measure(constraints)
+                    layout(placeable.width, placeable.height) {
+                        val offstageX = if (visible) 0 else constraints.maxWidth + placeable.width
+                        placeable.placeRelative(offstageX, 0)
+                    }
+                }
+        ) {
+            content()
+        }
+    }
+
     private fun registerMemoryChangeReceiver() {
         if (memoryChangeRegistered) {
             return
@@ -271,12 +467,16 @@ class MainActivity : BaseComposeActivity() {
         memoryChangeRegistered = false
     }
 
+    private fun openMemoryPage() {
+        selectPrimaryTab(NoMemoDockTab.MEMORY)
+    }
+
     private fun openGroupPage() {
-        switchPrimaryPage(Intent(this, GroupActivity::class.java))
+        selectPrimaryTab(NoMemoDockTab.GROUP)
     }
 
     private fun openReminderPage() {
-        switchPrimaryPage(Intent(this, ReminderActivity::class.java))
+        selectPrimaryTab(NoMemoDockTab.REMINDER)
     }
 
     private fun openSettingsPage() {
@@ -361,7 +561,12 @@ class MainActivity : BaseComposeActivity() {
         onOpenReminder: () -> Unit,
         onOpenSearch: () -> Unit,
         onOpenSettings: () -> Unit,
-        onOpenArchivedMemory: () -> Unit
+        onOpenArchivedMemory: () -> Unit,
+        backdrop: LayerBackdrop = rememberLayerBackdrop { drawContent() },
+        showPrimaryDock: Boolean = true,
+        isActive: Boolean = true,
+        onPrimaryDockStateChanged: (Boolean, (() -> Unit)?) -> Unit = { _, _ -> },
+        onPrimaryOverlayChanged: (PrimaryHostOverlay?) -> Unit = {}
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -524,6 +729,24 @@ class MainActivity : BaseComposeActivity() {
                 pendingScrollToTopAfterAdd = false
             }
         }
+        LaunchedEffect(isActive, selectionModeActive, onAddClick) {
+            if (isActive) {
+                onPrimaryDockStateChanged(!selectionModeActive, onAddClick)
+            }
+        }
+        LaunchedEffect(isActive, showAddSheet, onDismissAddSheet, pendingScrollToTopAfterAdd) {
+            if (isActive) {
+                val overlay = if (showAddSheet) {
+                    PrimaryHostOverlay.AddMemory(
+                        onDismiss = onDismissAddSheet,
+                        onSaved = { pendingScrollToTopAfterAdd = true }
+                    )
+                } else {
+                    null
+                }
+                onPrimaryOverlayChanged(overlay)
+            }
+        }
         BackHandler(enabled = selectionModeActive) {
             selectionModeActive = false
             selectedRecordIds = emptySet()
@@ -533,11 +756,6 @@ class MainActivity : BaseComposeActivity() {
         NoMemoBackground {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Box(modifier = Modifier.fillMaxSize()) {
-                    // 创建全局 backdrop 层，捕获页面内容用于液态玻璃效果
-                    val backdrop = rememberLayerBackdrop {
-                        drawContent()  // 绘制内容层（Column 会标记为 layerBackdrop）
-                    }
-
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -806,7 +1024,7 @@ class MainActivity : BaseComposeActivity() {
                         )
                     }
 
-                    if (!selectionModeActive) {
+                    if (showPrimaryDock && !selectionModeActive) {
                         LiquidGlassDock(
                             selectedTab = NoMemoDockTab.MEMORY,
                             spec = spec,
@@ -817,12 +1035,12 @@ class MainActivity : BaseComposeActivity() {
                                     start = spec.pageHorizontalPadding,
                                     end = spec.pageHorizontalPadding,
                                     bottom = if (spec.isNarrow) 10.dp else 14.dp
-                                ),
+                            ),
                             onOpenMemory = {},
                             onOpenGroup = onOpenGroup,
                             onOpenReminder = onOpenReminder,
                             onAddClick = onAddClick,
-                            sharedBackdrop = backdrop  // 传入共享的 backdrop，实现真实玻璃效果
+                            sharedBackdrop = backdrop
                         )
                     } else if (selectedRecords.isNotEmpty()) {
                         NoMemoSelectionActionDock(
@@ -893,12 +1111,6 @@ class MainActivity : BaseComposeActivity() {
                         )
                     )
 
-                    if (showAddSheet) {
-                        AddMemorySheet(
-                            onDismiss = onDismissAddSheet,
-                            onSaved = { pendingScrollToTopAfterAdd = true }
-                        )
-                    }
                 }
             }
         }

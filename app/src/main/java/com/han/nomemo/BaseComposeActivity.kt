@@ -44,17 +44,29 @@ abstract class BaseComposeActivity : AppCompatActivity() {
         doubleBackExitCallback.isEnabled = enableDoubleBackToDesktop()
     }
 
-    protected fun switchPrimaryPage(intent: Intent) {
+    protected fun switchPrimaryPage(intent: Intent, pulseTab: NoMemoDockTab? = null) {
+        pulseTab?.let { intent.putExtra(EXTRA_PRIMARY_DOCK_PULSE_TAB, it.name) }
         startActivity(intent)
         overridePendingTransition(R.anim.primary_page_enter, R.anim.primary_page_exit)
         finish()
+    }
+
+    protected fun consumePrimaryDockPulse(): NoMemoDockTab? {
+        val encoded = intent?.getStringExtra(EXTRA_PRIMARY_DOCK_PULSE_TAB) ?: return null
+        intent?.removeExtra(EXTRA_PRIMARY_DOCK_PULSE_TAB)
+        return runCatching { NoMemoDockTab.valueOf(encoded) }.getOrNull()
     }
 
     protected fun resetDoubleBackExitState() {
         lastBackPressedAt = 0L
     }
 
+    fun clearDoubleBackExitState() {
+        resetDoubleBackExitState()
+    }
+
     companion object {
         private const val DOUBLE_BACK_INTERVAL_MS = 2000L
+        private const val EXTRA_PRIMARY_DOCK_PULSE_TAB = "extra_primary_dock_pulse_tab"
     }
 }
