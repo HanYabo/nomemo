@@ -140,6 +140,14 @@ class MainActivity : BaseComposeActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        maybeRedirectToConfiguredLaunchPage(savedInstanceState)?.let { targetTab ->
+            when (targetTab) {
+                NoMemoDockTab.MEMORY -> Unit
+                NoMemoDockTab.GROUP -> switchPrimaryPage(Intent(this, GroupActivity::class.java))
+                NoMemoDockTab.REMINDER -> switchPrimaryPage(Intent(this, ReminderActivity::class.java))
+            }
+            return
+        }
         memoryStore = MemoryStore(this)
         setContent {
             MainContent(
@@ -187,6 +195,21 @@ class MainActivity : BaseComposeActivity() {
     }
 
     override fun enableDoubleBackToDesktop(): Boolean = true
+
+    private fun maybeRedirectToConfiguredLaunchPage(savedInstanceState: Bundle?): NoMemoDockTab? {
+        if (savedInstanceState != null) {
+            return null
+        }
+        val launchIntent = intent ?: return null
+        val isLauncherLaunch =
+            launchIntent.action == Intent.ACTION_MAIN &&
+                launchIntent.hasCategory(Intent.CATEGORY_LAUNCHER)
+        if (!isLauncherLaunch) {
+            return null
+        }
+        val defaultTab = SettingsStore(this).defaultLaunchDockTab()
+        return defaultTab.takeUnless { it == NoMemoDockTab.MEMORY }
+    }
 
     private fun normalizeMainFilter(filter: String): String {
         return when (filter) {

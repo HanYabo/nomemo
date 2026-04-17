@@ -1,5 +1,7 @@
 ﻿package com.han.nomemo
 
+import android.content.Context
+import android.content.SharedPreferences
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
@@ -19,12 +21,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -37,6 +41,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -95,16 +100,66 @@ fun LiquidGlassDock(
     onAddClick: () -> Unit,
     modifier: Modifier = Modifier,
     spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
-    sharedBackdrop: Backdrop? = null
+    sharedBackdrop: Backdrop? = null,
+    dockOrderOverride: List<NoMemoDockTab>? = null,
+    showAddButton: Boolean = true
 ) {
     val palette = rememberNoMemoPalette()
     val haptic = LocalHapticFeedback.current
-    val tabs = remember(onOpenMemory, onOpenGroup, onOpenReminder) {
-        listOf(
-            DockTabSpec(NoMemoDockTab.MEMORY, R.drawable.ic_nm_memory, "", onOpenMemory),
-            DockTabSpec(NoMemoDockTab.GROUP, R.drawable.ic_nm_group, "", onOpenGroup),
-            DockTabSpec(NoMemoDockTab.REMINDER, R.drawable.ic_nm_reminder, "", onOpenReminder)
-        )
+    val context = LocalContext.current
+    val appContext = remember(context) { context.applicationContext }
+    val settingsStore = remember(appContext) { SettingsStore(appContext) }
+    val prefs = remember(appContext) {
+        appContext.getSharedPreferences(SettingsStore.PREF_NAME, Context.MODE_PRIVATE)
+    }
+    var dockOrderVersion by remember { mutableIntStateOf(0) }
+    DisposableEffect(prefs) {
+        val listener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+            if (key == "bottom_dock_order") {
+                dockOrderVersion += 1
+            }
+        }
+        prefs.registerOnSharedPreferenceChangeListener(listener)
+        onDispose {
+            prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        }
+    }
+    val memoryLabel = stringResource(R.string.nav_memory)
+    val groupLabel = stringResource(R.string.nav_group)
+    val reminderLabel = stringResource(R.string.nav_reminder)
+    val persistedDockOrder = remember(settingsStore, dockOrderVersion) { settingsStore.bottomDockOrder }
+    val dockOrder = dockOrderOverride ?: persistedDockOrder
+    val tabs = remember(
+        dockOrder,
+        onOpenMemory,
+        onOpenGroup,
+        onOpenReminder,
+        memoryLabel,
+        groupLabel,
+        reminderLabel
+    ) {
+        dockOrder.map { tab ->
+            when (tab) {
+                NoMemoDockTab.MEMORY -> DockTabSpec(
+                    tab = NoMemoDockTab.MEMORY,
+                    iconRes = R.drawable.ic_nm_memory,
+                    label = memoryLabel,
+                    onClick = onOpenMemory
+                )
+                NoMemoDockTab.GROUP -> DockTabSpec(
+                    tab = NoMemoDockTab.GROUP,
+                    iconRes = R.drawable.ic_nm_group,
+                    label = groupLabel,
+                    onClick = onOpenGroup
+                )
+                NoMemoDockTab.REMINDER -> DockTabSpec(
+                    tab = NoMemoDockTab.REMINDER,
+                    iconRes = R.drawable.ic_nm_reminder,
+                    label = reminderLabel,
+                    onClick = onOpenReminder
+                )
+            }
+        }
     }
     val dockHeight = if (spec.isNarrow) 56.dp else 60.dp
     val buttonSize = if (spec.isNarrow) 54.dp else 58.dp
@@ -112,39 +167,51 @@ fun LiquidGlassDock(
     val horizontalInset = if (spec.isNarrow) 6.dp else 8.dp
     val backdrop = sharedBackdrop ?: rememberLayerBackdrop { drawContent() }
 
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            .height(dockHeight)
-            .padding(horizontal = horizontalInset),
-        horizontalArrangement = Arrangement.SpaceBetween,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        LiquidGlassDockTabs(
-            selectedTab = selectedTab,
-            tabs = tabs.mapIndexed { index, item ->
-                item.copy(
-                    label = when (index) {
-                        0 -> stringResource(R.string.nav_memory)
-                        1 -> stringResource(R.string.nav_group)
-                        else -> stringResource(R.string.nav_reminder)
-                    }
-                )
-            },
-            dockWidth = dockWidth,
-            dockHeight = dockHeight,
-            backdrop = backdrop,
-            palette = palette,
-            haptic = haptic
-        )
+    if (showAddButton) {
+        Row(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(dockHeight)
+                .padding(horizontal = horizontalInset),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            LiquidGlassDockTabs(
+                selectedTab = selectedTab,
+                tabs = tabs,
+                dockWidth = dockWidth,
+                dockHeight = dockHeight,
+                backdrop = backdrop,
+                palette = palette,
+                haptic = haptic
+            )
 
-        LiquidGlassAddButton(
-            onAddClick = onAddClick,
-            buttonSize = buttonSize,
-            spec = spec,
-            backdrop = backdrop,
-            haptic = haptic
-        )
+            LiquidGlassAddButton(
+                onAddClick = onAddClick,
+                buttonSize = buttonSize,
+                spec = spec,
+                backdrop = backdrop,
+                haptic = haptic
+            )
+        }
+    } else {
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .height(dockHeight)
+                .padding(horizontal = horizontalInset),
+            contentAlignment = Alignment.Center
+        ) {
+            LiquidGlassDockTabs(
+                selectedTab = selectedTab,
+                tabs = tabs,
+                dockWidth = dockWidth,
+                dockHeight = dockHeight,
+                backdrop = backdrop,
+                palette = palette,
+                haptic = haptic
+            )
+        }
     }
 }
 
@@ -191,9 +258,11 @@ private fun LiquidGlassDockTabs(
         val selectedIndex = remember(selectedTab, tabs) {
             tabs.indexOfFirst { it.tab == selectedTab }.coerceAtLeast(0)
         }
-        var currentIndex by remember(selectedTab, tabs) {
+        var currentIndex by remember(tabs) {
             mutableIntStateOf(selectedIndex)
         }
+        val latestTabs by rememberUpdatedState(tabs)
+        val latestSelectedIndex by rememberUpdatedState(selectedIndex)
 
         val dampedDragAnimation = remember(animationScope, tabs.size) {
             LiquidGlassDampedDragAnimation(
@@ -223,18 +292,20 @@ private fun LiquidGlassDockTabs(
                 }
             )
         }
-        LaunchedEffect(selectedIndex) {
+        LaunchedEffect(selectedIndex, dampedDragAnimation) {
             currentIndex = selectedIndex
+            dampedDragAnimation.animateToValue(selectedIndex.toFloat())
+            offsetAnimation.animateTo(0f, spring(1f, 300f, 0.5f))
         }
 
-        LaunchedEffect(dampedDragAnimation) {
+        LaunchedEffect(dampedDragAnimation, tabs) {
             snapshotFlow { currentIndex }
                 .drop(1)
                 .collectLatest { index ->
                     dampedDragAnimation.animateToValue(index.toFloat())
-                    if (index != selectedIndex) {
+                    if (index != latestSelectedIndex) {
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                        tabs[index].onClick()
+                        latestTabs[index].onClick()
                     }
                 }
         }

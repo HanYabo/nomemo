@@ -119,6 +119,14 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean(KEY_ECONOMY_MODE, false)
         set(value) = prefs.edit().putBoolean(KEY_ECONOMY_MODE, value).apply()
 
+    var bottomDockOrder: List<NoMemoDockTab>
+        get() = decodeBottomDockOrder(prefs.getString(KEY_BOTTOM_DOCK_ORDER, DEFAULT_BOTTOM_DOCK_ORDER))
+        set(value) = prefs.edit().putString(KEY_BOTTOM_DOCK_ORDER, encodeBottomDockOrder(value)).apply()
+
+    fun defaultLaunchDockTab(): NoMemoDockTab {
+        return bottomDockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY
+    }
+
     fun resolvedApiBaseUrl(): String {
         return apiBaseUrl.trim()
     }
@@ -188,6 +196,30 @@ class SettingsStore(context: Context) {
         )
     }
 
+    private fun encodeBottomDockOrder(order: List<NoMemoDockTab>): String {
+        return normalizeBottomDockOrder(order).joinToString(separator = ",") { it.name }
+    }
+
+    private fun decodeBottomDockOrder(rawValue: String?): List<NoMemoDockTab> {
+        val parsed = rawValue
+            ?.split(",")
+            ?.mapNotNull { entry ->
+                runCatching { NoMemoDockTab.valueOf(entry.trim()) }.getOrNull()
+            }
+            .orEmpty()
+        return normalizeBottomDockOrder(parsed)
+    }
+
+    private fun normalizeBottomDockOrder(order: List<NoMemoDockTab>): List<NoMemoDockTab> {
+        val defaults = listOf(
+            NoMemoDockTab.MEMORY,
+            NoMemoDockTab.GROUP,
+            NoMemoDockTab.REMINDER
+        )
+        val uniqueOrdered = order.distinct().filter { defaults.contains(it) }
+        return uniqueOrdered + defaults.filterNot { uniqueOrdered.contains(it) }
+    }
+
     companion object {
         const val PREF_NAME = "no_memo_settings"
         private const val KEY_AI_ENABLED = "ai_enabled"
@@ -207,6 +239,8 @@ class SettingsStore(context: Context) {
         private const val KEY_THEME_ACCENT = "theme_accent"
         private const val KEY_AUTO_RETRY = "auto_retry"
         private const val KEY_ECONOMY_MODE = "economy_mode"
+        private const val KEY_BOTTOM_DOCK_ORDER = "bottom_dock_order"
+        private const val DEFAULT_BOTTOM_DOCK_ORDER = "MEMORY,GROUP,REMINDER"
 
         const val THEME_SYSTEM = "SYSTEM"
         const val THEME_LIGHT = "LIGHT"

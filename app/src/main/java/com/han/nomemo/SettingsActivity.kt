@@ -7,6 +7,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.setContent
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -19,6 +20,7 @@ import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -51,10 +54,12 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -67,6 +72,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -85,6 +91,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastCoerceIn
+import androidx.compose.ui.zIndex
 import com.kyant.backdrop.backdrops.layerBackdrop
 import com.kyant.backdrop.backdrops.rememberBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
@@ -129,6 +136,12 @@ class SettingsActivity : BaseComposeActivity() {
     private val initialRoute by lazy {
         SettingsRoute.fromKey(intent.getStringExtra(EXTRA_ROUTE_KEY).orEmpty())
     }
+    private val routeLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            if (result.resultCode == RESULT_OK) {
+                setResult(RESULT_OK)
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -399,7 +412,7 @@ class SettingsActivity : BaseComposeActivity() {
         if (route == SettingsRoute.Home || route == initialRoute) {
             return
         }
-        startActivity(
+        routeLauncher.launch(
             Intent(this, SettingsActivity::class.java).putExtra(EXTRA_ROUTE_KEY, route.key)
         )
     }
@@ -480,6 +493,7 @@ class SettingsActivity : BaseComposeActivity() {
         var themeAccent by remember { mutableStateOf(settingsStore.themeAccent) }
         var autoRetry by remember { mutableStateOf(settingsStore.autoRetry) }
         var economyMode by remember { mutableStateOf(settingsStore.economyMode) }
+        var bottomDockOrder by remember { mutableStateOf(settingsStore.bottomDockOrder) }
         val pageBackgroundBrush = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd) {
             Brush.verticalGradient(
                 colors = listOf(
@@ -572,6 +586,7 @@ class SettingsActivity : BaseComposeActivity() {
                             themeAccent = themeAccent,
                             autoRetry = autoRetry,
                             economyMode = economyMode,
+                            bottomDockOrder = bottomDockOrder,
                             testingTarget = testingTarget,
                             onNavigate = onNavigate,
                             onAiEnabledChange = {
@@ -633,6 +648,11 @@ class SettingsActivity : BaseComposeActivity() {
                             onEconomyModeChange = {
                                 economyMode = it
                                 onEconomyModeChange(it)
+                            },
+                            onBottomDockOrderChange = {
+                                bottomDockOrder = it
+                                settingsStore.bottomDockOrder = it
+                                setResult(RESULT_OK)
                             },
                             onShowClearConfirm = { showClearConfirm = true },
                             onShowResetConfirm = { showResetConfirm = true },
@@ -728,6 +748,7 @@ class SettingsActivity : BaseComposeActivity() {
         themeAccent: String,
         autoRetry: Boolean,
         economyMode: Boolean,
+        bottomDockOrder: List<NoMemoDockTab>,
         testingTarget: AiTestTarget?,
         onNavigate: (SettingsRoute) -> Unit,
         onAiEnabledChange: (Boolean) -> Unit,
@@ -745,6 +766,7 @@ class SettingsActivity : BaseComposeActivity() {
         onThemeAccentChange: (String) -> Unit,
         onAutoRetryChange: (Boolean) -> Unit,
         onEconomyModeChange: (Boolean) -> Unit,
+        onBottomDockOrderChange: (List<NoMemoDockTab>) -> Unit,
         onShowClearConfirm: () -> Unit,
         onShowResetConfirm: () -> Unit,
         onRunApiTest: (AiTestTarget, String, String) -> Unit
@@ -1291,23 +1313,16 @@ class SettingsActivity : BaseComposeActivity() {
             SettingsRoute.CustomDock -> {
                 Column {
                     Spacer(modifier = Modifier.height(22.dp))
-                    SettingsSectionLabel("底栏设置", sectionLabelColor)
-                    SettingsSurfaceCard(
+                    CustomDockSettingsPage(
+                        dockOrder = bottomDockOrder,
+                        palette = palette,
+                        titleColor = titleColor,
+                        subtitleColor = subtitleColor,
+                        sectionLabelColor = sectionLabelColor,
                         surface = cardSurface,
-                        borderColor = borderColor,
-                        modifier = Modifier.padding(top = 10.dp)
-                    ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = "自定义底栏功能即将上线",
-                                color = subtitleColor,
-                                fontSize = 15.sp
-                            )
-                        }
-                    }
+                        dividerColor = dividerColor,
+                        onDockOrderChange = onBottomDockOrderChange
+                    )
                 }
             }
 
@@ -2380,6 +2395,289 @@ class SettingsActivity : BaseComposeActivity() {
             fontSize = fontSize,
             lineHeight = lineHeight
         )
+    }
+
+    private data class CustomDockTabItem(
+        val tab: NoMemoDockTab,
+        val title: String,
+        val iconRes: Int
+    )
+
+    @Composable
+    private fun CustomDockSettingsPage(
+        dockOrder: List<NoMemoDockTab>,
+        palette: NoMemoPalette,
+        titleColor: Color,
+        subtitleColor: Color,
+        sectionLabelColor: Color,
+        surface: Color,
+        dividerColor: Color,
+        onDockOrderChange: (List<NoMemoDockTab>) -> Unit
+    ) {
+        val density = LocalDensity.current
+        val isDark = isSystemInDarkTheme()
+        val rowHeight = 80.dp
+        val rowHeightPx = remember(density) { with(density) { rowHeight.toPx() } }
+        var draggingTab by remember { mutableStateOf<NoMemoDockTab?>(null) }
+        var draggingIndex by remember { mutableStateOf(-1) }
+        var dragOffsetY by remember { mutableFloatStateOf(0f) }
+        val previewBackground = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd, isDark) {
+            Brush.verticalGradient(
+                colors = if (isDark) {
+                    listOf(
+                        palette.memoBgStart.copy(alpha = 0.92f),
+                        palette.memoBgMid.copy(alpha = 0.96f),
+                        palette.memoBgEnd.copy(alpha = 0.98f)
+                    )
+                } else {
+                    listOf(
+                        palette.memoBgStart.copy(alpha = 0.88f),
+                        palette.memoBgMid.copy(alpha = 0.94f),
+                        palette.memoBgEnd.copy(alpha = 0.96f)
+                    )
+                }
+            )
+        }
+        val previewOverlay = if (isDark) {
+            Color.White.copy(alpha = 0.035f)
+        } else {
+            Color.White.copy(alpha = 0.38f)
+        }
+        val defaultLaunchTab = dockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY
+
+        SettingsSectionLabel("实时预览", sectionLabelColor)
+        SettingsSurfaceCard(
+            surface = surface,
+            borderColor = Color.Transparent,
+            modifier = Modifier.padding(top = 10.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 18.dp)
+                    .height(132.dp)
+                    .clip(noMemoG2RoundedShape(24.dp))
+                    .background(previewBackground)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(previewOverlay)
+                )
+                LiquidGlassDock(
+                    selectedTab = defaultLaunchTab,
+                    onOpenMemory = {},
+                    onOpenGroup = {},
+                    onOpenReminder = {},
+                    onAddClick = {},
+                    dockOrderOverride = dockOrder,
+                    showAddButton = false,
+                    modifier = Modifier
+                        .align(Alignment.Center)
+                        .padding(horizontal = 6.dp)
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        SettingsSectionLabel("标签页", sectionLabelColor)
+        SettingsSurfaceCard(
+            surface = surface,
+            borderColor = Color.Transparent,
+            modifier = Modifier.padding(top = 10.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(vertical = 6.dp)
+            ) {
+                dockOrder.forEachIndexed { index, tab ->
+                    key(tab) {
+                        val item = customDockTabItem(tab)
+                        val isDragging = draggingTab == tab
+                        val latestDockOrder by rememberUpdatedState(dockOrder)
+                        val latestIndex by rememberUpdatedState(index)
+                        val dragScale by animateFloatAsState(
+                            targetValue = if (isDragging) 1.015f else 1f,
+                            animationSpec = tween(durationMillis = 160),
+                            label = "customDockScale_${tab.name}"
+                        )
+                        val dragBackground by animateColorAsState(
+                            targetValue = if (isDragging) {
+                                if (isDark) {
+                                    Color.White.copy(alpha = 0.06f)
+                                } else {
+                                    Color.Black.copy(alpha = 0.045f)
+                                }
+                            } else {
+                                Color.Transparent
+                            },
+                            animationSpec = tween(durationMillis = 150),
+                            label = "customDockBg_${tab.name}"
+                        )
+
+                        CustomDockTabRow(
+                            item = item,
+                            isDefaultLaunchPage = index == 0,
+                            titleColor = titleColor,
+                            subtitleColor = subtitleColor,
+                            backgroundColor = dragBackground,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .zIndex(if (isDragging) 1f else 0f)
+                                .graphicsLayer {
+                                    translationY = if (isDragging) dragOffsetY else 0f
+                                    scaleX = dragScale
+                                    scaleY = dragScale
+                                }
+                                .pointerInput(tab, rowHeightPx) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = {
+                                            draggingTab = tab
+                                            draggingIndex = latestIndex
+                                            dragOffsetY = 0f
+                                        },
+                                        onDragCancel = {
+                                            draggingTab = null
+                                            draggingIndex = -1
+                                            dragOffsetY = 0f
+                                        },
+                                        onDragEnd = {
+                                            draggingTab = null
+                                            draggingIndex = -1
+                                            dragOffsetY = 0f
+                                        },
+                                        onDrag = { change, dragAmount ->
+                                            if (draggingTab != tab) {
+                                                return@detectDragGesturesAfterLongPress
+                                            }
+                                            change.consume()
+                                            dragOffsetY += dragAmount.y
+                                            val currentDockOrder = latestDockOrder
+                                            val moveStep = when {
+                                                dragOffsetY > rowHeightPx / 2f && draggingIndex < currentDockOrder.lastIndex -> 1
+                                                dragOffsetY < -rowHeightPx / 2f && draggingIndex > 0 -> -1
+                                                else -> 0
+                                            }
+                                            if (moveStep == 0) {
+                                                return@detectDragGesturesAfterLongPress
+                                            }
+                                            val targetIndex = draggingIndex + moveStep
+                                            val nextOrder = currentDockOrder.toMutableList().apply {
+                                                removeAt(draggingIndex)
+                                                add(targetIndex, tab)
+                                            }
+                                            onDockOrderChange(nextOrder)
+                                            draggingIndex = targetIndex
+                                            dragOffsetY -= moveStep * rowHeightPx
+                                        }
+                                    )
+                                }
+                        )
+                        if (index != dockOrder.lastIndex) {
+                            SettingsInfoDivider(
+                                color = dividerColor,
+                                modifier = Modifier.padding(horizontal = 20.dp),
+                                thickness = 0.7.dp
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(18.dp))
+        Column(
+            modifier = Modifier.padding(start = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            SettingsBulletNote(
+                text = "长按拖拽调整标签页顺序",
+                color = subtitleColor,
+                fontSize = 13.sp,
+                lineHeight = 19.sp
+            )
+            SettingsBulletNote(
+                text = "排在第一位的标签页将作为应用启动时的默认页面",
+                color = subtitleColor,
+                fontSize = 13.sp,
+                lineHeight = 19.sp
+            )
+        }
+    }
+
+    @Composable
+    private fun CustomDockTabRow(
+        item: CustomDockTabItem,
+        isDefaultLaunchPage: Boolean,
+        titleColor: Color,
+        subtitleColor: Color,
+        backgroundColor: Color,
+        modifier: Modifier = Modifier
+    ) {
+        Row(
+            modifier = modifier
+                .height(80.dp)
+                .background(backgroundColor)
+                .padding(horizontal = 20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(
+                painter = painterResource(id = item.iconRes),
+                contentDescription = null,
+                tint = titleColor.copy(alpha = 0.78f),
+                modifier = Modifier.size(24.dp)
+            )
+            Spacer(modifier = Modifier.width(14.dp))
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = item.title,
+                    color = titleColor,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (isDefaultLaunchPage) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Text(
+                        text = "默认启动页",
+                        color = subtitleColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1
+                    )
+                }
+            }
+            Spacer(modifier = Modifier.width(12.dp))
+            Icon(
+                painter = painterResource(id = R.drawable.ic_dock_drag_handle),
+                contentDescription = "拖拽排序",
+                tint = subtitleColor.copy(alpha = 0.72f),
+                modifier = Modifier.size(17.dp)
+            )
+        }
+    }
+
+    private fun customDockTabItem(tab: NoMemoDockTab): CustomDockTabItem {
+        return when (tab) {
+            NoMemoDockTab.MEMORY -> CustomDockTabItem(
+                tab = NoMemoDockTab.MEMORY,
+                title = "记忆",
+                iconRes = R.drawable.ic_nm_memory
+            )
+            NoMemoDockTab.GROUP -> CustomDockTabItem(
+                tab = NoMemoDockTab.GROUP,
+                title = "分组",
+                iconRes = R.drawable.ic_nm_group
+            )
+            NoMemoDockTab.REMINDER -> CustomDockTabItem(
+                tab = NoMemoDockTab.REMINDER,
+                title = "提醒事项",
+                iconRes = R.drawable.ic_nm_reminder
+            )
+        }
     }
 
     @Composable
