@@ -302,10 +302,6 @@ class GroupActivity : BaseComposeActivity() {
         val albumPalette = rememberNoMemoPalette()
         val groupListState = rememberLazyListState()
         val albumDetailListState = rememberLazyListState()
-        val albumDockHasUnderContent = rememberDockHasUnderContent(
-            listState = groupListState,
-            spec = albumAdaptive
-        )
         var albumList by remember { mutableStateOf(albumStore.loadAlbums()) }
         var openedAlbumId by remember { mutableStateOf(initialOpenedAlbumId) }
         var showCreateAlbumDialog by remember { mutableStateOf(false) }

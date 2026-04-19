@@ -194,10 +194,6 @@ internal fun GroupPrimaryScreenRoute(
     val adaptive = rememberNoMemoAdaptiveSpec()
     val palette = rememberNoMemoPalette()
     val groupListState = rememberLazyListState()
-    val dockHasUnderContent = rememberDockHasUnderContent(
-        listState = groupListState,
-        spec = adaptive
-    )
     var showCreateAlbumDialog by remember { mutableStateOf(false) }
     var groupListMoreExpanded by remember { mutableStateOf(false) }
     var groupListMoreAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }

@@ -3079,30 +3079,6 @@ fun AiProcessingBorderOverlay(
 }
 
 @Composable
-fun rememberDockHasUnderContent(
-    listState: LazyListState,
-    spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
-    extraThreshold: Dp = 18.dp
-): Boolean {
-    val density = LocalDensity.current
-    val overlapThresholdPx = with(density) { (spec.bottomNavHeight + extraThreshold).roundToPx() }
-    return remember(listState, overlapThresholdPx) {
-        derivedStateOf {
-            val layoutInfo = listState.layoutInfo
-            val visibleItems = layoutInfo.visibleItemsInfo
-            if (visibleItems.isEmpty()) {
-                false
-            } else {
-                val cutoff = layoutInfo.viewportEndOffset - overlapThresholdPx
-                visibleItems.any { visibleItem ->
-                    visibleItem.offset + visibleItem.size > cutoff
-                }
-            }
-        }
-    }.value
-}
-
-@Composable
 fun RecordMetaLine(
     timeText: String,
     categoryCode: String,

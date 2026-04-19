@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(./gradlew assembleDebug --warning-mode=all)",
-      "Bash(./gradlew assembleDebug)"
+      "Bash(./gradlew assembleDebug)",
+      "Bash(./gradlew assembleDebug testDebugUnitTest)"
     ]
   }
 }

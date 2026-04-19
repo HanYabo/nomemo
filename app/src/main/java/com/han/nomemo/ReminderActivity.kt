@@ -284,10 +284,6 @@ class ReminderActivity : BaseComposeActivity() {
         var moreMenuAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
         var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
         val listState = rememberLazyListState()
-        val dockHasUnderContent = rememberDockHasUnderContent(
-            listState = listState,
-            spec = adaptive
-        )
         val filteredRecords = records
         val headerCollapseDistancePx = with(density) { 68.dp.toPx() }
         val headerCollapseTarget by remember(selectionModeActive, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {

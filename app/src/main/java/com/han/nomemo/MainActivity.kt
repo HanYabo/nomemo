@@ -583,10 +583,6 @@ class MainActivity : BaseComposeActivity() {
             records.filter { selectedRecordIds.contains(it.recordId) }
         }
         val listState = rememberLazyListState()
-        val dockHasUnderContent = rememberDockHasUnderContent(
-            listState = listState,
-            spec = adaptive
-        )
         val density = LocalDensity.current
         val secondaryCategories = remember(selectedFilter) {
             getSecondaryCategoriesForPrimary(selectedFilter)

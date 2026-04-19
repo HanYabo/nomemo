@@ -39,6 +39,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -134,7 +135,8 @@ fun LiquidGlassDock(
     val memoryLabel = stringResource(R.string.nav_memory)
     val groupLabel = stringResource(R.string.nav_group)
     val reminderLabel = stringResource(R.string.nav_reminder)
-    val persistedDockOrder = remember(settingsStore, dockOrderVersion) { settingsStore.bottomDockOrder }
+    val persistedDockOrder =
+        remember(settingsStore, dockOrderVersion) { settingsStore.bottomDockOrder }
     val dockOrder = dockOrderOverride ?: persistedDockOrder
     val tabs = remember(
         dockOrder,
@@ -150,12 +152,14 @@ fun LiquidGlassDock(
                     label = memoryLabel,
                     onClick = { latestOpenMemory.value.invoke() }
                 )
+
                 NoMemoDockTab.GROUP -> DockTabSpec(
                     tab = NoMemoDockTab.GROUP,
                     iconRes = R.drawable.ic_nm_group,
                     label = groupLabel,
                     onClick = { latestOpenGroup.value.invoke() }
                 )
+
                 NoMemoDockTab.REMINDER -> DockTabSpec(
                     tab = NoMemoDockTab.REMINDER,
                     iconRes = R.drawable.ic_nm_reminder,
@@ -241,7 +245,8 @@ private fun LiquidGlassDockTabs(
 ) {
     val isLightTheme = !isSystemInDarkTheme()
     val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
-    val containerColor = if (isLightTheme) Color(0xFFFAFAFA).copy(alpha = 0.40f) else Color(0xFF121212).copy(alpha = 0.40f)
+    val containerColor =
+        if (isLightTheme) Color(0xFFFAFAFA).copy(alpha = 0.40f) else Color(0xFF121212).copy(alpha = 0.40f)
     val baseColor = if (isLightTheme) Color(0xFF5B6A7D) else palette.textPrimary.copy(alpha = 0.64f)
     val tabsBackdrop = rememberLayerBackdrop()
 
@@ -324,7 +329,12 @@ private fun LiquidGlassDockTabs(
             }
         }
 
-        LaunchedEffect(startupPulseConsumed, selectedIndex, startupPulseDelayMs, dampedDragAnimation) {
+        LaunchedEffect(
+            startupPulseConsumed,
+            selectedIndex,
+            startupPulseDelayMs,
+            dampedDragAnimation
+        ) {
             if (!startupPulseConsumed) {
                 if (startupPulseDelayMs > 0) {
                     kotlinx.coroutines.delay(startupPulseDelayMs)
@@ -487,11 +497,15 @@ private fun LiquidGlassDockTabs(
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
                         drawRect(
-                            if (isLightTheme) Color.Black.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.10f),
+                            if (isLightTheme) Color.Black.copy(alpha = 0.10f) else Color.White.copy(
+                                alpha = 0.10f
+                            ),
                             alpha = 1f - progress
                         )
                         drawRect(
-                            if (isLightTheme) Color.Black.copy(alpha = 0.03f * progress) else Color.Black.copy(alpha = 0.05f * progress)
+                            if (isLightTheme) Color.Black.copy(alpha = 0.03f * progress) else Color.Black.copy(
+                                alpha = 0.05f * progress
+                            )
                         )
                     }
                 )
@@ -567,8 +581,10 @@ private fun LiquidGlassAddButton(
     val interactiveHighlight = remember(animationScope) {
         LiquidGlassInteractiveHighlight(animationScope = animationScope)
     }
-    val surfaceColor = if (isDark) Color(0xFF121212).copy(alpha = 0.40f) else Color(0xFFFAFAFA).copy(alpha = 0.40f)
-    val iconTint = if (isDark) Color.White.copy(alpha = 0.96f) else Color(0xFF253244).copy(alpha = 0.92f)
+    val surfaceColor =
+        if (isDark) Color(0xFF121212).copy(alpha = 0.40f) else Color(0xFFFAFAFA).copy(alpha = 0.40f)
+    val iconTint =
+        if (isDark) Color.White.copy(alpha = 0.96f) else Color(0xFF253244).copy(alpha = 0.92f)
 
     Box(
         modifier = Modifier
@@ -595,14 +611,14 @@ private fun LiquidGlassAddButton(
                     val angle = atan2(offset.y, offset.x)
                     scaleX =
                         baseScale +
-                            maxDragScale *
-                            abs(cos(angle) * offset.x / size.maxDimension) *
-                            (width / height).fastCoerceAtMost(1f)
+                                maxDragScale *
+                                abs(cos(angle) * offset.x / size.maxDimension) *
+                                (width / height).fastCoerceAtMost(1f)
                     scaleY =
                         baseScale +
-                            maxDragScale *
-                            abs(sin(angle) * offset.y / size.maxDimension) *
-                            (height / width).fastCoerceAtMost(1f)
+                                maxDragScale *
+                                abs(sin(angle) * offset.y / size.maxDimension) *
+                                (height / width).fastCoerceAtMost(1f)
                 },
                 onDrawSurface = { drawRect(surfaceColor) }
             )
