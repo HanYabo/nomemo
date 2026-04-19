@@ -1462,8 +1462,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val previewBackdropAlpha = previewAlpha
                     val previewZoomableImageState = key(
                         previewRecord.recordId,
-                        previewRecord.imageUri,
-                        showImagePreview
+                        previewRecord.imageUri
                     ) {
                         rememberZoomableImageState(
                             rememberZoomableState(
@@ -1533,22 +1532,20 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         modifier = Modifier.fillMaxSize()
                                     )
                                 }
-                                if (previewZoomableActive) {
-                                    ZoomableAsyncImage(
-                                        model = previewRequest,
-                                        state = previewZoomableImageState,
-                                        gestures = if (previewZoomableActive) {
-                                            EnabledZoomGestures.ZoomAndPan
-                                        } else {
-                                            EnabledZoomGestures.None
-                                        },
-                                        contentDescription = "预览图片",
-                                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .alpha(previewZoomableAlpha)
-                                    )
-                                }
+                                ZoomableAsyncImage(
+                                    model = previewRequest,
+                                    state = previewZoomableImageState,
+                                    gestures = if (previewZoomableActive) {
+                                        EnabledZoomGestures.ZoomAndPan
+                                    } else {
+                                        EnabledZoomGestures.None
+                                    },
+                                    contentDescription = "预览图片",
+                                    contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .alpha(previewZoomableAlpha)
+                                )
                             }
                         }
 
