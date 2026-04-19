@@ -614,7 +614,7 @@ class GroupActivity : BaseComposeActivity() {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(bottom = 12.dp)
+                                        .height(spec.topActionButtonSize)
                                 ) {
                                     GlassIconCircleButton(
                                         iconRes = R.drawable.ic_sheet_close,
@@ -655,6 +655,7 @@ class GroupActivity : BaseComposeActivity() {
                                         modifier = Modifier.align(Alignment.CenterEnd)
                                     )
                                 }
+                                Spacer(modifier = Modifier.height(12.dp))
                             } else {
                                 Box(
                                     modifier = Modifier

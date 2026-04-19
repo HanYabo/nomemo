@@ -2444,6 +2444,7 @@ class SettingsActivity : BaseComposeActivity() {
             Color.White.copy(alpha = 0.38f)
         }
         val defaultLaunchTab = dockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY
+        val previewBackdrop = rememberLayerBackdrop()
 
         SettingsSectionLabel("实时预览", sectionLabelColor)
         SettingsSurfaceCard(
@@ -2458,6 +2459,7 @@ class SettingsActivity : BaseComposeActivity() {
                     .height(132.dp)
                     .clip(noMemoG2RoundedShape(24.dp))
                     .background(previewBackground)
+                    .layerBackdrop(previewBackdrop)
             ) {
                 Box(
                     modifier = Modifier
@@ -2470,6 +2472,7 @@ class SettingsActivity : BaseComposeActivity() {
                     onOpenGroup = {},
                     onOpenReminder = {},
                     onAddClick = {},
+                    sharedBackdrop = previewBackdrop,
                     dockOrderOverride = dockOrder,
                     showAddButton = false,
                     modifier = Modifier

@@ -356,7 +356,7 @@ private fun ReminderPrimaryScreen(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 8.dp, bottom = 12.dp)
+                                .height(spec.topActionButtonSize)
                         ) {
                             GlassIconCircleButton(
                                 iconRes = R.drawable.ic_sheet_close,

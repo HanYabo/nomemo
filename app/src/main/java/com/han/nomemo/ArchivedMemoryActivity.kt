@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -318,7 +319,6 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 12.dp)
                                     .height(spec.topActionButtonSize)
                             ) {
                                 GlassIconCircleButton(
@@ -358,6 +358,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                     size = spec.topActionButtonSize
                                 )
                             }
+                            Spacer(modifier = Modifier.height(12.dp))
                         } else {
                             Box(
                                 modifier = Modifier

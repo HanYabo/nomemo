@@ -376,28 +376,27 @@ class MainActivity : BaseComposeActivity() {
                 )
             }
 
-            LiquidGlassDock(
-                selectedTab = currentPrimaryTab,
-                enabled = primaryDockVisible,
-                spec = spec,
-                modifier = Modifier
-                    .zIndex(20f)
-                    .graphicsLayer {
-                        alpha = if (primaryDockVisible) 1f else 0f
-                    }
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .padding(
-                        start = spec.pageHorizontalPadding,
-                        end = spec.pageHorizontalPadding,
-                        bottom = if (spec.isNarrow) 10.dp else 14.dp
-                    ),
-                onOpenMemory = { openMemoryPage() },
-                onOpenGroup = { openGroupPage() },
-                onOpenReminder = { openReminderPage() },
-                onAddClick = { primaryDockAddAction?.invoke() },
-                sharedBackdrop = currentDockBackdrop
-            )
+            if (primaryDockVisible) {
+                LiquidGlassDock(
+                    selectedTab = currentPrimaryTab,
+                    enabled = true,
+                    spec = spec,
+                    modifier = Modifier
+                        .zIndex(20f)
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(
+                            start = spec.pageHorizontalPadding,
+                            end = spec.pageHorizontalPadding,
+                            bottom = if (spec.isNarrow) 10.dp else 14.dp
+                        ),
+                    onOpenMemory = { openMemoryPage() },
+                    onOpenGroup = { openGroupPage() },
+                    onOpenReminder = { openReminderPage() },
+                    onAddClick = { primaryDockAddAction?.invoke() },
+                    sharedBackdrop = currentDockBackdrop
+                )
+            }
 
             when (val overlay = primaryOverlay) {
                 is PrimaryHostOverlay.AddMemory -> {
@@ -431,9 +430,6 @@ class MainActivity : BaseComposeActivity() {
             modifier = Modifier
                 .fillMaxSize()
                 .zIndex(if (visible) 3f else -1f)
-                .graphicsLayer {
-                    alpha = if (visible) 1f else 0f
-                }
                 .layout { measurable, constraints ->
                     val placeable = measurable.measure(constraints)
                     layout(placeable.width, placeable.height) {
@@ -768,7 +764,7 @@ class MainActivity : BaseComposeActivity() {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(top = 8.dp, bottom = 12.dp),
+                                    .height(spec.topActionButtonSize),
                             ) {
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_sheet_close,
@@ -811,6 +807,7 @@ class MainActivity : BaseComposeActivity() {
                                     size = spec.topActionButtonSize
                                 )
                             }
+                            Spacer(modifier = Modifier.height(12.dp))
                         } else {
                             Box(
                                 modifier = Modifier

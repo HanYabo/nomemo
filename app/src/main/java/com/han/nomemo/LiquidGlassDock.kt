@@ -10,7 +10,6 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -103,7 +102,7 @@ fun LiquidGlassDock(
     enabled: Boolean = true,
     modifier: Modifier = Modifier,
     spec: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
-    sharedBackdrop: Backdrop? = null,
+    sharedBackdrop: Backdrop,
     dockOrderOverride: List<NoMemoDockTab>? = null,
     showAddButton: Boolean = true,
     startupPulseTab: NoMemoDockTab? = null,
@@ -173,7 +172,7 @@ fun LiquidGlassDock(
     val buttonSize = if (spec.isNarrow) 54.dp else 58.dp
     val dockWidth = if (spec.isNarrow) 258.dp else 282.dp
     val horizontalInset = if (spec.isNarrow) 6.dp else 8.dp
-    val backdrop = sharedBackdrop ?: rememberLayerBackdrop { drawContent() }
+    val backdrop = sharedBackdrop
 
     if (showAddButton) {
         Row(
@@ -263,7 +262,6 @@ private fun LiquidGlassDockTabs(
         val tabWidth = with(density) {
             (dockWidthPx - 8.dp.toPx()) / tabs.size
         }
-
         val offsetAnimation = remember { Animatable(0f) }
         val panelOffset by remember(density, dockWidthPx) {
             derivedStateOf {
@@ -370,6 +368,18 @@ private fun LiquidGlassDockTabs(
             )
         }
 
+        val tabsContent: @Composable RowScope.(Boolean) -> Unit = { tabEnabled ->
+            tabs.forEachIndexed { index, tab ->
+                LiquidGlassDockItem(
+                    iconRes = tab.iconRes,
+                    label = tab.label,
+                    contentColor = baseColor,
+                    enabled = tabEnabled && enabled,
+                    onClick = { currentIndex = index }
+                )
+            }
+        }
+
         Row(
             Modifier
                 .graphicsLayer {
@@ -395,18 +405,9 @@ private fun LiquidGlassDockTabs(
                 .height(dockHeight)
                 .fillMaxWidth()
                 .padding(4.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            tabs.forEachIndexed { index, tab ->
-                LiquidGlassDockItem(
-                    iconRes = tab.iconRes,
-                    label = tab.label,
-                    contentColor = baseColor,
-                    enabled = enabled,
-                    onClick = { currentIndex = index }
-                )
-            }
-        }
+            verticalAlignment = Alignment.CenterVertically,
+            content = { tabsContent(true) }
+        )
 
         CompositionLocalProvider(
             LocalDockTabScale provides { lerp(1f, 1.2f, dampedDragAnimation.pressProgress) }
@@ -436,19 +437,11 @@ private fun LiquidGlassDockTabs(
                     .then(interactiveHighlight.modifier)
                     .height(dockHeight - 8.dp)
                     .fillMaxWidth()
-                    .padding(horizontal = 4.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                tabs.forEach { tab ->
-                    LiquidGlassDockItem(
-                        iconRes = tab.iconRes,
-                        label = tab.label,
-                        contentColor = accentColor,
-                        enabled = false,
-                        onClick = {}
-                    )
-                }
-            }
+                    .padding(horizontal = 4.dp)
+                    .graphicsLayer(colorFilter = ColorFilter.tint(accentColor)),
+                verticalAlignment = Alignment.CenterVertically,
+                content = { tabsContent(false) }
+            )
         }
 
         Box(
