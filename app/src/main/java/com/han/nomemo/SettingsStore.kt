@@ -123,6 +123,10 @@ class SettingsStore(context: Context) {
         get() = decodeBottomDockOrder(prefs.getString(KEY_BOTTOM_DOCK_ORDER, DEFAULT_BOTTOM_DOCK_ORDER))
         set(value) = prefs.edit().putString(KEY_BOTTOM_DOCK_ORDER, encodeBottomDockOrder(value)).apply()
 
+    var appIconStyle: String
+        get() = prefs.getString(KEY_APP_ICON_STYLE, ICON_STYLE_LIGHT) ?: ICON_STYLE_LIGHT
+        set(value) = prefs.edit().putString(KEY_APP_ICON_STYLE, value).apply()
+
     fun defaultLaunchDockTab(): NoMemoDockTab {
         return bottomDockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY
     }
@@ -241,6 +245,10 @@ class SettingsStore(context: Context) {
         private const val KEY_ECONOMY_MODE = "economy_mode"
         private const val KEY_BOTTOM_DOCK_ORDER = "bottom_dock_order"
         private const val DEFAULT_BOTTOM_DOCK_ORDER = "MEMORY,GROUP,REMINDER"
+        private const val KEY_APP_ICON_STYLE = "app_icon_style"
+
+        const val ICON_STYLE_LIGHT = "light"
+        const val ICON_STYLE_DARK = "dark"
 
         const val THEME_SYSTEM = "SYSTEM"
         const val THEME_LIGHT = "LIGHT"

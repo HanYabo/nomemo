@@ -81,6 +81,8 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
+import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -1290,6 +1292,9 @@ class SettingsActivity : BaseComposeActivity() {
             }
 
             SettingsRoute.CustomIcon -> {
+                var selectedIconStyle by remember { mutableStateOf(settingsStore.appIconStyle) }
+                val iconSelectionColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
+
                 Column {
                     Spacer(modifier = Modifier.height(22.dp))
                     SettingsSectionLabel("图标设置", sectionLabelColor)
@@ -1298,17 +1303,51 @@ class SettingsActivity : BaseComposeActivity() {
                         borderColor = borderColor,
                         modifier = Modifier.padding(top = 10.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp)
-                        ) {
-                            Text(
-                                text = "自定义图标功能即将上线",
-                                color = subtitleColor,
-                                fontSize = 15.sp
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SettingsIconOptionRow(
+                                title = "浅色图标",
+                                subtitle = "默认浅色背景图标",
+                                iconRes = R.drawable.ic_app_preview_light,
+                                selected = selectedIconStyle == SettingsStore.ICON_STYLE_LIGHT,
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor,
+                                accentColor = iconSelectionColor,
+                                onClick = {
+                                    if (selectedIconStyle != SettingsStore.ICON_STYLE_LIGHT) {
+                                        selectedIconStyle = SettingsStore.ICON_STYLE_LIGHT
+                                        settingsStore.appIconStyle = SettingsStore.ICON_STYLE_LIGHT
+                                        AppIconManager.setIconStyle(context, SettingsStore.ICON_STYLE_LIGHT)
+                                        Toast.makeText(context, "图标已切换，可能需要片刻生效", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
+                            )
+                            SettingsInfoDivider(dividerColor, modifier = Modifier.padding(horizontal = 20.dp))
+                            SettingsIconOptionRow(
+                                title = "深色图标",
+                                subtitle = "深色背景图标",
+                                iconRes = R.drawable.ic_app_preview_dark,
+                                selected = selectedIconStyle == SettingsStore.ICON_STYLE_DARK,
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor,
+                                accentColor = iconSelectionColor,
+                                onClick = {
+                                    if (selectedIconStyle != SettingsStore.ICON_STYLE_DARK) {
+                                        selectedIconStyle = SettingsStore.ICON_STYLE_DARK
+                                        settingsStore.appIconStyle = SettingsStore.ICON_STYLE_DARK
+                                        AppIconManager.setIconStyle(context, SettingsStore.ICON_STYLE_DARK)
+                                        Toast.makeText(context, "图标已切换，可能需要片刻生效", Toast.LENGTH_SHORT).show()
+                                    }
+                                }
                             )
                         }
                     }
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = "切换图标后，桌面图标可能需要几秒钟更新。如未生效，请尝试重启设备。",
+                        color = subtitleColor,
+                        fontSize = 13.sp,
+                        modifier = Modifier.padding(horizontal = 4.dp)
+                    )
                 }
             }
 
@@ -1880,6 +1919,79 @@ class SettingsActivity : BaseComposeActivity() {
                         .size(18.dp)
                         .graphicsLayer { rotationZ = -90f }
                 )
+            }
+        }
+    }
+
+    @Composable
+    private fun SettingsIconOptionRow(
+        title: String,
+        subtitle: String,
+        @androidx.annotation.DrawableRes iconRes: Int,
+        selected: Boolean,
+        titleColor: Color,
+        subtitleColor: Color,
+        accentColor: Color,
+        onClick: () -> Unit
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val interactionSource = remember { MutableInteractionSource() }
+        val (backgroundColor, triggerHighlight) = rememberSettingsTapHighlightColor(
+            interactionSource = interactionSource,
+            isDark = isDark,
+            label = "settingsIconOptionRow_$title"
+        )
+        PressScaleBox(
+            onClick = {
+                triggerHighlight()
+                onClick()
+            },
+            modifier = Modifier.fillMaxWidth(),
+            pressedScale = 1f,
+            interactionSource = interactionSource
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(backgroundColor)
+                    .padding(horizontal = 20.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Image(
+                    painter = painterResource(id = iconRes),
+                    contentDescription = title,
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                )
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 16.dp)
+                ) {
+                    Text(
+                        text = title,
+                        color = titleColor,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        text = subtitle,
+                        color = subtitleColor,
+                        fontSize = 14.sp,
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+                }
+                if (selected) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_sheet_check),
+                        contentDescription = null,
+                        tint = accentColor,
+                        modifier = Modifier
+                            .padding(start = 12.dp)
+                            .size(20.dp)
+                    )
+                }
             }
         }
     }
