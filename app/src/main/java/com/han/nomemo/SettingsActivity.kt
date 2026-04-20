@@ -82,7 +82,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.foundation.Image
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
@@ -1306,11 +1305,9 @@ class SettingsActivity : BaseComposeActivity() {
                         Column(modifier = Modifier.fillMaxWidth()) {
                             SettingsIconOptionRow(
                                 title = "浅色图标",
-                                subtitle = "默认浅色背景图标",
                                 iconRes = R.drawable.ic_app_preview_light,
                                 selected = selectedIconStyle == SettingsStore.ICON_STYLE_LIGHT,
                                 titleColor = titleColor,
-                                subtitleColor = subtitleColor,
                                 accentColor = iconSelectionColor,
                                 onClick = {
                                     if (selectedIconStyle != SettingsStore.ICON_STYLE_LIGHT) {
@@ -1324,11 +1321,9 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsInfoDivider(dividerColor, modifier = Modifier.padding(horizontal = 20.dp))
                             SettingsIconOptionRow(
                                 title = "深色图标",
-                                subtitle = "深色背景图标",
                                 iconRes = R.drawable.ic_app_preview_dark,
                                 selected = selectedIconStyle == SettingsStore.ICON_STYLE_DARK,
                                 titleColor = titleColor,
-                                subtitleColor = subtitleColor,
                                 accentColor = iconSelectionColor,
                                 onClick = {
                                     if (selectedIconStyle != SettingsStore.ICON_STYLE_DARK) {
@@ -1341,13 +1336,6 @@ class SettingsActivity : BaseComposeActivity() {
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(16.dp))
-                    Text(
-                        text = "切换图标后，桌面图标可能需要几秒钟更新。如未生效，请尝试重启设备。",
-                        color = subtitleColor,
-                        fontSize = 13.sp,
-                        modifier = Modifier.padding(horizontal = 4.dp)
-                    )
                 }
             }
 
@@ -1926,11 +1914,9 @@ class SettingsActivity : BaseComposeActivity() {
     @Composable
     private fun SettingsIconOptionRow(
         title: String,
-        subtitle: String,
         @androidx.annotation.DrawableRes iconRes: Int,
         selected: Boolean,
         titleColor: Color,
-        subtitleColor: Color,
         accentColor: Color,
         onClick: () -> Unit
     ) {
@@ -1962,26 +1948,17 @@ class SettingsActivity : BaseComposeActivity() {
                     contentDescription = title,
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(noMemoG2RoundedShape(12.dp))
                 )
-                Column(
+                Text(
+                    text = title,
+                    color = titleColor,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
                     modifier = Modifier
                         .weight(1f)
                         .padding(start = 16.dp)
-                ) {
-                    Text(
-                        text = title,
-                        color = titleColor,
-                        fontSize = 17.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    Text(
-                        text = subtitle,
-                        color = subtitleColor,
-                        fontSize = 14.sp,
-                        modifier = Modifier.padding(top = 2.dp)
-                    )
-                }
+                )
                 if (selected) {
                     Icon(
                         painter = painterResource(id = R.drawable.ic_sheet_check),
