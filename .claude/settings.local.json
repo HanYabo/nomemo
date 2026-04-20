@@ -4,7 +4,8 @@
       "Bash(./gradlew assembleDebug --warning-mode=all)",
       "Bash(./gradlew assembleDebug)",
       "Bash(./gradlew assembleDebug testDebugUnitTest)",
-      "Bash(./gradlew :app:compileDebugKotlin)"
+      "Bash(./gradlew :app:compileDebugKotlin)",
+      "Bash(./gradlew compileDebugKotlin)"
     ]
   }
 }

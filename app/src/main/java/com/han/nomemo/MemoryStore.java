@@ -216,6 +216,42 @@ public class MemoryStore {
         return null;
     }
 
+    public synchronized boolean clearImageUri(String recordId) {
+        List<MemoryRecord> records = loadRecords();
+        boolean changed = false;
+        for (int i = 0; i < records.size(); i++) {
+            MemoryRecord record = records.get(i);
+            if (record.getRecordId().equals(recordId)) {
+                records.set(i, new MemoryRecord(
+                        record.getRecordId(),
+                        record.getCreatedAt(),
+                        record.getMode(),
+                        record.getTitle(),
+                        record.getSummary(),
+                        record.getSourceText(),
+                        record.getNote(),
+                        "",
+                        record.getAnalysis(),
+                        record.getMemory(),
+                        record.getEngine(),
+                        record.getCategoryGroupCode(),
+                        record.getCategoryCode(),
+                        record.getCategoryName(),
+                        record.getReminderAt(),
+                        record.isReminderDone(),
+                        record.isArchived()
+                ));
+                changed = true;
+                break;
+            }
+        }
+        if (changed) {
+            persist(records);
+            MemoryStoreNotifier.notifyChanged(appContext, recordId);
+        }
+        return changed;
+    }
+
     public synchronized List<MemoryRecord> loadReminderRecords() {
         List<MemoryRecord> reminders = new ArrayList<>();
         for (MemoryRecord record : loadActiveRecords()) {

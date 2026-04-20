@@ -999,7 +999,7 @@ class SettingsActivity : BaseComposeActivity() {
                     )
 
                     SettingsPrimaryAction(
-                        title = if (testingTarget == AiTestTarget.IMAGE) "正在测试..." else "测试图像 API",
+                        title = if (testingTarget == AiTestTarget.IMAGE) "测试图像 API 中..." else "测试图像 API",
                         modifier = Modifier.padding(top = 24.dp),
                         accentColor = aiActionColor,
                         surface = actionSurface,
@@ -1016,7 +1016,7 @@ class SettingsActivity : BaseComposeActivity() {
                         }
                     )
                     SettingsPrimaryAction(
-                        title = if (testingTarget == AiTestTarget.TEXT) "正在测试..." else "测试文本 API",
+                        title = if (testingTarget == AiTestTarget.TEXT) "测试文本 API 中..." else "测试文本 API",
                         modifier = Modifier.padding(top = 14.dp),
                         accentColor = aiActionColor,
                         surface = actionSurface,
@@ -1033,7 +1033,7 @@ class SettingsActivity : BaseComposeActivity() {
                         }
                     )
                     SettingsPrimaryAction(
-                        title = if (testingTarget == AiTestTarget.MULTIMODAL) "正在测试..." else "测试多模态 API",
+                        title = if (testingTarget == AiTestTarget.MULTIMODAL) "测试多模态 API 中..." else "测试多模态 API",
                         modifier = Modifier.padding(top = 14.dp),
                         accentColor = aiActionColor,
                         surface = actionSurface,
@@ -1373,27 +1373,85 @@ class SettingsActivity : BaseComposeActivity() {
                 } else {
                     Color.Black.copy(alpha = 0.06f)
                 }
-                val storageCleanItems = remember {
-                    listOf(
-                        StorageCleanItemUi("未使用的图片", "无未使用的图片"),
-                        StorageCleanItemUi("损坏的图片引用", "无损坏的图片引用"),
-                        StorageCleanItemUi("安装包文件", "无安装包文件"),
-                        StorageCleanItemUi("缓存文件", "无缓存文件"),
-                        StorageCleanItemUi("崩溃日志", "无崩溃日志"),
-                        StorageCleanItemUi("损坏的备份", "无损坏的备份")
-                    )
+
+                var storageCategories by remember { mutableStateOf<List<StorageCleanCategory>>(emptyList()) }
+                var isScanning by remember { mutableStateOf(false) }
+                var cleaningType by remember { mutableStateOf<StorageCleanCategory.CleanType?>(null) }
+                var showCleanResult by remember { mutableStateOf(false) }
+                var cleanResultMessage by remember { mutableStateOf("") }
+                val scope = rememberCoroutineScope()
+
+                fun performScan() {
+                    if (isScanning) return
+                    isScanning = true
+                    Thread {
+                        val results = StorageCleaner.scanAll(context, memoryStore)
+                        results.forEach { cat ->
+                            if (cat.type == StorageCleanCategory.CleanType.UNUSED_IMAGES) {
+                                StorageCleaner.scanUnusedImages(context, memoryStore)
+                            }
+                        }
+                        runOnUiThread {
+                            storageCategories = results
+                            isScanning = false
+                        }
+                    }.start()
                 }
+
+                fun performClean(category: StorageCleanCategory) {
+                    if (cleaningType != null) return
+                    cleaningType = category.type
+                    Thread {
+                        var cleanedCount = 0
+                        when (category.type) {
+                            StorageCleanCategory.CleanType.BROKEN_IMAGE_REFS -> {
+                                cleanedCount = StorageCleaner.cleanBrokenImageRefs(memoryStore, category.recordIds)
+                            }
+                            else -> {
+                                cleanedCount = StorageCleaner.cleanFiles(category.files)
+                            }
+                        }
+                        runOnUiThread {
+                            cleaningType = null
+                            if (cleanedCount > 0) {
+                                cleanResultMessage = "已清理 ${cleanedCount} 个项目，释放 ${StorageCleanCategory.formatSize(category.totalSize)}"
+                            } else {
+                                cleanResultMessage = "清理完成"
+                            }
+                            showCleanResult = true
+                            performScan()
+                        }
+                    }.start()
+                }
+
+                LaunchedEffect(Unit) {
+                    performScan()
+                }
+
+                val totalSize = StorageCleaner.calculateTotalSize(storageCategories)
+                val hasCleanableItems = storageCategories.any { it.files.isNotEmpty() || it.recordIds.isNotEmpty() }
+
+                val storageCleanItems = remember(storageCategories) {
+                    storageCategories.map { cat ->
+                        StorageCleanItemUi(
+                            title = cat.title,
+                            subtitle = cat.description,
+                            category = cat,
+                            size = cat.totalSize
+                        )
+                    }
+                }
+
                 Column {
                     Spacer(modifier = Modifier.height(18.dp))
                     StorageCleanSummaryCard(
-                        releaseSize = "0 B",
+                        releaseSize = if (isScanning) "扫描中..." else StorageCleanCategory.formatSize(totalSize),
                         surface = storageCardSurface,
                         labelColor = storageLabelColor,
                         valueColor = storageAccentColor,
                         actionColor = storageAccentColor,
-                        onRescan = {
-                            Toast.makeText(context, "当前没有检测到可释放空间", Toast.LENGTH_SHORT).show()
-                        }
+                        isScanning = isScanning,
+                        onRescan = { performScan() }
                     )
                     Spacer(modifier = Modifier.height(28.dp))
                     SettingsSectionLabel("可清理项目", storageMetaColor)
@@ -1403,9 +1461,21 @@ class SettingsActivity : BaseComposeActivity() {
                         titleColor = storageLabelColor,
                         subtitleColor = storageMetaColor,
                         dividerColor = storageDividerColor,
+                        accentColor = storageAccentColor,
+                        cleaningType = cleaningType,
+                        onClean = { item -> item.category?.let { performClean(it) } },
                         modifier = Modifier.padding(top = 12.dp)
                     )
                     Spacer(modifier = Modifier.height(28.dp))
+                }
+
+                if (showCleanResult) {
+                    NoMemoMessageDialog(
+                        title = "清理完成",
+                        message = cleanResultMessage,
+                        confirmText = "知道了",
+                        onDismiss = { showCleanResult = false }
+                    )
                 }
             }
 
@@ -1561,8 +1631,12 @@ class SettingsActivity : BaseComposeActivity() {
 
     private data class StorageCleanItemUi(
         val title: String,
-        val subtitle: String
-    )
+        val subtitle: String,
+        val category: StorageCleanCategory?,
+        val size: Long = 0
+    ) {
+        val hasCleanableItems: Boolean get() = category != null && (category.files.isNotEmpty() || category.recordIds.isNotEmpty())
+    }
 
     @Composable
     private fun StorageCleanSummaryCard(
@@ -1571,6 +1645,7 @@ class SettingsActivity : BaseComposeActivity() {
         labelColor: Color,
         valueColor: Color,
         actionColor: Color,
+        isScanning: Boolean = false,
         modifier: Modifier = Modifier,
         onRescan: () -> Unit
     ) {
@@ -1591,19 +1666,19 @@ class SettingsActivity : BaseComposeActivity() {
                 Spacer(modifier = Modifier.height(14.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.Bottom
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         text = releaseSize,
                         color = valueColor,
-                        fontSize = 42.sp,
-                        fontWeight = FontWeight.Black,
-                        letterSpacing = (-1).sp,
+                        fontSize = 28.sp,
+                        fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f)
                     )
                     StorageCleanActionButton(
-                        text = "重新扫描",
+                        text = if (isScanning) "扫描中..." else "重新扫描",
                         accentColor = actionColor,
+                        enabled = !isScanning,
                         onClick = onRescan
                     )
                 }
@@ -1615,21 +1690,22 @@ class SettingsActivity : BaseComposeActivity() {
     private fun StorageCleanActionButton(
         text: String,
         accentColor: Color,
+        enabled: Boolean = true,
         onClick: () -> Unit
     ) {
         PressScaleBox(
-            onClick = onClick,
+            onClick = { if (enabled) onClick() },
             pressedScale = 1f
         ) {
             Box(
                 modifier = Modifier
                     .clip(NoMemoG2CapsuleShape)
-                    .background(accentColor.copy(alpha = 0.22f))
+                    .background(accentColor.copy(alpha = if (enabled) 0.22f else 0.10f))
                     .padding(horizontal = 18.dp, vertical = 11.dp)
             ) {
                 Text(
                     text = text,
-                    color = accentColor,
+                    color = accentColor.copy(alpha = if (enabled) 1f else 0.5f),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -1644,6 +1720,9 @@ class SettingsActivity : BaseComposeActivity() {
         titleColor: Color,
         subtitleColor: Color,
         dividerColor: Color,
+        accentColor: Color,
+        cleaningType: StorageCleanCategory.CleanType?,
+        onClean: (StorageCleanItemUi) -> Unit,
         modifier: Modifier = Modifier
     ) {
         SettingsSurfaceCard(
@@ -1656,7 +1735,11 @@ class SettingsActivity : BaseComposeActivity() {
                     StorageCleanItemRow(
                         item = item,
                         titleColor = titleColor,
-                        subtitleColor = subtitleColor
+                        subtitleColor = subtitleColor,
+                        accentColor = accentColor,
+                        isCleaning = cleaningType != null && item.category?.type == cleaningType,
+                        onClean = { onClean(item) },
+                        enabled = cleaningType == null
                     )
                     if (index != items.lastIndex) {
                         SettingsInfoDivider(
@@ -1674,26 +1757,50 @@ class SettingsActivity : BaseComposeActivity() {
     private fun StorageCleanItemRow(
         item: StorageCleanItemUi,
         titleColor: Color,
-        subtitleColor: Color
+        subtitleColor: Color,
+        accentColor: Color,
+        isCleaning: Boolean = false,
+        enabled: Boolean = true,
+        onClean: () -> Unit
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 18.dp)
+                .padding(horizontal = 18.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = item.title,
-                color = titleColor,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = item.subtitle,
-                color = subtitleColor,
-                fontSize = 13.sp,
-                lineHeight = 18.sp,
-                modifier = Modifier.padding(top = 4.dp)
-            )
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = item.title,
+                    color = titleColor,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = item.subtitle,
+                    color = subtitleColor,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+            if (item.hasCleanableItems) {
+                Spacer(modifier = Modifier.width(12.dp))
+                Text(
+                    text = if (isCleaning) "清理中..." else "清理",
+                    color = if (enabled && !isCleaning) accentColor else accentColor.copy(alpha = 0.4f),
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .clip(NoMemoG2CapsuleShape)
+                        .background(
+                            if (enabled && !isCleaning) accentColor.copy(alpha = 0.12f)
+                            else accentColor.copy(alpha = 0.06f)
+                        )
+                        .clickable(enabled = enabled && !isCleaning) { onClean() }
+                        .padding(horizontal = 14.dp, vertical = 8.dp)
+                )
+            }
         }
     }
 
