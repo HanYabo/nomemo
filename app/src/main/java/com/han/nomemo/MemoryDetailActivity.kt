@@ -685,6 +685,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         var moreMenuAnchorBounds by remember { mutableStateOf<IntRect?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var showEditExitConfirm by remember { mutableStateOf(false) }
+        var deleteTargetTitle by remember { mutableStateOf("") }
+        var resetEditDraftsRef by remember { mutableStateOf<(() -> Unit)?>(null) }
         var hasPendingEditChanges by remember(record?.recordId) { mutableStateOf(false) }
         var showReminderSetupSheet by remember { mutableStateOf(false) }
         var showImagePreview by remember { mutableStateOf(false) }
@@ -917,10 +919,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         }
                         val detailImageDisplayAspectRatio = detailImageAspectRatio ?: 1f
                         val collapsedTitleText = if (editing) draftTitle.ifBlank { titleText } else titleText
-                        val deleteTargetTitle = titleText
+                        val localDeleteTargetTitle = titleText
                             .replace("\\s+".toRegex(), " ")
                             .trim()
                             .ifBlank { "未命名记忆" }
+                        deleteTargetTitle = localDeleteTargetTitle
                         val hasEditDraftChanges by remember(
                             draftTitle,
                             draftSummary,
@@ -956,6 +959,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             categoryMenuExpanded = false
                             showEditExitConfirm = false
                         }
+                        resetEditDraftsRef = resetEditDrafts
                         val requestExitEditing = {
                             categoryMenuExpanded = false
                             if (hasEditDraftChanges) {
@@ -1358,33 +1362,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 )
                             )
                         )
-
-                        if (showDeleteConfirm) {
-                            NoMemoDeleteConfirmDialog(
-                                title = "确认删除",
-                                message = "确定删除“$deleteTargetTitle”这条记忆吗？",
-                                onConfirm = {
-                                    showDeleteConfirm = false
-                                    onDelete(currentRecord)
-                                },
-                                onDismiss = { showDeleteConfirm = false }
-                            )
-                        }
-
-                        if (showEditExitConfirm) {
-                            NoMemoConfirmDialog(
-                                title = "放弃修改？",
-                                message = "当前编辑内容尚未保存，离开后这些修改会丢失。",
-                                confirmText = "放弃修改",
-                                dismissText = "继续编辑",
-                                destructive = true,
-                                onConfirm = {
-                                    resetEditDrafts()
-                                    editing = false
-                                },
-                                onDismiss = { showEditExitConfirm = false }
-                            )
-                        }
                     }
                 }
 
@@ -1430,6 +1407,33 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             Toast.makeText(this@MemoryDetailActivity, "提醒保存失败", Toast.LENGTH_SHORT).show()
                         }
                     }
+                )
+            }
+
+            if (showDeleteConfirm && record != null) {
+                NoMemoDeleteConfirmDialog(
+                    title = "确认删除",
+                    message = "确定删除\u201C${deleteTargetTitle}\u201D这条记忆吗？",
+                    onConfirm = {
+                        showDeleteConfirm = false
+                        onDelete(record)
+                    },
+                    onDismiss = { showDeleteConfirm = false }
+                )
+            }
+
+            if (showEditExitConfirm) {
+                NoMemoConfirmDialog(
+                    title = "放弃修改？",
+                    message = "当前编辑内容尚未保存，离开后这些修改会丢失。",
+                    confirmText = "放弃修改",
+                    dismissText = "继续编辑",
+                    destructive = true,
+                    onConfirm = {
+                        resetEditDraftsRef?.invoke()
+                        editing = false
+                    },
+                    onDismiss = { showEditExitConfirm = false }
                 )
             }
         }

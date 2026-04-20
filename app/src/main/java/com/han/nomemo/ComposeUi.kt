@@ -145,6 +145,7 @@ import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.WindowInsetsCompat
 import coil3.SingletonImageLoader
@@ -1232,9 +1233,9 @@ private fun NoMemoDialogShell(
     val panelShape = noMemoG2RoundedShape(34.dp)
     val actionsBackdrop = rememberLayerBackdrop()
     val panelSurface = if (isDark) {
-        Color(0xFF1F1F22).copy(alpha = 0.96f)
+        Color(0xFF1F1F22)
     } else {
-        Color.White.copy(alpha = 0.985f)
+        Color.White
     }
     val panelStroke = if (isDark) {
         Color.White.copy(alpha = 0.26f)
@@ -1275,7 +1276,6 @@ private fun NoMemoDialogShell(
         val activity = context.findActivity()
         val window = activity?.window
         val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
-        val decorGroup = window?.decorView as? ViewGroup
         val previousStatusBarColor = window?.statusBarColor
         val previousNavigationBarColor = window?.navigationBarColor
         val previousLightStatusBars = controller?.isAppearanceLightStatusBars
@@ -1285,104 +1285,20 @@ private fun NoMemoDialogShell(
         } else {
             null
         }
-        val hadTranslucentStatus = window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS) != 0
-        val hadTranslucentNavigation = window?.attributes?.flags?.and(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION) != 0
-        val scrimBarColor = scrimColor.toArgb()
-        val rootInsets = decorGroup?.let { ViewCompat.getRootWindowInsets(it) }
-        val statusBarHeight = rootInsets
-            ?.getInsets(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout())
-            ?.top
-            ?.coerceAtLeast(0)
-            ?: 0
-        val navigationInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.navigationBars())
-        val systemGestureInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.systemGestures())
-        val mandatoryGestureInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.mandatorySystemGestures())
-        val tappableElementInsets = rootInsets?.getInsets(WindowInsetsCompat.Type.tappableElement())
-        val bottomInsetCandidates = listOf(
-            navigationInsets?.bottom ?: 0,
-            systemGestureInsets?.bottom ?: 0,
-            mandatoryGestureInsets?.bottom ?: 0,
-            tappableElementInsets?.bottom ?: 0
-        )
-        val bottomGestureInset = bottomInsetCandidates.maxOrNull() ?: 0
-        val navigationBarHeight = when {
-            bottomGestureInset > 0 -> bottomGestureInset
-            navigationInsets?.right ?: 0 > 0 -> navigationInsets?.right ?: 0
-            navigationInsets?.left ?: 0 > 0 -> navigationInsets?.left ?: 0
-            else -> 0
-        }
-        val topScrimView = if (activity != null && decorGroup != null && statusBarHeight > 0) {
-            View(activity).apply {
-                setBackgroundColor(scrimBarColor)
-                isClickable = false
-                isFocusable = false
-            }
-        } else {
-            null
-        }
-        val bottomScrimView = if (activity != null && decorGroup != null && navigationBarHeight > 0) {
-            View(activity).apply {
-                setBackgroundColor(scrimBarColor)
-                isClickable = false
-                isFocusable = false
-            }
-        } else {
-            null
-        }
-
         if (window != null && controller != null) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS)
-            window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
-            window.addFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
-            window.statusBarColor = scrimBarColor
-            window.navigationBarColor = scrimBarColor
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.statusBarColor = android.graphics.Color.TRANSPARENT
+            window.navigationBarColor = android.graphics.Color.TRANSPARENT
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 window.isNavigationBarContrastEnforced = false
             }
-            controller.isAppearanceLightStatusBars = false
-            controller.isAppearanceLightNavigationBars = true
-        }
-        if (decorGroup is FrameLayout) {
-            topScrimView?.let { view ->
-                decorGroup.addView(
-                    view,
-                    FrameLayout.LayoutParams(
-                        FrameLayout.LayoutParams.MATCH_PARENT,
-                        statusBarHeight,
-                        Gravity.TOP
-                    )
-                )
-            }
-            bottomScrimView?.let { view ->
-                val gravity = when {
-                    navigationBarHeight > 0 && (
-                        bottomGestureInset > 0
-                    ) -> Gravity.BOTTOM
-                    navigationInsets?.right ?: 0 > 0 -> Gravity.END
-                    navigationInsets?.left ?: 0 > 0 -> Gravity.START
-                    else -> Gravity.BOTTOM
-                }
-                val width = if (gravity == Gravity.BOTTOM) {
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                } else {
-                    navigationBarHeight
-                }
-                val height = if (gravity == Gravity.BOTTOM) {
-                    navigationBarHeight
-                } else {
-                    FrameLayout.LayoutParams.MATCH_PARENT
-                }
-                decorGroup.addView(
-                    view,
-                    FrameLayout.LayoutParams(width, height, gravity)
-                )
-            }
+            controller.isAppearanceLightStatusBars = !isDark
+            controller.isAppearanceLightNavigationBars = !isDark
         }
 
         onDispose {
-            topScrimView?.let { decorGroup?.removeView(it) }
-            bottomScrimView?.let { decorGroup?.removeView(it) }
             if (window != null && controller != null) {
+                WindowCompat.setDecorFitsSystemWindows(window, true)
                 if (previousStatusBarColor != null) {
                     window.statusBarColor = previousStatusBarColor
                 }
@@ -1397,12 +1313,6 @@ private fun NoMemoDialogShell(
                 }
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && previousNavigationContrastEnforced != null) {
                     window.isNavigationBarContrastEnforced = previousNavigationContrastEnforced
-                }
-                if (!hadTranslucentStatus) {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_STATUS)
-                }
-                if (!hadTranslucentNavigation) {
-                    window.clearFlags(WindowManager.LayoutParams.FLAG_TRANSLUCENT_NAVIGATION)
                 }
             } else if (activity != null) {
                 WindowStyleManager.apply(activity, UiConfig.windowStyleFor(activity))
