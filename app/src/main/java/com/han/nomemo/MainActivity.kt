@@ -674,6 +674,11 @@ class MainActivity : BaseComposeActivity() {
                 RecordCard(
                     record = record,
                     selected = selected,
+                    modifier = Modifier.animateItem(
+                        fadeInSpec = tween(250),
+                        placementSpec = tween(300, easing = FastOutSlowInEasing),
+                        fadeOutSpec = tween(200)
+                    ),
                     palette = palette,
                     adaptive = adaptive,
                     allowImageLoading = true,

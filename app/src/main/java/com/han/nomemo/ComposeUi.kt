@@ -7,13 +7,7 @@ import android.content.SharedPreferences
 import android.graphics.PathMeasure
 import android.graphics.RectF
 import android.os.Build
-import android.view.Gravity
-import android.view.View
-import android.view.ViewGroup
-import android.view.WindowManager
-import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
@@ -26,28 +20,22 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.gestures.draggable
 import androidx.compose.foundation.gestures.rememberDraggableState
 import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -57,7 +45,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
@@ -80,7 +67,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -102,8 +88,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.asComposePath
@@ -144,10 +128,8 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.ui.draw.shadow
-import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
-import androidx.core.view.WindowInsetsCompat
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -161,11 +143,9 @@ import com.kyant.backdrop.effects.vibrancy
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -1321,11 +1301,23 @@ private fun NoMemoDialogShell(
     }
 
     BackHandler(onBack = onDismissRequest)
+    var animPlayed by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { animPlayed = true }
+    val scrimAlpha by animateFloatAsState(
+        targetValue = if (animPlayed) 1f else 0f,
+        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        label = "dialogScrim"
+    )
+    val panelProgress by animateFloatAsState(
+        targetValue = if (animPlayed) 1f else 0f,
+        animationSpec = tween(250, easing = FastOutSlowInEasing),
+        label = "dialogPanel"
+    )
     Box(
         modifier = Modifier
             .fillMaxSize()
             .zIndex(1000f)
-            .background(scrimColor)
+            .background(scrimColor.copy(alpha = scrimColor.alpha * scrimAlpha))
             .onGloballyPositioned { coordinates ->
                 overlayBoundsInWindow = coordinates.boundsInWindow()
             }
@@ -1347,6 +1339,12 @@ private fun NoMemoDialogShell(
                         .padding(horizontal = 18.dp)
                         .fillMaxWidth()
                         .widthIn(max = 560.dp)
+                        .graphicsLayer {
+                            val scale = 0.92f + 0.08f * panelProgress
+                            scaleX = scale
+                            scaleY = scale
+                            alpha = panelProgress
+                        }
                         .shadow(
                             elevation = 20.dp,
                             shape = panelShape,
