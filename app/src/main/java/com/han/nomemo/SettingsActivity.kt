@@ -1,5 +1,6 @@
 ﻿package com.han.nomemo
 
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.res.Configuration
@@ -19,6 +20,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -2421,65 +2423,20 @@ class SettingsActivity : BaseComposeActivity() {
         var draggingTab by remember { mutableStateOf<NoMemoDockTab?>(null) }
         var draggingIndex by remember { mutableStateOf(-1) }
         var dragOffsetY by remember { mutableFloatStateOf(0f) }
-        val previewBackground = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd, isDark) {
-            Brush.verticalGradient(
-                colors = if (isDark) {
-                    listOf(
-                        palette.memoBgStart.copy(alpha = 0.92f),
-                        palette.memoBgMid.copy(alpha = 0.96f),
-                        palette.memoBgEnd.copy(alpha = 0.98f)
-                    )
-                } else {
-                    listOf(
-                        palette.memoBgStart.copy(alpha = 0.88f),
-                        palette.memoBgMid.copy(alpha = 0.94f),
-                        palette.memoBgEnd.copy(alpha = 0.96f)
-                    )
-                }
-            )
-        }
-        val previewOverlay = if (isDark) {
-            Color.White.copy(alpha = 0.035f)
-        } else {
-            Color.White.copy(alpha = 0.38f)
-        }
-        val defaultLaunchTab = dockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY
-        val previewBackdrop = rememberLayerBackdrop()
-
         SettingsSectionLabel("实时预览", sectionLabelColor)
         SettingsSurfaceCard(
             surface = surface,
             borderColor = Color.Transparent,
             modifier = Modifier.padding(top = 10.dp)
         ) {
-            Box(
+            CustomDockPreview(
+                dockOrder = dockOrder,
+                palette = palette,
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 18.dp, vertical = 18.dp)
-                    .height(132.dp)
-                    .clip(noMemoG2RoundedShape(24.dp))
-                    .background(previewBackground)
-                    .layerBackdrop(previewBackdrop)
-            ) {
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .background(previewOverlay)
-                )
-                LiquidGlassDock(
-                    selectedTab = defaultLaunchTab,
-                    onOpenMemory = {},
-                    onOpenGroup = {},
-                    onOpenReminder = {},
-                    onAddClick = {},
-                    sharedBackdrop = previewBackdrop,
-                    dockOrderOverride = dockOrder,
-                    showAddButton = false,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .padding(horizontal = 6.dp)
-                )
-            }
+                    .height(108.dp)
+            )
         }
 
         Spacer(modifier = Modifier.height(24.dp))
@@ -2663,6 +2620,72 @@ class SettingsActivity : BaseComposeActivity() {
         }
     }
 
+    @Composable
+    private fun CustomDockPreview(
+        dockOrder: List<NoMemoDockTab>,
+        palette: NoMemoPalette,
+        modifier: Modifier = Modifier
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val adaptive = rememberNoMemoAdaptiveSpec()
+        val previewBackdrop = rememberLayerBackdrop {
+            drawContent()
+        }
+        var selectedTab by remember {
+            mutableStateOf(dockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY)
+        }
+        LaunchedEffect(dockOrder) {
+            if (selectedTab !in dockOrder) {
+                selectedTab = dockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY
+            }
+        }
+        val previewBackground = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd, isDark) {
+            Brush.verticalGradient(
+                colors = if (isDark) {
+                    listOf(
+                        palette.memoBgStart.copy(alpha = 0.92f),
+                        palette.memoBgMid.copy(alpha = 0.96f),
+                        palette.memoBgEnd.copy(alpha = 0.98f)
+                    )
+                } else {
+                    listOf(
+                        palette.memoBgStart.copy(alpha = 0.88f),
+                        palette.memoBgMid.copy(alpha = 0.94f),
+                        palette.memoBgEnd.copy(alpha = 0.96f)
+                    )
+                }
+            )
+        }
+
+        Box(
+            modifier = modifier
+                .fillMaxWidth()
+                .clip(noMemoG2RoundedShape(24.dp))
+        ) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .layerBackdrop(previewBackdrop)
+                    .background(previewBackground)
+            )
+
+            LiquidGlassDock(
+                selectedTab = selectedTab,
+                onOpenMemory = { selectedTab = NoMemoDockTab.MEMORY },
+                onOpenGroup = { selectedTab = NoMemoDockTab.GROUP },
+                onOpenReminder = { selectedTab = NoMemoDockTab.REMINDER },
+                onAddClick = {},
+                sharedBackdrop = previewBackdrop,
+                dockOrderOverride = dockOrder,
+                showAddButton = false,
+                spec = adaptive,
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .padding(horizontal = 10.dp)
+                )
+        }
+    }
+
     private fun customDockTabItem(tab: NoMemoDockTab): CustomDockTabItem {
         return when (tab) {
             NoMemoDockTab.MEMORY -> CustomDockTabItem(
@@ -2738,6 +2761,7 @@ class SettingsActivity : BaseComposeActivity() {
         }
     }
 
+    @SuppressLint("LocalContextConfigurationRead")
     @Composable
     private fun rememberLightThemeTokenColor(colorRes: Int): Color {
         val context = LocalContext.current

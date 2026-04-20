@@ -75,7 +75,7 @@ dependencies {
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
 
     // Backdrop: Liquid Glass Effect Library
-    implementation("io.github.kyant0:backdrop:1.0.6")
+    implementation("io.github.kyant0:backdrop:2.0.0-alpha03")
 
     // Capsule: G2 Continuous Curve
     implementation("io.github.kyant0:capsule:2.1.3")

@@ -19,8 +19,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
@@ -89,14 +89,12 @@ import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -119,6 +117,7 @@ import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
 import androidx.lifecycle.lifecycleScope
+import me.saket.telephoto.zoomable.DoubleClickToZoomListener
 import me.saket.telephoto.zoomable.EnabledZoomGestures
 import me.saket.telephoto.zoomable.ZoomSpec
 import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
@@ -708,6 +707,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
         }
         var previewImageAspectRatio by remember(previewRecord?.recordId, previewRecord?.imageUri) { mutableStateOf<Float?>(null) }
+        var previewImageMetadataResolved by remember(previewRecord?.recordId, previewRecord?.imageUri) {
+            mutableStateOf(previewRecord == null)
+        }
         var previewImagePrepared by remember(
             previewRecord?.recordId,
             previewRecord?.imageUri,
@@ -725,11 +727,19 @@ class MemoryDetailActivity : BaseComposeActivity() {
         )
         val previewOverlayVisible = previewTransition.currentState || previewTransition.targetState
         val previewSourceCardHidden = previewOverlayVisible
+        val previewImageReady = previewImagePrepared && previewImageMetadataResolved
 
         LaunchedEffect(previewRecord?.recordId, previewRecord?.imageUri) {
-            previewImageAspectRatio = withContext(Dispatchers.IO) {
-                resolveImageAspectRatio(previewRecord?.imageUri)
+            if (previewRecord == null) {
+                previewImageAspectRatio = null
+                previewImageMetadataResolved = true
+                return@LaunchedEffect
             }
+            previewImageMetadataResolved = false
+            previewImageAspectRatio = withContext(Dispatchers.IO) {
+                resolveImageAspectRatio(previewRecord.imageUri)
+            }
+            previewImageMetadataResolved = true
         }
 
         LaunchedEffect(previewRequest) {
@@ -744,8 +754,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             previewImagePrepared = true
         }
 
-        LaunchedEffect(previewImagePrepared, previewOpenPending, previewRecord?.recordId) {
-            if (previewImagePrepared && previewOpenPending && previewRecord != null) {
+        LaunchedEffect(previewImageReady, previewOpenPending, previewRecord?.recordId) {
+            if (previewImageReady && previewOpenPending && previewRecord != null) {
                 previewOpenPending = false
                 showImagePreview = true
             }
@@ -769,7 +779,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
         }
 
-        if (showImagePreview) {
+        if (previewOverlayVisible) {
             DisposableEffect(Unit) {
                 val insetsController = WindowInsetsControllerCompat(window, window.decorView).apply {
                     systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
@@ -785,11 +795,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
         NoMemoBackground {
             Box(modifier = Modifier.fillMaxSize()) {
-                val screenAspectRatio = remember(configuration.screenWidthDp, configuration.screenHeightDp) {
-                    val width = configuration.screenWidthDp.toFloat().coerceAtLeast(1f)
-                    val height = configuration.screenHeightDp.toFloat().coerceAtLeast(1f)
-                    width / height
-                }
                 ResponsiveContentFrame(spec = adaptive) { spec ->
                             Box(
                                 modifier = Modifier
@@ -1062,7 +1067,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         if (editing) {
                                             imagePickerLauncher.launch(arrayOf("image/*"))
                                         } else {
-                                            if (previewImagePrepared) {
+                                            if (previewImageReady) {
                                                 showImagePreview = true
                                             } else {
                                                 previewOpenPending = true
@@ -1384,221 +1389,31 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
 
                 if (previewRecord != null && previewOverlayVisible) {
-                    val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
-                    val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
-                    val previewVerticalInsetPx = with(density) {
-                        (if (adaptive.isNarrow) 92.dp else 104.dp).toPx()
-                    }
-                    val sourceRect = if (imageCardBounds.isEmpty) {
-                        Rect(
-                            left = screenWidthPx * 0.18f,
-                            top = screenHeightPx * 0.28f,
-                            right = screenWidthPx * 0.82f,
-                            bottom = screenHeightPx * 0.52f
-                        )
-                    } else {
-                        imageCardBounds
-                    }
-                    val interactiveRect = remember(
-                        screenWidthPx,
-                        screenHeightPx,
-                        previewImageAspectRatio,
-                        screenAspectRatio,
-                        previewVerticalInsetPx
-                    ) {
-                        buildPreviewTargetBounds(
-                            screenWidthPx = screenWidthPx,
-                            screenHeightPx = screenHeightPx,
-                            imageAspectRatio = previewImageAspectRatio,
-                            screenAspectRatio = screenAspectRatio,
-                            verticalInsetPx = previewVerticalInsetPx
-                        )
-                    }
-                    val previewFillScreen = previewImageAspectRatio != null &&
-                        isAspectRatioCloseToScreen(previewImageAspectRatio!!, screenAspectRatio)
-                    val animationTargetRect = remember(
-                        screenWidthPx,
-                        screenHeightPx,
-                        previewImageAspectRatio,
-                        previewFillScreen
-                    ) {
-                        buildPreviewDisplayedImageBounds(
-                            screenWidthPx = screenWidthPx,
-                            screenHeightPx = screenHeightPx,
-                            imageAspectRatio = previewImageAspectRatio,
-                            fillScreen = previewFillScreen
-                        )
-                    }
-                    val previewAlpha by previewTransition.animateFloat(
-                        transitionSpec = {
-                            tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                    MemoryDetailImagePreviewOverlay(
+                        transition = previewTransition,
+                        previewRecord = previewRecord,
+                        previewRequest = previewRequest,
+                        previewImageAspectRatio = previewImageAspectRatio,
+                        imageCardBounds = imageCardBounds,
+                        adaptive = adaptive,
+                        statusBarHeightDp = statusBarHeightDp,
+                        showPreviewActionMenu = showPreviewActionMenu,
+                        previewActionMenuAnchorBounds = previewActionMenuAnchorBounds,
+                        onTogglePreviewActionMenu = {
+                            showPreviewActionMenu = !showPreviewActionMenu
                         },
-                        label = "previewAlpha"
-                    ) { expanded -> if (expanded) 1f else 0f }
-                    val previewProgress by previewTransition.animateFloat(
-                        transitionSpec = {
-                            tween(durationMillis = 280, easing = FastOutSlowInEasing)
+                        onPreviewActionMenuDismiss = { showPreviewActionMenu = false },
+                        onPreviewActionMenuAnchorBoundsChanged = { previewActionMenuAnchorBounds = it },
+                        onDismiss = { showImagePreview = false },
+                        onSavePreviewImage = {
+                            showPreviewActionMenu = false
+                            savePreviewImage(previewRecord.imageUri.orEmpty())
                         },
-                        label = "previewProgress"
-                    ) { expanded -> if (expanded) 1f else 0f }
-                    val buttonAlpha by previewTransition.animateFloat(
-                        transitionSpec = {
-                            tween(durationMillis = 180, delayMillis = if (targetState) 90 else 0)
-                        },
-                        label = "previewButtonAlpha"
-                    ) { expanded -> if (expanded) 1f else 0f }
-                    val animatedLeft = sourceRect.left + (animationTargetRect.left - sourceRect.left) * previewProgress
-                    val animatedTop = sourceRect.top + (animationTargetRect.top - sourceRect.top) * previewProgress
-                    val animatedWidth = sourceRect.width + (animationTargetRect.width - sourceRect.width) * previewProgress
-                    val animatedHeight = sourceRect.height + (animationTargetRect.height - sourceRect.height) * previewProgress
-                    val animatedCornerRadius = with(density) {
-                        ((1f - previewProgress) * 28.dp.value).dp
-                    }
-                    val previewInteractionSource = remember(previewRecord?.recordId, previewRecord?.imageUri) {
-                        MutableInteractionSource()
-                    }
-                    val previewButtonSize = adaptive.topActionButtonSize
-                    val previewCloseButtonSize = if (adaptive.isNarrow) 68.dp else 76.dp
-                    val previewBackdropAlpha = previewAlpha
-                    val previewZoomableImageState = key(
-                        previewRecord.recordId,
-                        previewRecord.imageUri
-                    ) {
-                        rememberZoomableImageState(
-                            rememberZoomableState(
-                                zoomSpec = ZoomSpec(maxZoomFactor = 4f)
-                            )
-                        )
-                    }
-                    val previewZoomableActive =
-                        previewTransition.targetState &&
-                            previewProgress >= 0.92f
-                    val previewZoomableAlpha by animateFloatAsState(
-                        targetValue = if (previewZoomableActive) 1f else 0f,
-                        animationSpec = tween(durationMillis = 90),
-                        label = "previewZoomableAlpha"
-                    )
-                    val previewShowBaseImage = !previewZoomableActive || previewZoomableAlpha < 0.999f
-                    val previewImageContainerModifier = if (previewZoomableActive) {
-                        Modifier
-                            .offset {
-                                IntOffset(
-                                    x = interactiveRect.left.roundToInt(),
-                                    y = interactiveRect.top.roundToInt()
-                                )
-                            }
-                            .size(
-                                width = with(density) { interactiveRect.width.toDp() },
-                                height = with(density) { interactiveRect.height.toDp() }
-                            )
-                    } else {
-                        Modifier
-                            .offset {
-                                IntOffset(
-                                    x = animatedLeft.roundToInt(),
-                                    y = animatedTop.roundToInt()
-                                )
-                            }
-                            .size(
-                                width = with(density) { animatedWidth.toDp() },
-                                height = with(density) { animatedHeight.toDp() }
-                            )
-                            .clip(noMemoG2RoundedShape(animatedCornerRadius))
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .zIndex(20f)
-                            .background(Color.Black.copy(alpha = previewBackdropAlpha))
-                            .clickable(
-                                interactionSource = previewInteractionSource,
-                                indication = null
-                            ) { showImagePreview = false }
-                    ) {
-                        Box(
-                            modifier = previewImageContainerModifier
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black)
-                            ) {
-                                if (previewShowBaseImage) {
-                                    AsyncImage(
-                                        model = previewRequest,
-                                        contentDescription = "预览图片",
-                                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
-                                ZoomableAsyncImage(
-                                    model = previewRequest,
-                                    state = previewZoomableImageState,
-                                    gestures = if (previewZoomableActive) {
-                                        EnabledZoomGestures.ZoomAndPan
-                                    } else {
-                                        EnabledZoomGestures.None
-                                    },
-                                    contentDescription = "预览图片",
-                                    contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .alpha(previewZoomableAlpha)
-                                )
-                            }
+                        onSharePreviewImage = {
+                            showPreviewActionMenu = false
+                            sharePreviewImage(previewRecord.imageUri.orEmpty())
                         }
-
-                        MemoryDetailPreviewIconButton(
-                            iconRes = R.drawable.ic_nm_more,
-                            contentDescription = "更多操作",
-                            onClick = { showPreviewActionMenu = !showPreviewActionMenu },
-                            size = previewButtonSize,
-                            onBoundsChanged = { previewActionMenuAnchorBounds = it },
-                            modifier = Modifier
-                                .align(Alignment.TopEnd)
-                                .padding(top = statusBarHeightDp)
-                                .alpha(buttonAlpha)
-                                .padding(
-                                    top = (adaptive.pageTopPadding - 2.dp).coerceAtLeast(0.dp),
-                                    end = adaptive.pageHorizontalPadding
-                                )
-                        )
-                        NoMemoAnchoredMenu(
-                            expanded = showPreviewActionMenu,
-                            onDismissRequest = { showPreviewActionMenu = false },
-                            anchorBounds = previewActionMenuAnchorBounds,
-                            actions = listOf(
-                                NoMemoMenuActionItem(
-                                    iconRes = R.drawable.ic_nm_download,
-                                    label = "保存图片",
-                                    onClick = {
-                                        showPreviewActionMenu = false
-                                        savePreviewImage(previewRecord.imageUri.orEmpty())
-                                    }
-                                ),
-                                NoMemoMenuActionItem(
-                                    iconRes = R.drawable.ic_nm_share,
-                                    label = "分享图片",
-                                    onClick = {
-                                        showPreviewActionMenu = false
-                                        sharePreviewImage(previewRecord.imageUri.orEmpty())
-                                    }
-                                )
-                            )
-                        )
-                        MemoryDetailPreviewCloseButton(
-                            iconRes = R.drawable.ic_sheet_close,
-                            contentDescription = getString(R.string.cancel),
-                            onClick = { showImagePreview = false },
-                            size = previewCloseButtonSize,
-                            modifier = Modifier
-                                .align(Alignment.BottomCenter)
-                                .navigationBarsPadding()
-                                .alpha(buttonAlpha)
-                                .padding(bottom = 18.dp)
-                        )
-                    }
+                    )
                 }
 
             record?.let { currentRecord ->
@@ -1618,6 +1433,224 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 )
             }
         }
+        }
+    }
+
+    @Composable
+    private fun MemoryDetailImagePreviewOverlay(
+        transition: Transition<Boolean>,
+        previewRecord: MemoryRecord,
+        previewRequest: ImageRequest?,
+        previewImageAspectRatio: Float?,
+        imageCardBounds: Rect,
+        adaptive: NoMemoAdaptiveSpec,
+        statusBarHeightDp: Dp,
+        showPreviewActionMenu: Boolean,
+        previewActionMenuAnchorBounds: IntRect?,
+        onTogglePreviewActionMenu: () -> Unit,
+        onPreviewActionMenuDismiss: () -> Unit,
+        onPreviewActionMenuAnchorBoundsChanged: (IntRect) -> Unit,
+        onDismiss: () -> Unit,
+        onSavePreviewImage: () -> Unit,
+        onSharePreviewImage: () -> Unit
+    ) {
+        val density = LocalDensity.current
+        val configuration = LocalConfiguration.current
+        val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
+        val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
+        val screenAspectRatio = remember(configuration.screenWidthDp, configuration.screenHeightDp) {
+            val width = configuration.screenWidthDp.toFloat().coerceAtLeast(1f)
+            val height = configuration.screenHeightDp.toFloat().coerceAtLeast(1f)
+            width / height
+        }
+        val sourceCornerRadiusDp = 28.dp
+        val sourceRect = remember(imageCardBounds, screenWidthPx, screenHeightPx) {
+            if (imageCardBounds.isEmpty) {
+                Rect(
+                    left = screenWidthPx * 0.18f,
+                    top = screenHeightPx * 0.28f,
+                    right = screenWidthPx * 0.82f,
+                    bottom = screenHeightPx * 0.52f
+                )
+            } else {
+                imageCardBounds
+            }
+        }
+        val previewFillScreen = previewImageAspectRatio != null &&
+            isAspectRatioCloseToScreen(previewImageAspectRatio, screenAspectRatio)
+        val animationTargetRect = remember(
+            screenWidthPx,
+            screenHeightPx,
+            previewImageAspectRatio,
+            previewFillScreen
+        ) {
+            buildPreviewDisplayedImageBounds(
+                screenWidthPx = screenWidthPx,
+                screenHeightPx = screenHeightPx,
+                imageAspectRatio = previewImageAspectRatio,
+                fillScreen = previewFillScreen
+            )
+        }
+        val previewAlpha by transition.animateFloat(
+            transitionSpec = {
+                tween(durationMillis = 280, easing = FastOutSlowInEasing)
+            },
+            label = "previewAlpha"
+        ) { expanded -> if (expanded) 1f else 0f }
+        val previewProgress by transition.animateFloat(
+            transitionSpec = {
+                tween(durationMillis = 280, easing = FastOutSlowInEasing)
+            },
+            label = "previewProgress"
+        ) { expanded -> if (expanded) 1f else 0f }
+        val buttonAlpha by transition.animateFloat(
+            transitionSpec = {
+                tween(durationMillis = 180, delayMillis = if (targetState) 90 else 0)
+            },
+            label = "previewButtonAlpha"
+        ) { expanded -> if (expanded) 1f else 0f }
+        val animatedLeft = lerp(sourceRect.left, animationTargetRect.left, previewProgress)
+        val animatedTop = lerp(sourceRect.top, animationTargetRect.top, previewProgress)
+        val animatedWidth = lerp(sourceRect.width, animationTargetRect.width, previewProgress)
+        val animatedHeight = lerp(sourceRect.height, animationTargetRect.height, previewProgress)
+        val animatedCornerRadius = with(density) {
+            ((1f - previewProgress) * sourceCornerRadiusDp.value).dp
+        }
+        val previewInteractionSource = remember(previewRecord.recordId, previewRecord.imageUri) {
+            MutableInteractionSource()
+        }
+        val previewButtonSize = adaptive.topActionButtonSize
+        val previewCloseButtonSize = if (adaptive.isNarrow) 68.dp else 76.dp
+        val previewZoomableImageState = key(
+            previewRecord.recordId,
+            previewRecord.imageUri
+        ) {
+            rememberZoomableImageState(
+                rememberZoomableState(
+                    zoomSpec = ZoomSpec(maxZoomFactor = 3.5f)
+                )
+            )
+        }
+        val previewDoubleClickZoom = remember {
+            DoubleClickToZoomListener.cycle(maxZoomFactor = 2.2f)
+        }
+        val previewZoomableVisible = transition.currentState && transition.targetState
+        val previewZoomGestures = EnabledZoomGestures.ZoomAndPan
+        val previewBaseAlpha = if (previewZoomableVisible) 0f else 1f
+        val previewZoomableAlpha = if (previewZoomableVisible) 1f else 0f
+        val animatedRect = Rect(
+            left = animatedLeft,
+            top = animatedTop,
+            right = animatedLeft + animatedWidth,
+            bottom = animatedTop + animatedHeight
+        )
+        val renderedRect = animatedRect
+        val renderedCornerRadiusDp = animatedCornerRadius
+        val renderedBackdropAlpha = previewAlpha.coerceIn(0f, 1f)
+        val renderedButtonAlpha = buttonAlpha.coerceIn(0f, 1f)
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .zIndex(20f)
+                .background(Color.Black.copy(alpha = renderedBackdropAlpha))
+                .clickable(
+                    interactionSource = previewInteractionSource,
+                    indication = null
+                ) { onDismiss() }
+        ) {
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            x = renderedRect.left.roundToInt(),
+                            y = renderedRect.top.roundToInt()
+                        )
+                    }
+                    .size(
+                        width = with(density) { renderedRect.width.toDp() },
+                        height = with(density) { renderedRect.height.toDp() }
+                    )
+                    .graphicsLayer(alpha = previewBaseAlpha, compositingStrategy = CompositingStrategy.Offscreen)
+                    .clip(noMemoG2RoundedShape(renderedCornerRadiusDp))
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                ) {
+                    AsyncImage(
+                        model = previewRequest,
+                        contentDescription = "预览图片",
+                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .alpha(previewZoomableAlpha)
+            ) {
+                ZoomableAsyncImage(
+                    model = previewRequest,
+                    state = previewZoomableImageState,
+                    gestures = if (previewZoomableAlpha > 0.5f) {
+                        previewZoomGestures
+                    } else {
+                        EnabledZoomGestures.None
+                    },
+                    contentDescription = "预览图片",
+                    contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                    onDoubleClick = previewDoubleClickZoom,
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+
+            MemoryDetailPreviewIconButton(
+                iconRes = R.drawable.ic_nm_more,
+                contentDescription = "更多操作",
+                onClick = onTogglePreviewActionMenu,
+                size = previewButtonSize,
+                onBoundsChanged = onPreviewActionMenuAnchorBoundsChanged,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = statusBarHeightDp)
+                    .alpha(renderedButtonAlpha)
+                    .padding(
+                        top = (adaptive.pageTopPadding - 2.dp).coerceAtLeast(0.dp),
+                        end = adaptive.pageHorizontalPadding
+                    )
+            )
+            NoMemoAnchoredMenu(
+                expanded = showPreviewActionMenu,
+                onDismissRequest = onPreviewActionMenuDismiss,
+                anchorBounds = previewActionMenuAnchorBounds,
+                actions = listOf(
+                    NoMemoMenuActionItem(
+                        iconRes = R.drawable.ic_nm_download,
+                        label = "保存图片",
+                        onClick = onSavePreviewImage
+                    ),
+                    NoMemoMenuActionItem(
+                        iconRes = R.drawable.ic_nm_share,
+                        label = "分享图片",
+                        onClick = onSharePreviewImage
+                    )
+                )
+            )
+            MemoryDetailPreviewCloseButton(
+                iconRes = R.drawable.ic_sheet_close,
+                contentDescription = getString(R.string.cancel),
+                onClick = onDismiss,
+                size = previewCloseButtonSize,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .alpha(renderedButtonAlpha)
+                    .padding(bottom = 18.dp)
+            )
         }
     }
 

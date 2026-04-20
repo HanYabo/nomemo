@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.EaseOut
 import androidx.compose.animation.core.spring
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -246,6 +247,8 @@ private fun LiquidGlassDockTabs(
     val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
     val containerColor =
         if (isLightTheme) Color(0xFFFAFAFA).copy(alpha = 0.40f) else Color(0xFF121212).copy(alpha = 0.40f)
+    val activeMaskColor =
+        if (isLightTheme) Color(0xFFF7F8FA) else Color(0xFF161A1F)
     val baseColor = if (isLightTheme) Color(0xFF5B6A7D) else palette.textPrimary.copy(alpha = 0.64f)
     val tabsBackdrop = rememberLayerBackdrop()
 
@@ -259,9 +262,8 @@ private fun LiquidGlassDockTabs(
         val isLtr = LocalLayoutDirection.current == LayoutDirection.Ltr
         val animationScope = rememberCoroutineScope()
         val dockWidthPx = with(density) { dockWidth.toPx() }
-        val tabWidth = with(density) {
-            (dockWidthPx - 8.dp.toPx()) / tabs.size
-        }
+        val tabsTrackWidth = with(density) { dockWidthPx - 8.dp.toPx() }
+        val tabWidth = tabsTrackWidth / tabs.size
         val offsetAnimation = remember { Animatable(0f) }
         val panelOffset by remember(density, dockWidthPx) {
             derivedStateOf {
@@ -367,6 +369,29 @@ private fun LiquidGlassDockTabs(
                 }
             )
         }
+        val activeTabTranslationX by remember(isLtr, tabWidth) {
+            derivedStateOf {
+                if (isLtr) {
+                    dampedDragAnimation.value * tabWidth + panelOffset
+                } else {
+                    tabsTrackWidth - (dampedDragAnimation.value + 1f) * tabWidth + panelOffset
+                }
+            }
+        }
+        val activeTabScaleX by remember {
+            derivedStateOf {
+                val velocity = dampedDragAnimation.velocity / 10f
+                dampedDragAnimation.scaleX /
+                    (1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f))
+            }
+        }
+        val activeTabScaleY by remember {
+            derivedStateOf {
+                val velocity = dampedDragAnimation.velocity / 10f
+                dampedDragAnimation.scaleY *
+                    (1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f))
+            }
+        }
 
         val tabsContent: @Composable RowScope.(Boolean) -> Unit = { tabEnabled ->
             tabs.forEachIndexed { index, tab ->
@@ -446,13 +471,23 @@ private fun LiquidGlassDockTabs(
 
         Box(
             Modifier
+                .padding(horizontal = 3.dp, vertical = 0.5.dp)
+                .graphicsLayer {
+                    translationX = activeTabTranslationX
+                    scaleX = activeTabScaleX
+                    scaleY = activeTabScaleY
+                }
+                .height(dockHeight - 7.dp)
+                .fillMaxWidth(1f / tabs.size)
+                .clip(DockShape)
+                .background(activeMaskColor)
+        )
+
+        Box(
+            Modifier
                 .padding(horizontal = 4.dp)
                 .graphicsLayer {
-                    translationX = if (isLtr) {
-                        dampedDragAnimation.value * tabWidth + panelOffset
-                    } else {
-                        size.width - (dampedDragAnimation.value + 1f) * tabWidth + panelOffset
-                    }
+                    translationX = activeTabTranslationX
                 }
                 .then(if (enabled) interactiveHighlight.gestureModifier else Modifier)
                 .then(if (enabled) dampedDragAnimation.modifier else Modifier)
@@ -481,11 +516,8 @@ private fun LiquidGlassDockTabs(
                         )
                     },
                     layerBlock = {
-                        scaleX = dampedDragAnimation.scaleX
-                        scaleY = dampedDragAnimation.scaleY
-                        val velocity = dampedDragAnimation.velocity / 10f
-                        scaleX /= 1f - (velocity * 0.75f).fastCoerceIn(-0.2f, 0.2f)
-                        scaleY *= 1f - (velocity * 0.25f).fastCoerceIn(-0.2f, 0.2f)
+                        scaleX = activeTabScaleX
+                        scaleY = activeTabScaleY
                     },
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
@@ -548,7 +580,7 @@ private fun RowScope.LiquidGlassDockItem(
             painter = painterResource(id = iconRes),
             contentDescription = label,
             tint = contentColor,
-            modifier = Modifier.size(19.dp)
+            modifier = Modifier.size(21.dp)
         )
         androidx.compose.material3.Text(
             text = label,
