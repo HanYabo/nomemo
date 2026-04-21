@@ -2694,11 +2694,30 @@ fun RecordCard(
     }
     val thumbnailBackground = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF1F4F8)
     val thumbnailBorder = if (isDark) Color.Transparent else Color.Transparent
+    var pressHighlightVisible by remember(record.recordId) { mutableStateOf(false) }
+    val pressHighlightAlpha by animateFloatAsState(
+        targetValue = if (pressHighlightVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = if (pressHighlightVisible) 75 else 220, easing = FastOutSlowInEasing),
+        label = "recordCardPressHighlight_${record.recordId}"
+    )
+    val pressHighlightColor = if (isDark) {
+        Color.White.copy(alpha = 0.055f * pressHighlightAlpha)
+    } else {
+        Color.Black.copy(alpha = 0.04f * pressHighlightAlpha)
+    }
     val gestureModifier = if (onLongPress == null && onClick == null) {
         Modifier
     } else {
         Modifier.pointerInput(onLongPress, onClick) {
             detectTapGestures(
+                onPress = {
+                    pressHighlightVisible = true
+                    try {
+                        tryAwaitRelease()
+                    } finally {
+                        pressHighlightVisible = false
+                    }
+                },
                 onTap = {
                     onClick?.invoke()
                 },
@@ -2721,12 +2740,16 @@ fun RecordCard(
             colors = CardDefaults.cardColors(containerColor = Color.Transparent),
             elevation = CardDefaults.cardElevation(defaultElevation = cardShadow)
         ) {
-            Row(
+            Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .background(Brush.verticalGradient(cardGradient))
-                    .padding(horizontal = 18.dp, vertical = 17.dp),
-                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 18.dp, vertical = 17.dp),
+                    verticalAlignment = Alignment.CenterVertically
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Row(
@@ -2798,6 +2821,12 @@ fun RecordCard(
                         )
                     }
                 }
+                }
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(pressHighlightColor)
+                )
             }
         }
         if (aiProcessing) {

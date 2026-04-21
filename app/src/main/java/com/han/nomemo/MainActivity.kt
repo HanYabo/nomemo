@@ -13,8 +13,12 @@ import androidx.lifecycle.lifecycleScope
 import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -1009,11 +1013,8 @@ class MainActivity : BaseComposeActivity() {
                     if (showCenteredEmptyState) {
                         NoMemoEmptyState(
                             iconRes = R.drawable.ic_nm_memory_dock,
-                            title = if (selectedFilter == FILTER_ARCHIVED) {
-                                stringResource(R.string.no_archived_records)
-                            } else {
-                                stringResource(R.string.no_records)
-                            },
+                            title = "暂无记忆",
+                            subtitle = "点击右下角按钮添加记忆",
                             modifier = Modifier
                                 .align(Alignment.Center)
                                 .padding(horizontal = spec.pageHorizontalPadding)
@@ -1119,18 +1120,49 @@ class MainActivity : BaseComposeActivity() {
         selected: Boolean,
         onClick: () -> Unit
     ) {
-        GlassChip(
-            text = text,
-            selected = selected,
-            onClick = onClick,
-            horizontalPadding = if (spec.isNarrow) 18.dp else 24.dp,
-            verticalPadding = if (spec.isNarrow) 11.dp else 12.dp,
-            showBorder = false,
-            textStyle = TextStyle(
-                fontSize = (spec.chipTextSize.value + 1f).sp,
-                fontWeight = FontWeight.Bold
-            )
+        val palette = rememberNoMemoPalette()
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        val targetBg = noMemoThemeSyncedChipBackground(palette, isDark, selected)
+        val targetTextColor = noMemoThemeSyncedChipTextColor(palette, selected)
+        val bg by animateColorAsState(
+            targetValue = targetBg,
+            animationSpec = spring(
+                dampingRatio = 0.86f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "memoryFilterChipBg_$text"
         )
+        val textColor by animateColorAsState(
+            targetValue = targetTextColor,
+            animationSpec = spring(
+                dampingRatio = 0.86f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "memoryFilterChipText_$text"
+        )
+
+        PressScaleBox(
+            onClick = onClick
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(NoMemoG2CapsuleShape)
+                    .background(bg)
+            ) {
+                Text(
+                    text = text,
+                    color = textColor,
+                    style = TextStyle(
+                        fontSize = (spec.chipTextSize.value + 1f).sp,
+                        fontWeight = FontWeight.Bold
+                    ),
+                    modifier = Modifier.padding(
+                        horizontal = if (spec.isNarrow) 18.dp else 24.dp,
+                        vertical = if (spec.isNarrow) 11.dp else 12.dp
+                    )
+                )
+            }
+        }
     }
 
     @Composable
@@ -1144,12 +1176,60 @@ class MainActivity : BaseComposeActivity() {
     ) {
         val palette = rememberNoMemoPalette()
         val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-        val bg = noMemoThemeSyncedChipBackground(palette, isDark, selected)
-        val textColor = noMemoThemeSyncedChipTextColor(palette, selected)
+        val targetBg = noMemoThemeSyncedChipBackground(palette, isDark, selected)
+        val targetTextColor = noMemoThemeSyncedChipTextColor(palette, selected)
+        val bg by animateColorAsState(
+            targetValue = targetBg,
+            animationSpec = spring(
+                dampingRatio = 0.86f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "primaryFilterChipBg_$text"
+        )
+        val textColor by animateColorAsState(
+            targetValue = targetTextColor,
+            animationSpec = spring(
+                dampingRatio = 0.86f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "primaryFilterChipText_$text"
+        )
         val chevronRotation by animateFloatAsState(
             targetValue = if (expanded) 180f else 0f,
-            animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+            animationSpec = spring(
+                dampingRatio = 0.72f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
             label = "primaryFilterChevronRotation"
+        )
+        val chevronSlotWidth by animateDpAsState(
+            targetValue = if (showExpandIndicator) 14.dp else 0.dp,
+            animationSpec = spring(
+                dampingRatio = 0.76f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "primaryFilterChevronSlot_$text"
+        )
+        val chevronProgress by animateFloatAsState(
+            targetValue = if (showExpandIndicator) 1f else 0f,
+            animationSpec = spring(
+                dampingRatio = 0.76f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "primaryFilterChevronProgress_$text"
+        )
+        val horizontalPadding = if (spec.isNarrow) 18.dp else 24.dp
+        val endPadding by animateDpAsState(
+            targetValue = if (showExpandIndicator) {
+                if (spec.isNarrow) 14.dp else 20.dp
+            } else {
+                horizontalPadding
+            },
+            animationSpec = spring(
+                dampingRatio = 0.76f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "primaryFilterEndPadding_$text"
         )
         PressScaleBox(onClick = onClick) {
             Row(
@@ -1157,8 +1237,8 @@ class MainActivity : BaseComposeActivity() {
                     .clip(NoMemoG2CapsuleShape)
                     .background(bg)
                     .padding(
-                        start = if (spec.isNarrow) 18.dp else 24.dp,
-                        end = if (spec.isNarrow) 14.dp else 20.dp,
+                        start = horizontalPadding,
+                        end = endPadding,
                         top = if (spec.isNarrow) 11.dp else 12.dp,
                         bottom = if (spec.isNarrow) 11.dp else 12.dp
                     ),
@@ -1172,15 +1252,20 @@ class MainActivity : BaseComposeActivity() {
                         fontWeight = FontWeight.Bold
                     )
                 )
-                if (showExpandIndicator) {
+                Box(
+                    modifier = Modifier.width(chevronSlotWidth),
+                    contentAlignment = Alignment.CenterEnd
+                ) {
                     Icon(
                         painter = painterResource(R.drawable.ic_sheet_chevron_down),
                         contentDescription = null,
                         tint = textColor.copy(alpha = 0.9f),
                         modifier = Modifier
-                            .padding(start = 6.dp)
                             .size(12.dp)
                             .graphicsLayer {
+                                alpha = chevronProgress
+                                scaleX = 0.78f + 0.22f * chevronProgress
+                                scaleY = 0.78f + 0.22f * chevronProgress
                                 rotationZ = chevronRotation
                             }
                     )
@@ -1200,21 +1285,45 @@ class MainActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         val isDark = androidx.compose.foundation.isSystemInDarkTheme()
         val accentColor = secondaryCategoryAccentColor(categoryCode)
-        val bg = if (selected) {
+        val targetBg = if (selected) {
             accentColor.copy(alpha = if (isDark) 0.34f else 0.18f)
         } else {
             noMemoThemeSyncedChipBackground(palette, isDark, selected = false)
         }
-        val textColor = if (selected) {
+        val targetTextColor = if (selected) {
             if (isDark) Color.White else accentColor
         } else {
             noMemoThemeSyncedChipTextColor(palette, selected = false)
         }
-        val iconContainer = if (selected) {
+        val targetIconContainer = if (selected) {
             accentColor.copy(alpha = if (isDark) 0.24f else 0.14f)
         } else {
             accentColor.copy(alpha = if (isDark) 0.22f else 0.16f)
         }
+        val bg by animateColorAsState(
+            targetValue = targetBg,
+            animationSpec = spring(
+                dampingRatio = 0.86f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "secondaryFilterChipBg_$categoryCode"
+        )
+        val textColor by animateColorAsState(
+            targetValue = targetTextColor,
+            animationSpec = spring(
+                dampingRatio = 0.86f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "secondaryFilterChipText_$categoryCode"
+        )
+        val iconContainer by animateColorAsState(
+            targetValue = targetIconContainer,
+            animationSpec = spring(
+                dampingRatio = 0.86f,
+                stiffness = Spring.StiffnessMediumLow
+            ),
+            label = "secondaryFilterChipIconBg_$categoryCode"
+        )
 
         PressScaleBox(onClick = onClick) {
             Row(
