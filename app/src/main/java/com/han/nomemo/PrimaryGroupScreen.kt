@@ -384,7 +384,7 @@ internal fun GroupPrimaryScreenRoute(
                             contentAlignment = Alignment.Center
                         ) {
                             NoMemoEmptyState(
-                                iconRes = R.drawable.ic_nm_group,
+                                iconRes = R.drawable.ic_nm_group_dock,
                                 title = "还没有分组",
                                 subtitle = "点击右上角更多菜单新建分组"
                             )

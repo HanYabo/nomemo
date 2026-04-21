@@ -472,7 +472,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
 
                     if (showCenteredEmptyState) {
                         NoMemoEmptyState(
-                            iconRes = R.drawable.ic_nm_memory,
+                            iconRes = R.drawable.ic_nm_memory_dock,
                             title = stringResource(R.string.no_archived_records),
                             subtitle = stringResource(R.string.archived_memory_empty_subtitle),
                             modifier = Modifier
@@ -812,7 +812,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                 contentAlignment = Alignment.Center
                             ) {
                                 NoMemoEmptyState(
-                                    iconRes = R.drawable.ic_nm_memory,
+                                    iconRes = R.drawable.ic_nm_memory_dock,
                                     title = "暂无可加入归档的记忆"
                                 )
                             }

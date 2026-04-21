@@ -1010,7 +1010,7 @@ class MainActivity : BaseComposeActivity() {
 
                     if (showCenteredEmptyState) {
                         NoMemoEmptyState(
-                            iconRes = R.drawable.ic_nm_memory,
+                            iconRes = R.drawable.ic_nm_memory_dock,
                             title = if (selectedFilter == FILTER_ARCHIVED) {
                                 stringResource(R.string.no_archived_records)
                             } else {

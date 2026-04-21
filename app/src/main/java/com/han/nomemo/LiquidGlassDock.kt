@@ -247,9 +247,18 @@ private fun LiquidGlassDockTabs(
     val accentColor = if (isLightTheme) Color(0xFF0088FF) else Color(0xFF0091FF)
     val containerColor =
         if (isLightTheme) Color(0xFFFAFAFA).copy(alpha = 0.40f) else Color(0xFF121212).copy(alpha = 0.40f)
+    val themedDockLensColor = androidx.compose.ui.graphics.lerp(
+        palette.memoBgMid,
+        palette.dockSurface,
+        if (isLightTheme) 0.26f else 0.20f
+    )
     val activeMaskColor =
-        if (isLightTheme) Color(0xFFF7F8FA) else Color(0xFF161A1F)
-    val baseColor = if (isLightTheme) Color(0xFF5B6A7D) else palette.textPrimary.copy(alpha = 0.64f)
+        if (isLightTheme) {
+            Color(0xFFDADBDE)
+        } else {
+            androidx.compose.ui.graphics.lerp(themedDockLensColor, Color.White, 0.12f).copy(alpha = 0.988f)
+        }
+    val baseColor = if (isLightTheme) Color.Black else Color.White
     val tabsBackdrop = rememberLayerBackdrop()
 
     Box(
@@ -522,14 +531,14 @@ private fun LiquidGlassDockTabs(
                     onDrawSurface = {
                         val progress = dampedDragAnimation.pressProgress
                         drawRect(
-                            if (isLightTheme) Color.Black.copy(alpha = 0.10f) else Color.White.copy(
-                                alpha = 0.10f
+                            if (isLightTheme) Color.Black.copy(alpha = 0.045f) else Color.White.copy(
+                                alpha = 0.085f
                             ),
                             alpha = 1f - progress
                         )
                         drawRect(
-                            if (isLightTheme) Color.Black.copy(alpha = 0.03f * progress) else Color.Black.copy(
-                                alpha = 0.05f * progress
+                            if (isLightTheme) Color.Black.copy(alpha = 0.012f * progress) else Color.Black.copy(
+                                alpha = 0.018f * progress
                             )
                         )
                     }
@@ -580,7 +589,7 @@ private fun RowScope.LiquidGlassDockItem(
             painter = painterResource(id = iconRes),
             contentDescription = label,
             tint = contentColor,
-            modifier = Modifier.size(21.dp)
+            modifier = Modifier.size(22.dp)
         )
         androidx.compose.material3.Text(
             text = label,

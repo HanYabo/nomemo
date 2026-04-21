@@ -806,7 +806,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         val currentRecord = record
                         if (currentRecord == null) {
                             NoMemoEmptyState(
-                                iconRes = R.drawable.ic_nm_memory,
+                                iconRes = R.drawable.ic_nm_memory_dock,
                                 title = "正在加载",
                                 modifier = Modifier.align(Alignment.Center)
                             )

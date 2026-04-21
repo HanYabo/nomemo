@@ -569,7 +569,7 @@ class GroupActivity : BaseComposeActivity() {
                                     contentAlignment = Alignment.Center
                                 ) {
                                     NoMemoEmptyState(
-                                        iconRes = R.drawable.ic_nm_group,
+                                        iconRes = R.drawable.ic_nm_group_dock,
                                         title = "还没有分组",
                                         subtitle = "点击右上角更多菜单新增分组"
                                     )
@@ -769,7 +769,7 @@ class GroupActivity : BaseComposeActivity() {
                                     contentAlignment = Alignment.Center
                                 ) {
                                     NoMemoEmptyState(
-                                        iconRes = R.drawable.ic_nm_memory,
+                                        iconRes = R.drawable.ic_nm_memory_dock,
                                         title = "分组里还没有记忆",
                                         subtitle = "点击右上角添加记忆"
                                     )
@@ -1797,7 +1797,7 @@ class GroupActivity : BaseComposeActivity() {
                             contentAlignment = Alignment.Center
                         ) {
                             NoMemoEmptyState(
-                                iconRes = R.drawable.ic_nm_memory,
+                                iconRes = R.drawable.ic_nm_memory_dock,
                                 title = "暂无可添加的记忆"
                             )
                         }

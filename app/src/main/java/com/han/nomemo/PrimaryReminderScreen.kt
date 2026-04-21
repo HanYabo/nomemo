@@ -538,7 +538,7 @@ private fun ReminderPrimaryScreen(
 
                 if (showCenteredEmptyState) {
                     NoMemoEmptyState(
-                        iconRes = R.drawable.ic_nm_reminder,
+                        iconRes = R.drawable.ic_nm_reminder_dock,
                         title = stringResource(R.string.reminder_empty),
                         modifier = Modifier
                             .align(Alignment.Center)

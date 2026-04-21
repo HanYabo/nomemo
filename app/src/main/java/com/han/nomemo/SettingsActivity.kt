@@ -2817,7 +2817,7 @@ class SettingsActivity : BaseComposeActivity() {
                 painter = painterResource(id = item.iconRes),
                 contentDescription = null,
                 tint = titleColor.copy(alpha = 0.78f),
-                modifier = Modifier.size(24.dp)
+                modifier = Modifier.size(22.dp)
             )
             Spacer(modifier = Modifier.width(14.dp))
             Column(
@@ -2923,17 +2923,17 @@ class SettingsActivity : BaseComposeActivity() {
             NoMemoDockTab.MEMORY -> CustomDockTabItem(
                 tab = NoMemoDockTab.MEMORY,
                 title = "记忆",
-                iconRes = R.drawable.ic_nm_memory
+                iconRes = R.drawable.ic_nm_memory_dock
             )
             NoMemoDockTab.GROUP -> CustomDockTabItem(
                 tab = NoMemoDockTab.GROUP,
                 title = "分组",
-                iconRes = R.drawable.ic_nm_group
+                iconRes = R.drawable.ic_nm_group_dock
             )
             NoMemoDockTab.REMINDER -> CustomDockTabItem(
                 tab = NoMemoDockTab.REMINDER,
                 title = "提醒事项",
-                iconRes = R.drawable.ic_nm_reminder
+                iconRes = R.drawable.ic_nm_reminder_dock
             )
         }
     }
