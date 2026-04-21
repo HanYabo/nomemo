@@ -42,6 +42,11 @@
             android:enableOnBackInvokedCallback="true"
             android:theme="@style/Theme.NoMemo" />
         <activity
+            android:name=".GroupAlbumSortActivity"
+            android:exported="false"
+            android:enableOnBackInvokedCallback="true"
+            android:theme="@style/Theme.NoMemo" />
+        <activity
             android:name=".SearchActivity"
             android:exported="false"
             android:enableOnBackInvokedCallback="true"
@@ -97,5 +102,4 @@
     </application>
 
 </manifest>
-
 

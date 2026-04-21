@@ -1200,10 +1200,18 @@ class MainActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         val isDark = androidx.compose.foundation.isSystemInDarkTheme()
         val accentColor = secondaryCategoryAccentColor(categoryCode)
-        val bg = noMemoThemeSyncedChipBackground(palette, isDark, selected)
-        val textColor = noMemoThemeSyncedChipTextColor(palette, selected)
+        val bg = if (selected) {
+            accentColor.copy(alpha = if (isDark) 0.34f else 0.18f)
+        } else {
+            noMemoThemeSyncedChipBackground(palette, isDark, selected = false)
+        }
+        val textColor = if (selected) {
+            if (isDark) Color.White else accentColor
+        } else {
+            noMemoThemeSyncedChipTextColor(palette, selected = false)
+        }
         val iconContainer = if (selected) {
-            if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.055f)
+            accentColor.copy(alpha = if (isDark) 0.24f else 0.14f)
         } else {
             accentColor.copy(alpha = if (isDark) 0.22f else 0.16f)
         }
@@ -1231,7 +1239,7 @@ class MainActivity : BaseComposeActivity() {
                     Icon(
                         imageVector = secondaryCategoryIcon(categoryCode),
                         contentDescription = null,
-                        tint = if (selected) textColor.copy(alpha = 0.92f) else accentColor,
+                        tint = if (selected) textColor else accentColor,
                         modifier = Modifier.size(13.dp)
                     )
                 }

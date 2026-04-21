@@ -36,7 +36,7 @@ class GroupAlbumStore(context: Context) {
                 recordIds = parseRecordIds(obj.optJSONArray("record_ids"))
             )
         }
-        return result.sortedByDescending { it.createdAt }
+        return result
     }
 
     fun addAlbum(name: String, description: String): GroupAlbum {
@@ -119,6 +119,31 @@ class GroupAlbumStore(context: Context) {
         }
         albums[index] = current.copy(name = trimmedName, description = trimmedDescription)
         saveAlbums(albums)
+        return true
+    }
+
+    fun reorderAlbums(albumIdsInOrder: List<String>): Boolean {
+        val currentAlbums = loadAlbums()
+        if (currentAlbums.size <= 1) {
+            return false
+        }
+        val idToAlbum = currentAlbums.associateBy { it.albumId }
+        val requested = albumIdsInOrder
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+            .distinct()
+            .mapNotNull { idToAlbum[it] }
+        if (requested.isEmpty()) {
+            return false
+        }
+        val remainder = currentAlbums.filterNot { album ->
+            requested.any { it.albumId == album.albumId }
+        }
+        val reordered = requested + remainder
+        if (reordered.map { it.albumId } == currentAlbums.map { it.albumId }) {
+            return false
+        }
+        saveAlbums(reordered)
         return true
     }
 

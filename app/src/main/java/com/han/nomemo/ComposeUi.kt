@@ -1685,7 +1685,7 @@ fun NoMemoMenuList(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val panelShape = noMemoG2RoundedShape(32.dp)
+    val panelShape = noMemoG2RoundedShape(28.dp)
     val panelBase = if (isDark) {
         noMemoCardSurfaceColor(true, Color(0xFF171A20))
     } else {
@@ -1707,7 +1707,7 @@ fun NoMemoMenuList(
         Color.White.copy(alpha = 0.7f)
     }
     val contentHorizontalInset = 6.dp
-    val contentVerticalInset = 4.dp
+    val contentVerticalInset = 10.dp
 
     Box(
         modifier = modifier
@@ -1848,7 +1848,7 @@ private fun NoMemoAnchoredMenuRow(
     } else {
         Color.Black.copy(alpha = 0.045f)
     }
-    val rowShape = noMemoG2RoundedShape(18.dp)
+    val rowShape = noMemoG2RoundedShape(20.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()

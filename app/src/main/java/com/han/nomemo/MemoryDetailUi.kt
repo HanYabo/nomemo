@@ -60,6 +60,20 @@ private val memoryDetailContentHorizontalPadding = 18.dp
 private val memoryDetailContentVerticalPadding = 17.dp
 private val memoryDetailBodyFontSize = 16.sp
 private val memoryDetailBodyLineHeight = 25.sp
+private val memoryDetailLocationFontSize = 18.sp
+private val memoryDetailLocationLineHeight = 28.sp
+
+private fun memoryDetailActionSurface(isDark: Boolean, palette: NoMemoPalette): Color {
+    return if (isDark) {
+        noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
+    } else {
+        Color.White.copy(alpha = 0.985f)
+    }
+}
+
+private fun memoryDetailActionColor(isDark: Boolean): Color {
+    return if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
+}
 
 @Composable
 fun NoMemoDetailReanalyzeButton(
@@ -70,12 +84,8 @@ fun NoMemoDetailReanalyzeButton(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val actionSurface = if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
-    } else {
-        Color.White.copy(alpha = 0.985f)
-    }
-    val actionColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
+    val actionSurface = memoryDetailActionSurface(isDark, palette)
+    val actionColor = memoryDetailActionColor(isDark)
     PressScaleBox(
         onClick = {
             if (!processing) {
@@ -400,16 +410,16 @@ fun NoMemoPickupLocationCard(
             Text(
                 text = locationText,
                 color = palette.textPrimary,
-                fontSize = memoryDetailBodyFontSize,
-                lineHeight = memoryDetailBodyLineHeight,
-                fontWeight = FontWeight.Normal,
+                fontSize = memoryDetailLocationFontSize,
+                lineHeight = memoryDetailLocationLineHeight,
+                fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
-            if (info.navigationQuery.isNotBlank()) {
+            if (locationText.isNotBlank()) {
                 Spacer(modifier = Modifier.size(12.dp))
                 NoMemoLocationNavigateButton(
                     text = "导航",
-                    onClick = { onNavigate(info.navigationQuery) }
+                    onClick = { onNavigate(locationText) }
                 )
             }
         }
@@ -438,9 +448,9 @@ fun NoMemoEditablePickupLocationCard(
             maxLines = Int.MAX_VALUE,
             textStyle = TextStyle(
                 color = palette.textPrimary,
-                fontSize = memoryDetailBodyFontSize,
-                lineHeight = memoryDetailBodyLineHeight,
-                fontWeight = FontWeight.Normal
+                fontSize = memoryDetailLocationFontSize,
+                lineHeight = memoryDetailLocationLineHeight,
+                fontWeight = FontWeight.Bold
             ),
             modifier = Modifier
                 .fillMaxWidth()
@@ -454,9 +464,9 @@ fun NoMemoEditablePickupLocationCard(
                     Text(
                         text = "输入地点",
                         color = palette.textTertiary,
-                        fontSize = memoryDetailBodyFontSize,
-                        lineHeight = memoryDetailBodyLineHeight,
-                        fontWeight = FontWeight.Normal
+                        fontSize = memoryDetailLocationFontSize,
+                        lineHeight = memoryDetailLocationLineHeight,
+                        fontWeight = FontWeight.Bold
                     )
                 }
                 innerTextField()
@@ -471,24 +481,20 @@ private fun NoMemoLocationNavigateButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val palette = rememberNoMemoPalette()
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val actionColor = memoryDetailActionColor(isDark)
     PressScaleBox(
         onClick = onClick,
-        modifier = modifier
+        modifier = modifier,
+        pressedScale = 1f
     ) {
-        Card(
-            shape = NoMemoG2CapsuleShape,
-            colors = CardDefaults.cardColors(containerColor = palette.accent),
-            border = BorderStroke(1.dp, palette.accent)
-        ) {
-            Text(
-                text = text,
-                color = palette.onAccent,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(horizontal = 15.dp, vertical = 9.dp)
-            )
-        }
+        Text(
+            text = text,
+            color = actionColor,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp)
+        )
     }
 }
 
