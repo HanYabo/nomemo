@@ -54,6 +54,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
@@ -116,6 +117,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 
 private enum class AiTestTarget {
     IMAGE,
@@ -519,6 +522,37 @@ class SettingsActivity : BaseComposeActivity() {
         var testResultMessage by remember { mutableStateOf("") }
         val scrollState = rememberScrollState()
 
+        fun refreshSettingsState() {
+            aiEnabled = settingsStore.aiEnabled
+            baseUrl = settingsStore.apiBaseUrl
+            apiKey = settingsStore.apiKey
+            imageCustomModel = settingsStore.imageCustomModel
+            textCustomModel = settingsStore.textCustomModel
+            multimodalCustomModel = settingsStore.multimodalCustomModel
+            imageModelPreset = settingsStore.imageModelPreset
+            textModelPreset = settingsStore.textModelPreset
+            multimodalModelPreset = settingsStore.multimodalModelPreset
+            themeMode = settingsStore.themeMode
+            themeGlobalEnabled = settingsStore.themeGlobalEnabled
+            showDividers = settingsStore.showDividers
+            themeAccent = settingsStore.themeAccent
+            autoRetry = settingsStore.autoRetry
+            economyMode = settingsStore.economyMode
+            bottomDockOrder = settingsStore.bottomDockOrder
+        }
+
+        DisposableEffect(Unit) {
+            val observer = LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    refreshSettingsState()
+                }
+            }
+            lifecycle.addObserver(observer)
+            onDispose {
+                lifecycle.removeObserver(observer)
+            }
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -876,15 +910,13 @@ class SettingsActivity : BaseComposeActivity() {
                                 subtitle = "可能会消耗较多词元",
                                 onCheckedChange = onAutoRetryChange
                             )
-                            if (showDividers) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 20.dp)
-                                        .height(1.dp)
-                                        .background(dividerColor)
-                                )
-                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 20.dp)
+                                    .height(1.dp)
+                                    .background(dividerColor)
+                            )
                             SettingsToggleRow(
                                 title = "节省模式",
                                 checked = economyMode,
@@ -1395,10 +1427,14 @@ class SettingsActivity : BaseComposeActivity() {
                 } else {
                     subtitleColor.copy(alpha = 0.82f)
                 }
-                val storageDividerColor = if (isDark) {
-                    Color.White.copy(alpha = 0.08f)
+                val storageDividerColor = if (showDividers) {
+                    if (isDark) {
+                        Color.White.copy(alpha = 0.08f)
+                    } else {
+                        Color.Black.copy(alpha = 0.06f)
+                    }
                 } else {
-                    Color.Black.copy(alpha = 0.06f)
+                    Color.Transparent
                 }
 
                 var storageCategories by remember { mutableStateOf<List<StorageCleanCategory>>(emptyList()) }

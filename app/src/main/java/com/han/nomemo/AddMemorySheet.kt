@@ -423,6 +423,7 @@ fun AddMemorySheet(
                                         SheetMiniIconButton(
                                             iconRes = R.drawable.ic_sheet_close,
                                             contentDescription = "清空文字",
+                                            onImage = false,
                                             modifier = Modifier
                                                 .align(Alignment.TopEnd)
                                                 .padding(top = 2.dp),
@@ -490,6 +491,25 @@ fun AddMemorySheet(
                                     onClick = { pickImageLauncher.launch(arrayOf("image/*")) }
                                 )
                             }
+                            SheetActionCard(
+                                title = "粘贴剪贴板",
+                                surfaceColor = actionSurface,
+                                onClick = {
+                                    val clip = context.getSystemService(ClipboardManager::class.java)
+                                        ?.primaryClip
+                                        ?.takeIf { it.itemCount > 0 }
+                                        ?.getItemAt(0)
+                                        ?.coerceToText(context)
+                                        ?.toString()
+                                        ?.trim()
+                                        .orEmpty()
+                                    if (clip.isBlank()) {
+                                        Toast.makeText(context, "剪贴板没有可用内容", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        inputText = if (inputText.isBlank()) clip else "$inputText\n$clip"
+                                    }
+                                }
+                            )
                         }
 
                         SheetInlineButton(
@@ -510,22 +530,17 @@ fun AddMemorySheet(
             }
         }
         if (showExitConfirm) {
-            NoMemoTernaryConfirmDialog(
-                title = "退出编辑？",
-                message = "当前有未保存内容，是否保存后退出？",
-                confirmText = "保存并退出",
-                dismissText = "取消",
-                tertiaryText = "不保存",
-                destructiveTertiary = true,
+            NoMemoConfirmDialog(
+                title = "放弃编辑？",
+                message = "当前有未保存的内容，确认要放弃修改吗？",
+                confirmText = "放弃修改",
+                dismissText = "继续编辑",
+                destructive = true,
                 onConfirm = {
                     showExitConfirm = false
-                    performSaveAndDismiss()
-                },
-                onDismiss = { showExitConfirm = false },
-                onTertiary = {
-                    showExitConfirm = false
                     visible = false
-                }
+                },
+                onDismiss = { showExitConfirm = false }
             )
         }
         if (showReminderPicker) {
@@ -988,28 +1003,51 @@ private fun SheetMiniIconButton(
     iconRes: Int,
     contentDescription: String,
     modifier: Modifier = Modifier,
+    onImage: Boolean = true,
     onClick: () -> Unit
 ) {
     val isDark = isSystemInDarkTheme()
     val palette = rememberNoMemoPalette()
+    val bgColor = if (onImage) {
+        if (isDark) Color.Black.copy(alpha = 0.72f) else Color.White.copy(alpha = 0.92f)
+    } else {
+        addSheetSubtleSurface(isDark, palette)
+    }
+    val iconTint = if (onImage) {
+        if (isDark) Color.White.copy(alpha = 0.92f) else Color.Black.copy(alpha = 0.72f)
+    } else {
+        palette.textSecondary
+    }
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
-            .size(30.dp)
+            .size(if (onImage) 34.dp else 30.dp)
             .clip(CircleShape)
     ) {
         Box(
             modifier = Modifier
                 .matchParentSize()
-                .background(addSheetSubtleSurface(isDark, palette))
+                .background(bgColor)
+                .then(
+                    if (onImage) {
+                        Modifier.shadow(
+                            elevation = 4.dp,
+                            shape = CircleShape,
+                            ambientColor = Color.Black.copy(alpha = 0.16f),
+                            spotColor = Color.Black.copy(alpha = 0.16f)
+                        )
+                    } else {
+                        Modifier
+                    }
+                )
         )
         Icon(
             painter = painterResource(iconRes),
             contentDescription = contentDescription,
-            tint = palette.textSecondary,
+            tint = iconTint,
             modifier = Modifier
                 .align(Alignment.Center)
-                .size(14.dp)
+                .size(if (onImage) 16.dp else 14.dp)
         )
     }
 }
@@ -1079,6 +1117,7 @@ private fun ReminderPickerDialog(
                     SheetMiniIconButton(
                         iconRes = R.drawable.ic_sheet_close,
                         contentDescription = "关闭提醒时间",
+                        onImage = false,
                         onClick = onDismiss
                     )
                 }
