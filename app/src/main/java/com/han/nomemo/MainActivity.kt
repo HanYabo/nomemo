@@ -679,11 +679,9 @@ class MainActivity : BaseComposeActivity() {
                         placementSpec = tween(300, easing = FastOutSlowInEasing),
                         fadeOutSpec = tween(200)
                     ),
-                    palette = palette,
                     adaptive = adaptive,
                     allowImageLoading = true,
                     showShadow = false,
-                    darkCardBackgroundOverride = Color(0xFF1A1A1C),
                     onClick = {
                         when {
                             selectionModeActive && selected -> {
@@ -1146,8 +1144,8 @@ class MainActivity : BaseComposeActivity() {
     ) {
         val palette = rememberNoMemoPalette()
         val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-        val bg = if (selected) palette.accent else if (isDark) palette.glassFill else Color.White
-        val textColor = if (selected) palette.onAccent else palette.textPrimary
+        val bg = noMemoThemeSyncedChipBackground(palette, isDark, selected)
+        val textColor = noMemoThemeSyncedChipTextColor(palette, selected)
         val chevronRotation by animateFloatAsState(
             targetValue = if (expanded) 180f else 0f,
             animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
@@ -1202,20 +1200,10 @@ class MainActivity : BaseComposeActivity() {
         val palette = rememberNoMemoPalette()
         val isDark = androidx.compose.foundation.isSystemInDarkTheme()
         val accentColor = secondaryCategoryAccentColor(categoryCode)
-        val bg = if (selected) {
-            accentColor.copy(alpha = if (isDark) 0.34f else 0.18f)
-        } else if (isDark) {
-            palette.glassFill
-        } else {
-            Color.White
-        }
-        val textColor = if (selected) {
-            if (isDark) Color.White else accentColor
-        } else {
-            palette.textPrimary
-        }
+        val bg = noMemoThemeSyncedChipBackground(palette, isDark, selected)
+        val textColor = noMemoThemeSyncedChipTextColor(palette, selected)
         val iconContainer = if (selected) {
-            accentColor.copy(alpha = if (isDark) 0.24f else 0.14f)
+            if (isDark) Color.White.copy(alpha = 0.12f) else Color.Black.copy(alpha = 0.055f)
         } else {
             accentColor.copy(alpha = if (isDark) 0.22f else 0.16f)
         }
@@ -1243,7 +1231,7 @@ class MainActivity : BaseComposeActivity() {
                     Icon(
                         imageVector = secondaryCategoryIcon(categoryCode),
                         contentDescription = null,
-                        tint = if (selected) textColor else accentColor,
+                        tint = if (selected) textColor.copy(alpha = 0.92f) else accentColor,
                         modifier = Modifier.size(13.dp)
                     )
                 }

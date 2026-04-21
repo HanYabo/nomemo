@@ -140,6 +140,7 @@ import com.kyant.backdrop.drawBackdrop
 import com.kyant.backdrop.effects.blur
 import com.kyant.backdrop.effects.lens
 import com.kyant.backdrop.effects.vibrancy
+import com.kyant.backdrop.shadow.Shadow
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -314,13 +315,13 @@ private val LocalNoMemoAdaptiveSpec = staticCompositionLocalOf<NoMemoAdaptiveSpe
 
 private val NoMemoThemePresetRegistry = listOf(
     NoMemoThemePreset(SettingsStore.THEME_ACCENT_DEFAULT, "默认", null),
-    NoMemoThemePreset(SettingsStore.THEME_ACCENT_WARM_GRAY, "米灰", Color(0xFFB8AF9D)),
-    NoMemoThemePreset(SettingsStore.THEME_ACCENT_NOTE_YELLOW, "便签黄", Color(0xFFFFC83D)),
-    NoMemoThemePreset(SettingsStore.THEME_ACCENT_SAKURA_PINK, "樱花粉", Color(0xFFFF6B96)),
-    NoMemoThemePreset(SettingsStore.THEME_ACCENT_SKY_BLUE, "天空蓝", Color(0xFF4AA3FF)),
-    NoMemoThemePreset(SettingsStore.THEME_ACCENT_MINT_GREEN, "薄荷绿", Color(0xFF39D98A)),
-    NoMemoThemePreset(SettingsStore.THEME_ACCENT_PEACH_ORANGE, "蜜桃橙", Color(0xFFFF9A3D)),
-    NoMemoThemePreset(SettingsStore.THEME_ACCENT_LAVENDER_PURPLE, "薰衣草紫", Color(0xFFB587FF))
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_WARM_GRAY, "米灰", Color(0xFFB1A99B)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_NOTE_YELLOW, "便签黄", Color(0xFFD8B96A)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_SAKURA_PINK, "樱花粉", Color(0xFFD89BAB)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_SKY_BLUE, "天空蓝", Color(0xFF82A9D7)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_MINT_GREEN, "薄荷绿", Color(0xFF83BDA0)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_PEACH_ORANGE, "蜜桃橙", Color(0xFFD79B78)),
+    NoMemoThemePreset(SettingsStore.THEME_ACCENT_LAVENDER_PURPLE, "薰衣草紫", Color(0xFFA998CC))
 )
 
 fun noMemoCardSurfaceColor(isDark: Boolean, lightColor: Color = Color.White): Color {
@@ -339,6 +340,78 @@ fun noMemoSelectedCardGradient(isDark: Boolean): List<Color> {
             Color(0xFFDDE9FF)
         )
     }
+}
+
+private fun noMemoPaletteHasThemeTint(palette: NoMemoPalette, isDark: Boolean): Boolean {
+    val defaultMid = if (isDark) Color.Black else Color(0xFFF5F5F5)
+    return palette.memoBgMid != defaultMid
+}
+
+private fun noMemoThemeSyncedRecordCardGradient(
+    palette: NoMemoPalette,
+    isDark: Boolean,
+    selected: Boolean,
+    darkCardBackgroundOverride: Color?
+): List<Color> {
+    if (selected) return noMemoSelectedCardGradient(isDark)
+    if (isDark && darkCardBackgroundOverride != null) {
+        return listOf(darkCardBackgroundOverride, darkCardBackgroundOverride)
+    }
+    val themed = noMemoPaletteHasThemeTint(palette, isDark)
+    return if (isDark) {
+        if (!themed) {
+            val defaultCard = noMemoCardSurfaceColor(true)
+            listOf(defaultCard, defaultCard)
+        } else {
+            val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+            listOf(
+                lerp(themeBase, Color.White, 0.085f),
+                lerp(themeBase, Color.White, 0.065f)
+            )
+        }
+    } else {
+        if (!themed) {
+            listOf(
+                Color.White.copy(alpha = 0.995f),
+                Color(0xFFFCFCFD).copy(alpha = 0.995f)
+            )
+        } else {
+            val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+            listOf(
+                lerp(Color.White, themeBase, 0.58f).copy(alpha = 0.995f),
+                lerp(Color(0xFFFCFCFD), themeBase, 0.48f).copy(alpha = 0.995f)
+            )
+        }
+    }
+}
+
+internal fun noMemoThemeSyncedChipBackground(
+    palette: NoMemoPalette,
+    isDark: Boolean,
+    selected: Boolean
+): Color {
+    if (selected) {
+        return if (isDark) {
+            Color.White.copy(alpha = 0.17f)
+        } else {
+            Color.Black.copy(alpha = 0.075f)
+        }
+    }
+    if (!noMemoPaletteHasThemeTint(palette, isDark)) {
+        return if (isDark) palette.glassFill else Color.White
+    }
+    return if (isDark) {
+        lerp(palette.memoBgMid, Color.White, 0.075f).copy(alpha = 0.88f)
+    } else {
+        lerp(Color.White, palette.memoBgMid, 0.52f).copy(alpha = 0.94f)
+    }
+}
+
+internal fun noMemoThemeSyncedChipTextColor(
+    palette: NoMemoPalette,
+    selected: Boolean
+): Color {
+    return palette.textPrimary.copy(alpha = if (selected) 0.98f else 0.92f)
 }
 
 @Composable
@@ -700,18 +773,22 @@ private fun buildThemedBackgroundRamp(
         end = base.memoBgEnd
     )
     return if (isDark) {
-        val solidColor = lerp(themeColor, Color.Black, 0.68f)
+        val startColor = lerp(themeColor, Color(0xFF111116), 0.84f)
+        val midColor = lerp(themeColor, Color(0xFF121118), 0.87f)
+        val endColor = lerp(themeColor, Color(0xFF101014), 0.90f)
         NoMemoBackgroundRamp(
-            start = solidColor,
-            mid = solidColor,
-            end = solidColor
+            start = startColor,
+            mid = midColor,
+            end = endColor
         )
     } else {
-        val solidColor = lerp(themeColor, Color.White, 0.88f)
+        val startColor = lerp(themeColor, Color(0xFFFAF8F3), 0.84f)
+        val midColor = lerp(themeColor, Color(0xFFF7F6F2), 0.88f)
+        val endColor = lerp(themeColor, Color(0xFFF4F3F0), 0.92f)
         NoMemoBackgroundRamp(
-            start = solidColor,
-            mid = solidColor,
-            end = solidColor
+            start = startColor,
+            mid = midColor,
+            end = endColor
         )
     }
 }
@@ -870,8 +947,8 @@ fun GlassChip(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val bg = if (selected) palette.accent else if (isDark) palette.glassFill else Color.White
-    val textColor = if (selected) palette.onAccent else palette.textPrimary
+    val bg = noMemoThemeSyncedChipBackground(palette, isDark, selected)
+    val textColor = noMemoThemeSyncedChipTextColor(palette, selected)
     PressScaleBox(
         onClick = onClick,
         modifier = modifier
@@ -946,6 +1023,7 @@ fun GlassIconCircleButton(
                     blur(blurRadius.toPx())
                     lens(lensInnerRadius.toPx(), lensOuterRadius.toPx())
                 },
+                shadow = { Shadow(alpha = 0f) },
                 layerBlock = {
                     val width = this.size.width
                     val height = this.size.height
@@ -1607,7 +1685,7 @@ fun NoMemoMenuList(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val panelShape = noMemoG2RoundedShape(24.dp)
+    val panelShape = noMemoG2RoundedShape(32.dp)
     val panelBase = if (isDark) {
         noMemoCardSurfaceColor(true, Color(0xFF171A20))
     } else {
@@ -1628,7 +1706,8 @@ fun NoMemoMenuList(
     } else {
         Color.White.copy(alpha = 0.7f)
     }
-    val contentInset = 6.dp
+    val contentHorizontalInset = 6.dp
+    val contentVerticalInset = 4.dp
 
     Box(
         modifier = modifier
@@ -1652,8 +1731,11 @@ fun NoMemoMenuList(
         ) {
         }
         Column(
-            modifier = Modifier.padding(horizontal = contentInset, vertical = contentInset),
-            verticalArrangement = Arrangement.spacedBy(2.dp)
+            modifier = Modifier.padding(
+                horizontal = contentHorizontalInset,
+                vertical = contentVerticalInset
+            ),
+            verticalArrangement = Arrangement.spacedBy(1.dp)
         ) {
             actions.forEach { item ->
                 NoMemoAnchoredMenuRow(
@@ -1779,7 +1861,7 @@ private fun NoMemoAnchoredMenuRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(50.dp)
+                .height(46.dp)
                 .clip(rowShape)
                 .background(if (pressed) pressedBackground else Color.Transparent)
                 .padding(horizontal = 18.dp),
@@ -2333,7 +2415,7 @@ fun NoMemoBottomDock(
                         )
                 )
                 Icon(
-                    painter = painterResource(id = R.drawable.ic_nm_compose),
+                    painter = painterResource(id = R.drawable.ic_nm_compose_solid),
                     contentDescription = stringResource(R.string.save_record_desc),
                     tint = addButtonIconTint,
                     modifier = Modifier
@@ -2589,22 +2671,12 @@ fun RecordCard(
     val previewCornerRadius = if (adaptive.isNarrow) 15.dp else 17.dp
     val cardCornerRadius = if (adaptive.isNarrow) 28.dp else 30.dp
     val cardShape = noMemoG2RoundedShape(cardCornerRadius)
-    val darkCardColor = darkCardBackgroundOverride ?: noMemoCardSurfaceColor(true)
-    val lightCardTop = Color.White.copy(alpha = 0.995f)
-    val lightCardBottom = Color(0xFFFCFCFD).copy(alpha = 0.995f)
-    val cardGradient = if (selected) {
-        noMemoSelectedCardGradient(isDark)
-    } else if (isDark) {
-        listOf(
-            darkCardColor,
-            darkCardColor
-        )
-    } else {
-        listOf(
-            lightCardTop,
-            lightCardBottom
-        )
-    }
+    val cardGradient = noMemoThemeSyncedRecordCardGradient(
+        palette = palette,
+        isDark = isDark,
+        selected = selected,
+        darkCardBackgroundOverride = darkCardBackgroundOverride
+    )
     val cardShadow = if (showShadow) {
         if (isDark) 0.dp else if (selected) 5.dp else 4.dp
     } else {

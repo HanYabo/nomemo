@@ -433,6 +433,7 @@ private fun LiquidGlassDockTabs(
                         scaleX = scale
                         scaleY = scale
                     },
+                    shadow = { Shadow(alpha = 0f) },
                     onDrawSurface = { drawRect(containerColor) }
                 )
                 .then(interactiveHighlight.modifier)
@@ -466,6 +467,7 @@ private fun LiquidGlassDockTabs(
                         highlight = {
                             Highlight.Default.copy(alpha = dampedDragAnimation.pressProgress)
                         },
+                        shadow = { Shadow(alpha = 0f) },
                         onDrawSurface = { drawRect(containerColor) }
                     )
                     .then(interactiveHighlight.modifier)
@@ -515,7 +517,7 @@ private fun LiquidGlassDockTabs(
                         Highlight.Default.copy(alpha = dampedDragAnimation.pressProgress)
                     },
                     shadow = {
-                        Shadow(alpha = dampedDragAnimation.pressProgress)
+                        Shadow(alpha = 0f)
                     },
                     innerShadow = {
                         val progress = dampedDragAnimation.pressProgress
@@ -631,6 +633,7 @@ private fun LiquidGlassAddButton(
                     blur(2.dp.toPx())
                     lens(12.dp.toPx(), 24.dp.toPx())
                 },
+                shadow = { Shadow(alpha = 0f) },
                 layerBlock = {
                     val width = size.width
                     val height = size.height
@@ -672,7 +675,7 @@ private fun LiquidGlassAddButton(
         contentAlignment = Alignment.Center
     ) {
         androidx.compose.material3.Icon(
-            painter = painterResource(id = R.drawable.ic_nm_compose),
+            painter = painterResource(id = R.drawable.ic_nm_compose_solid),
             contentDescription = null,
             tint = iconTint,
             modifier = Modifier.size(if (spec.isNarrow) 20.dp else 22.dp)

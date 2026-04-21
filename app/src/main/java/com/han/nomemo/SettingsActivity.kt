@@ -457,21 +457,30 @@ class SettingsActivity : BaseComposeActivity() {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val cardSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.92f))
-        } else {
-            Color.White.copy(alpha = 0.985f)
-        }
-        val actionSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
-        } else {
-            Color.White.copy(alpha = 0.985f)
-        }
-        val softSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.92f))
-        } else {
-            Color(0xFFF1F3F6)
-        }
+        var themeMode by remember { mutableStateOf(settingsStore.themeMode) }
+        var themeGlobalEnabled by remember { mutableStateOf(settingsStore.themeGlobalEnabled) }
+        var showDividers by remember { mutableStateOf(settingsStore.showDividers) }
+        var themeAccent by remember { mutableStateOf(settingsStore.themeAccent) }
+        val useThemedSettingsSurface =
+            themeGlobalEnabled && themeAccent != SettingsStore.THEME_ACCENT_DEFAULT
+        val cardSurface = settingsThemedSurface(
+            palette = palette,
+            isDark = isDark,
+            liftLevel = 0,
+            useThemedSurface = useThemedSettingsSurface
+        )
+        val actionSurface = settingsThemedSurface(
+            palette = palette,
+            isDark = isDark,
+            liftLevel = 1,
+            useThemedSurface = useThemedSettingsSurface
+        )
+        val softSurface = settingsThemedSurface(
+            palette = palette,
+            isDark = isDark,
+            liftLevel = 2,
+            useThemedSurface = useThemedSettingsSurface
+        )
         val titleColor = palette.textPrimary
         val subtitleColor = palette.textSecondary
         val sectionLabelColor = palette.textTertiary
@@ -493,10 +502,6 @@ class SettingsActivity : BaseComposeActivity() {
         var imageModelPreset by remember { mutableStateOf(settingsStore.imageModelPreset) }
         var textModelPreset by remember { mutableStateOf(settingsStore.textModelPreset) }
         var multimodalModelPreset by remember { mutableStateOf(settingsStore.multimodalModelPreset) }
-        var themeMode by remember { mutableStateOf(settingsStore.themeMode) }
-        var themeGlobalEnabled by remember { mutableStateOf(settingsStore.themeGlobalEnabled) }
-        var showDividers by remember { mutableStateOf(settingsStore.showDividers) }
-        var themeAccent by remember { mutableStateOf(settingsStore.themeAccent) }
         var autoRetry by remember { mutableStateOf(settingsStore.autoRetry) }
         var economyMode by remember { mutableStateOf(settingsStore.economyMode) }
         var bottomDockOrder by remember { mutableStateOf(settingsStore.bottomDockOrder) }
@@ -2990,6 +2995,39 @@ class SettingsActivity : BaseComposeActivity() {
             SettingsStore.MODEL_TEXT_FLASH_47,
             SettingsStore.MODEL_MULTIMODAL_FLASH -> preset
             else -> fallback
+        }
+    }
+
+    private fun settingsThemedSurface(
+        palette: NoMemoPalette,
+        isDark: Boolean,
+        liftLevel: Int,
+        useThemedSurface: Boolean
+    ): Color {
+        if (!useThemedSurface) {
+            return when {
+                isDark -> noMemoCardSurfaceColor(true)
+                liftLevel == 2 -> Color(0xFFF1F3F6)
+                else -> Color.White.copy(alpha = 0.985f)
+            }
+        }
+        val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.35f)
+        return if (isDark) {
+            val lift = when (liftLevel) {
+                0 -> 0.070f
+                1 -> 0.088f
+                else -> 0.110f
+            }
+            val lifted = lerp(themeBase, Color.White, lift)
+            lerp(lifted, Color(0xFF17171B), 0.24f)
+        } else {
+            val tintPull = when (liftLevel) {
+                0 -> 0.50f
+                1 -> 0.62f
+                else -> 0.74f
+            }
+            val softTint = lerp(themeBase, Color.White, 0.78f)
+            lerp(Color.White, softTint, tintPull).copy(alpha = 0.99f)
         }
     }
 
