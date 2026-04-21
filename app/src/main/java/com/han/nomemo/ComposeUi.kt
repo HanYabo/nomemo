@@ -1686,15 +1686,12 @@ fun NoMemoMenuList(
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val panelShape = noMemoG2RoundedShape(28.dp)
-    val panelBase = if (isDark) {
-        noMemoCardSurfaceColor(true, Color(0xFF171A20))
-    } else {
-        Color.White
-    }
+    val themed = noMemoPaletteHasThemeTint(palette, isDark)
+    val panelBase = noMemoThemeSyncedMenuSurface(palette, isDark)
     val panelStroke = if (isDark) {
-        Color.White.copy(alpha = 0.08f)
+        if (themed) Color.White.copy(alpha = 0.10f) else Color.White.copy(alpha = 0.08f)
     } else {
-        Color(0x14000000)
+        if (themed) Color.Black.copy(alpha = 0.075f) else Color(0x14000000)
     }
     val panelShadow = if (isDark) {
         Color.Black.copy(alpha = 0.18f)
@@ -1702,7 +1699,7 @@ fun NoMemoMenuList(
         Color(0xFF2A3442).copy(alpha = 0.045f)
     }
     val topSheen = if (isDark) {
-        Color.White.copy(alpha = 0.035f)
+        Color.White.copy(alpha = if (themed) 0.045f else 0.035f)
     } else {
         Color.White.copy(alpha = 0.7f)
     }
@@ -1746,6 +1743,25 @@ fun NoMemoMenuList(
                 )
             }
         }
+    }
+}
+
+private fun noMemoThemeSyncedMenuSurface(
+    palette: NoMemoPalette,
+    isDark: Boolean
+): Color {
+    if (!noMemoPaletteHasThemeTint(palette, isDark)) {
+        return if (isDark) {
+            noMemoCardSurfaceColor(true, Color(0xFF171A20))
+        } else {
+            Color.White
+        }
+    }
+    val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+    return if (isDark) {
+        lerp(themeBase, Color.White, 0.095f)
+    } else {
+        lerp(Color.White, themeBase, 0.54f)
     }
 }
 
@@ -1841,8 +1857,14 @@ private fun NoMemoAnchoredMenuRow(
     }
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    val themed = noMemoPaletteHasThemeTint(palette, isDark)
+    val themePressBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
     val pressedBackground = if (destructive) {
         destructiveBase.copy(alpha = if (isDark) 0.22f else 0.14f)
+    } else if (themed && isDark) {
+        lerp(themePressBase, Color.White, 0.16f).copy(alpha = 0.32f)
+    } else if (themed) {
+        lerp(Color.White, themePressBase, 0.62f).copy(alpha = 0.30f)
     } else if (isDark) {
         Color.White.copy(alpha = 0.08f)
     } else {

@@ -63,6 +63,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -684,8 +685,9 @@ fun SheetCategorySection(
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val selectorShape = noMemoG2RoundedShape(if (detailStyle) 22.dp else 24.dp)
-    val selectorSurface = if (detailStyle) noMemoCardSurfaceColor(isDark) else addSheetCategorySelectorSurface(isDark, palette)
-    val menuSurface = if (detailStyle) noMemoCardSurfaceColor(isDark) else addSheetCategoryMenuSurface(isDark, palette)
+    val detailSurface = addSheetDetailSurface(isDark, palette)
+    val selectorSurface = if (detailStyle) detailSurface else addSheetCategorySelectorSurface(isDark, palette)
+    val menuSurface = if (detailStyle) detailSurface else addSheetCategoryMenuSurface(isDark, palette)
     val primaryTextColor = palette.textPrimary
     val chevronColor = if (expanded) palette.textPrimary else palette.textSecondary
     val selectedSummary = selectedCategory.categoryName
@@ -1416,6 +1418,23 @@ private fun addSheetInputSurface(isDark: Boolean, palette: NoMemoPalette): Color
         noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
     } else {
         Color.White
+    }
+}
+
+private fun addSheetUsesThemeTint(palette: NoMemoPalette, isDark: Boolean): Boolean {
+    val defaultMid = if (isDark) Color.Black else Color(0xFFF5F5F5)
+    return palette.memoBgMid != defaultMid
+}
+
+private fun addSheetDetailSurface(isDark: Boolean, palette: NoMemoPalette): Color {
+    if (!addSheetUsesThemeTint(palette, isDark)) {
+        return noMemoCardSurfaceColor(isDark)
+    }
+    val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+    return if (isDark) {
+        lerp(themeBase, Color.White, 0.085f).copy(alpha = 0.98f)
+    } else {
+        lerp(Color.White, themeBase, 0.52f).copy(alpha = 0.995f)
     }
 }
 

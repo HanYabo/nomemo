@@ -38,6 +38,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.viewinterop.AndroidView
 
@@ -64,10 +65,30 @@ private val memoryDetailLocationFontSize = 18.sp
 private val memoryDetailLocationLineHeight = 28.sp
 
 private fun memoryDetailActionSurface(isDark: Boolean, palette: NoMemoPalette): Color {
+    if (memoryDetailUsesThemeTint(palette, isDark)) {
+        return memoryDetailContentSurface(isDark, palette)
+    }
     return if (isDark) {
         noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
     } else {
         Color.White.copy(alpha = 0.985f)
+    }
+}
+
+private fun memoryDetailUsesThemeTint(palette: NoMemoPalette, isDark: Boolean): Boolean {
+    val defaultMid = if (isDark) Color.Black else Color(0xFFF5F5F5)
+    return palette.memoBgMid != defaultMid
+}
+
+private fun memoryDetailContentSurface(isDark: Boolean, palette: NoMemoPalette): Color {
+    if (!memoryDetailUsesThemeTint(palette, isDark)) {
+        return noMemoCardSurfaceColor(isDark)
+    }
+    val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+    return if (isDark) {
+        lerp(themeBase, Color.White, 0.085f).copy(alpha = 0.98f)
+    } else {
+        lerp(Color.White, themeBase, 0.52f).copy(alpha = 0.995f)
     }
 }
 
@@ -132,7 +153,7 @@ fun NoMemoDetailSummaryBox(
         modifier = modifier.fillMaxWidth(),
         shape = memoryDetailContentPanelShape,
         colors = CardDefaults.cardColors(
-            containerColor = noMemoCardSurfaceColor(isDark)
+            containerColor = memoryDetailContentSurface(isDark, palette)
         )
     ) {
         if (editing) {
@@ -231,7 +252,7 @@ fun NoMemoPickupCodeCard(
         modifier = modifier.fillMaxWidth(),
         shape = memoryDetailContentPanelShape,
         colors = CardDefaults.cardColors(
-            containerColor = noMemoCardSurfaceColor(isDark)
+            containerColor = memoryDetailContentSurface(isDark, palette)
         )
     ) {
         Column(
@@ -276,7 +297,7 @@ fun NoMemoDetailTitleEditor(
         modifier = modifier.fillMaxWidth(),
         shape = memoryDetailContentPanelShape,
         colors = CardDefaults.cardColors(
-            containerColor = noMemoCardSurfaceColor(isDark)
+            containerColor = memoryDetailContentSurface(isDark, palette)
         )
     ) {
         BasicTextField(
@@ -329,7 +350,7 @@ fun NoMemoEditablePickupCodeCard(
         modifier = modifier.fillMaxWidth(),
         shape = memoryDetailContentPanelShape,
         colors = CardDefaults.cardColors(
-            containerColor = noMemoCardSurfaceColor(isDark)
+            containerColor = memoryDetailContentSurface(isDark, palette)
         )
     ) {
         Column(
@@ -395,7 +416,7 @@ fun NoMemoPickupLocationCard(
         modifier = modifier.fillMaxWidth(),
         shape = memoryDetailContentPanelShape,
         colors = CardDefaults.cardColors(
-            containerColor = noMemoCardSurfaceColor(isDark)
+            containerColor = memoryDetailContentSurface(isDark, palette)
         )
     ) {
         Row(
@@ -438,7 +459,7 @@ fun NoMemoEditablePickupLocationCard(
         modifier = modifier.fillMaxWidth(),
         shape = memoryDetailContentPanelShape,
         colors = CardDefaults.cardColors(
-            containerColor = noMemoCardSurfaceColor(isDark)
+            containerColor = memoryDetailContentSurface(isDark, palette)
         )
     ) {
         BasicTextField(
@@ -553,10 +574,12 @@ fun NoMemoDetailActionButton(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val themedSurface = memoryDetailContentSurface(isDark, palette)
+    val usesThemeTint = memoryDetailUsesThemeTint(palette, isDark)
     val containerColor = when {
         primary -> palette.accent
-        showBorder -> palette.glassFill
-        else -> noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))
+        showBorder -> if (usesThemeTint) themedSurface else palette.glassFill
+        else -> if (usesThemeTint) themedSurface else noMemoCardSurfaceColor(isDark, Color.White.copy(alpha = 0.995f))
     }
     val contentColor = when {
         primary -> palette.onAccent

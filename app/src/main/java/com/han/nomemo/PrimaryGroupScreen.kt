@@ -715,16 +715,13 @@ private fun PrimaryGroupDefaultEmptyTile(
     val palette = rememberNoMemoPalette()
     val tileSize = if (compact) 152.dp else 168.dp
     val tileShape = noMemoG2RoundedShape(if (compact) 26.dp else 28.dp)
-    val tileSurface = if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
-    } else {
-        Color.White.copy(alpha = 0.995f)
-    }
-    val plusSurface = if (isDark) {
-        Color.White.copy(alpha = 0.08f)
-    } else {
-        Color(0xFFF0F1F4)
-    }
+    val themed = primaryGroupUsesThemeTint(palette, isDark)
+    val tileSurface = primaryGroupThemeSyncedSurface(
+        palette = palette,
+        isDark = isDark,
+        defaultLight = Color.White.copy(alpha = 0.995f)
+    )
+    val plusSurface = primaryGroupThemeSyncedInsetSurface(palette, isDark, themed)
     val interactionSource = remember { MutableInteractionSource() }
     val (tapHighlight, triggerHighlight) = rememberPrimaryGroupTapHighlightColor(
         interactionSource = interactionSource,
@@ -869,11 +866,11 @@ private fun PrimaryGroupCustomEntryChip(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val containerColor = if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.92f))
-    } else {
-        Color.White.copy(alpha = 0.995f)
-    }
+    val containerColor = primaryGroupThemeSyncedSurface(
+        palette = palette,
+        isDark = isDark,
+        defaultLight = Color.White.copy(alpha = 0.995f)
+    )
     val contentColor = palette.textPrimary.copy(alpha = 0.9f)
     val interactionSource = remember { MutableInteractionSource() }
     val (tapHighlight, triggerHighlight) = rememberPrimaryGroupTapHighlightColor(
@@ -912,6 +909,43 @@ private fun PrimaryGroupCustomEntryChip(
                 modifier = Modifier.padding(start = 6.dp)
             )
         }
+    }
+}
+
+private fun primaryGroupUsesThemeTint(palette: NoMemoPalette, isDark: Boolean): Boolean {
+    val defaultMid = if (isDark) Color.Black else Color(0xFFF5F5F5)
+    return palette.memoBgMid != defaultMid
+}
+
+private fun primaryGroupThemeSyncedSurface(
+    palette: NoMemoPalette,
+    isDark: Boolean,
+    defaultLight: Color
+): Color {
+    if (!primaryGroupUsesThemeTint(palette, isDark)) {
+        return noMemoCardSurfaceColor(isDark, defaultLight)
+    }
+    val themeBase = androidx.compose.ui.graphics.lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+    return if (isDark) {
+        androidx.compose.ui.graphics.lerp(themeBase, Color.White, 0.085f).copy(alpha = 0.98f)
+    } else {
+        androidx.compose.ui.graphics.lerp(Color.White, themeBase, 0.52f).copy(alpha = 0.995f)
+    }
+}
+
+private fun primaryGroupThemeSyncedInsetSurface(
+    palette: NoMemoPalette,
+    isDark: Boolean,
+    themed: Boolean
+): Color {
+    if (!themed) {
+        return if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF0F1F4)
+    }
+    val themeBase = androidx.compose.ui.graphics.lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+    return if (isDark) {
+        androidx.compose.ui.graphics.lerp(themeBase, Color.White, 0.16f).copy(alpha = 0.72f)
+    } else {
+        androidx.compose.ui.graphics.lerp(Color.White, themeBase, 0.62f).copy(alpha = 0.92f)
     }
 }
 
