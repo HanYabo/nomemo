@@ -148,21 +148,21 @@ fun LiquidGlassDock(
             when (tab) {
                 NoMemoDockTab.MEMORY -> DockTabSpec(
                     tab = NoMemoDockTab.MEMORY,
-                    iconRes = R.drawable.ic_nm_memory,
+                    iconRes = R.drawable.ic_nm_memory_dock,
                     label = memoryLabel,
                     onClick = { latestOpenMemory.value.invoke() }
                 )
 
                 NoMemoDockTab.GROUP -> DockTabSpec(
                     tab = NoMemoDockTab.GROUP,
-                    iconRes = R.drawable.ic_nm_group,
+                    iconRes = R.drawable.ic_nm_group_dock,
                     label = groupLabel,
                     onClick = { latestOpenGroup.value.invoke() }
                 )
 
                 NoMemoDockTab.REMINDER -> DockTabSpec(
                     tab = NoMemoDockTab.REMINDER,
-                    iconRes = R.drawable.ic_nm_reminder,
+                    iconRes = R.drawable.ic_nm_reminder_dock,
                     label = reminderLabel,
                     onClick = { latestOpenReminder.value.invoke() }
                 )
@@ -471,13 +471,13 @@ private fun LiquidGlassDockTabs(
 
         Box(
             Modifier
-                .padding(horizontal = 3.dp, vertical = 0.5.dp)
+                .padding(horizontal = 4.dp)
                 .graphicsLayer {
                     translationX = activeTabTranslationX
                     scaleX = activeTabScaleX
                     scaleY = activeTabScaleY
                 }
-                .height(dockHeight - 7.dp)
+                .height(dockHeight - 8.dp)
                 .fillMaxWidth(1f / tabs.size)
                 .clip(DockShape)
                 .background(activeMaskColor)

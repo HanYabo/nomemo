@@ -700,16 +700,18 @@ private fun buildThemedBackgroundRamp(
         end = base.memoBgEnd
     )
     return if (isDark) {
+        val solidColor = lerp(themeColor, Color.Black, 0.68f)
         NoMemoBackgroundRamp(
-            start = lerp(themeColor, Color.Black, 0.78f),
-            mid = lerp(themeColor, Color.Black, 0.84f),
-            end = lerp(themeColor, Color.Black, 0.90f)
+            start = solidColor,
+            mid = solidColor,
+            end = solidColor
         )
     } else {
+        val solidColor = lerp(themeColor, Color.White, 0.88f)
         NoMemoBackgroundRamp(
-            start = lerp(themeColor, Color.White, 0.82f),
-            mid = lerp(themeColor, Color.White, 0.88f),
-            end = lerp(themeColor, Color.White, 0.93f)
+            start = solidColor,
+            mid = solidColor,
+            end = solidColor
         )
     }
 }
