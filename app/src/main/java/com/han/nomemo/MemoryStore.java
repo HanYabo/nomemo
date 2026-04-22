@@ -130,22 +130,26 @@ public class MemoryStore {
             records = new ArrayList<>(records.subList(0, MAX_RECORDS));
         }
         persist(records);
+        ReminderScheduler.schedule(appContext, record);
         MemoryStoreNotifier.notifyChanged(appContext, record.getRecordId());
     }
 
     public synchronized void updateReminderDone(String recordId, boolean done) {
         List<MemoryRecord> records = loadRecords();
         boolean changed = false;
+        MemoryRecord updatedRecord = null;
         for (int i = 0; i < records.size(); i++) {
             MemoryRecord record = records.get(i);
             if (record.getRecordId().equals(recordId)) {
-                records.set(i, record.withReminderDone(done));
+                updatedRecord = record.withReminderDone(done);
+                records.set(i, updatedRecord);
                 changed = true;
                 break;
             }
         }
         if (changed) {
             persist(records);
+            ReminderScheduler.schedule(appContext, updatedRecord);
             MemoryStoreNotifier.notifyChanged(appContext, recordId);
         }
     }
@@ -153,16 +157,19 @@ public class MemoryStore {
     public synchronized void archiveRecord(String recordId, boolean archived) {
         List<MemoryRecord> records = loadRecords();
         boolean changed = false;
+        MemoryRecord updatedRecord = null;
         for (int i = 0; i < records.size(); i++) {
             MemoryRecord record = records.get(i);
             if (record.getRecordId().equals(recordId)) {
-                records.set(i, record.withArchived(archived));
+                updatedRecord = record.withArchived(archived);
+                records.set(i, updatedRecord);
                 changed = true;
                 break;
             }
         }
         if (changed) {
             persist(records);
+            ReminderScheduler.schedule(appContext, updatedRecord);
             MemoryStoreNotifier.notifyChanged(appContext, recordId);
         }
     }
@@ -179,6 +186,7 @@ public class MemoryStore {
         }
         if (changed) {
             persist(records);
+            ReminderScheduler.cancel(appContext, recordId);
             MemoryStoreNotifier.notifyChanged(appContext, recordId);
         }
         return changed;
@@ -199,6 +207,7 @@ public class MemoryStore {
         }
         if (changed) {
             persist(records);
+            ReminderScheduler.schedule(appContext, updatedRecord);
             MemoryStoreNotifier.notifyChanged(appContext, updatedRecord.getRecordId());
         }
         return changed;
@@ -267,9 +276,13 @@ public class MemoryStore {
     }
 
     public synchronized void clearAll() {
+        List<MemoryRecord> records = loadRecords();
         preferences.edit().putString(KEY_RECORDS, "[]").apply();
         cachedRawRecords = "[]";
         cachedRecords = new ArrayList<>();
+        for (MemoryRecord record : records) {
+            ReminderScheduler.cancel(appContext, record.getRecordId());
+        }
         MemoryStoreNotifier.notifyChanged(appContext, null);
     }
 

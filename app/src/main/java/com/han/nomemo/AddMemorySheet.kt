@@ -104,7 +104,7 @@ fun AddMemorySheet(
     var showReminderPicker by remember { mutableStateOf(false) }
     var reminderPickerAt by remember { mutableStateOf(defaultReminderPickerTime()) }
     var saving by remember { mutableStateOf(false) }
-    var pendingAiInput by remember { mutableStateOf<String?>(null) }
+    var pendingNotificationSave by remember { mutableStateOf<PendingAddMemorySave?>(null) }
     var visible by remember { mutableStateOf(false) }
     var dismissCommitted by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
@@ -211,19 +211,19 @@ fun AddMemorySheet(
     }
 
     val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        val input = pendingAiInput ?: return@rememberLauncherForActivityResult
-        pendingAiInput = null
-        if (!granted) {
+        val pendingSave = pendingNotificationSave ?: return@rememberLauncherForActivityResult
+        pendingNotificationSave = null
+        if (!granted && pendingSave.aiMode) {
             Toast.makeText(context, "已创建记忆，AI 完成后将仅更新列表", Toast.LENGTH_SHORT).show()
         }
         saveRecord(
             context = context,
             memoryStore = memoryStore,
             aiMemoryService = aiMemoryService,
-            input = input,
+            input = pendingSave.input,
             imageUri = selectedImageUri,
-            aiMode = true,
-            category = defaultCategory,
+            aiMode = pendingSave.aiMode,
+            category = pendingSave.category,
             reminderEnabled = reminderEnabled && reminderAt > 0L,
             reminderAt = reminderAt
         )
@@ -238,8 +238,16 @@ fun AddMemorySheet(
             return@save
         }
         saving = true
-        if (aiMode && shouldRequestNotificationPermission(context)) {
-            pendingAiInput = input
+        val finalAiMode = aiMode
+        val finalCategory = if (finalAiMode) defaultCategory else selectedCategory
+        val needsNotificationPermission =
+            finalAiMode || (reminderEnabled && reminderAt > 0L)
+        if (needsNotificationPermission && shouldRequestNotificationPermission(context)) {
+            pendingNotificationSave = PendingAddMemorySave(
+                input = input,
+                aiMode = finalAiMode,
+                category = finalCategory
+            )
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             saveRecord(
@@ -248,8 +256,8 @@ fun AddMemorySheet(
                 aiMemoryService = aiMemoryService,
                 input = input,
                 imageUri = selectedImageUri,
-                aiMode = aiMode,
-                category = if (aiMode) defaultCategory else selectedCategory,
+                aiMode = finalAiMode,
+                category = finalCategory,
                 reminderEnabled = reminderEnabled && reminderAt > 0L,
                 reminderAt = reminderAt
             )
@@ -1465,6 +1473,12 @@ private fun addSheetSubtleSurface(isDark: Boolean, palette: NoMemoPalette): Colo
         Color.Black.copy(alpha = 0.035f)
     }
 }
+
+private data class PendingAddMemorySave(
+    val input: String,
+    val aiMode: Boolean,
+    val category: CategoryCatalog.CategoryOption
+)
 
 private fun saveRecord(
     context: Context,

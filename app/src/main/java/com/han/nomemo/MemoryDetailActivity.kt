@@ -733,6 +733,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
         )
         val previewOverlayVisible = previewTransition.currentState || previewTransition.targetState
         val previewSourceCardHidden = previewOverlayVisible
+        val notificationPermissionLauncher = rememberLauncherForActivityResult(
+            ActivityResultContracts.RequestPermission()
+        ) {}
         val previewImageReady = previewImagePrepared && previewImageMetadataResolved
 
         LaunchedEffect(previewRecord?.recordId, previewRecord?.imageUri) {
@@ -1405,6 +1408,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     onConfirm = { reminderAt ->
                         val saved = saveReminderForRecord(currentRecord, reminderAt)
                         if (saved) {
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                                ContextCompat.checkSelfPermission(
+                                    this@MemoryDetailActivity,
+                                    android.Manifest.permission.POST_NOTIFICATIONS
+                                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                            ) {
+                                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            }
                             showReminderSetupSheet = false
                             Toast.makeText(this@MemoryDetailActivity, "已添加到提醒事项", Toast.LENGTH_SHORT).show()
                         } else {
