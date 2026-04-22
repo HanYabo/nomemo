@@ -342,9 +342,70 @@ fun noMemoSelectedCardGradient(isDark: Boolean): List<Color> {
     }
 }
 
-private fun noMemoPaletteHasThemeTint(palette: NoMemoPalette, isDark: Boolean): Boolean {
+internal fun noMemoPaletteHasThemeTint(palette: NoMemoPalette, isDark: Boolean): Boolean {
     val defaultMid = if (isDark) Color.Black else Color(0xFFF5F5F5)
     return palette.memoBgMid != defaultMid
+}
+
+private fun noMemoThemeBaseColor(palette: NoMemoPalette): Color {
+    return lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+}
+
+internal fun noMemoThemeSyncedSheetSurface(
+    palette: NoMemoPalette,
+    isDark: Boolean
+): Color {
+    if (!noMemoPaletteHasThemeTint(palette, isDark)) {
+        return if (isDark) Color(0xFF121316) else Color(0xFFF5F6F8)
+    }
+    val themeBase = noMemoThemeBaseColor(palette)
+    return if (isDark) {
+        lerp(themeBase, Color.White, 0.045f)
+    } else {
+        lerp(Color.White, themeBase, 0.42f)
+    }
+}
+
+internal fun noMemoThemeSyncedContentSurface(
+    palette: NoMemoPalette,
+    isDark: Boolean,
+    darkDefault: Color = noMemoCardSurfaceColor(true),
+    lightDefault: Color = Color.White.copy(alpha = 0.995f),
+    darkLift: Float = 0.085f,
+    lightMix: Float = 0.52f,
+    darkAlpha: Float = 0.98f,
+    lightAlpha: Float = 0.995f
+): Color {
+    if (!noMemoPaletteHasThemeTint(palette, isDark)) {
+        return if (isDark) darkDefault else lightDefault
+    }
+    val themeBase = noMemoThemeBaseColor(palette)
+    return if (isDark) {
+        lerp(themeBase, Color.White, darkLift).copy(alpha = darkAlpha)
+    } else {
+        lerp(Color.White, themeBase, lightMix).copy(alpha = lightAlpha)
+    }
+}
+
+internal fun noMemoThemeSyncedInsetSurface(
+    palette: NoMemoPalette,
+    isDark: Boolean,
+    darkDefault: Color = Color.White.copy(alpha = 0.08f),
+    lightDefault: Color = Color(0xFFE7E9EE),
+    darkLift: Float = 0.16f,
+    lightMix: Float = 0.62f,
+    darkAlpha: Float = 0.72f,
+    lightAlpha: Float = 0.96f
+): Color {
+    if (!noMemoPaletteHasThemeTint(palette, isDark)) {
+        return if (isDark) darkDefault else lightDefault
+    }
+    val themeBase = noMemoThemeBaseColor(palette)
+    return if (isDark) {
+        lerp(themeBase, Color.White, darkLift).copy(alpha = darkAlpha)
+    } else {
+        lerp(Color.White, themeBase, lightMix).copy(alpha = lightAlpha)
+    }
 }
 
 private fun noMemoThemeSyncedRecordCardGradient(
@@ -983,6 +1044,7 @@ fun GlassIconCircleButton(
     onBoundsChanged: ((IntRect) -> Unit)? = null
 ) {
     val isDark = isSystemInDarkTheme()
+    val palette = rememberNoMemoPalette()
     val backdrop = rememberLayerBackdrop()
     val animationScope = rememberCoroutineScope()
     val interactiveHighlight = remember(animationScope) {
@@ -993,12 +1055,30 @@ fun GlassIconCircleButton(
     val lensInnerRadius = (12f * effectScale).dp
     val lensOuterRadius = (24f * effectScale).dp
     val stretchTravel = (4f * effectScale).dp
-    val surfaceColor = if (isDark) {
+    val themed = noMemoPaletteHasThemeTint(palette, isDark)
+    val surfaceColor = if (themed) {
+        noMemoThemeSyncedContentSurface(
+            palette = palette,
+            isDark = isDark,
+            darkDefault = Color(0xFF121212).copy(alpha = 0.40f),
+            lightDefault = Color(0xFFFAFAFA).copy(alpha = 0.40f),
+            darkLift = 0.12f,
+            lightMix = 0.46f,
+            darkAlpha = 0.62f,
+            lightAlpha = 0.72f
+        )
+    } else if (isDark) {
         Color(0xFF121212).copy(alpha = 0.40f)
     } else {
         Color(0xFFFAFAFA).copy(alpha = 0.40f)
     }
-    val iconTint = if (isDark) Color.White.copy(alpha = 0.96f) else Color(0xFF253244).copy(alpha = 0.92f)
+    val iconTint = if (themed) {
+        palette.textPrimary.copy(alpha = if (isDark) 0.98f else 0.95f)
+    } else if (isDark) {
+        Color.White.copy(alpha = 0.96f)
+    } else {
+        Color(0xFF253244).copy(alpha = 0.92f)
+    }
     val iconSize = if (size <= 48.dp) 22.dp else 24.dp
 
     Box(
@@ -1292,11 +1372,14 @@ private fun NoMemoDialogShell(
     val isDark = isSystemInDarkTheme()
     val panelShape = noMemoG2RoundedShape(34.dp)
     val actionsBackdrop = rememberLayerBackdrop()
-    val panelSurface = if (isDark) {
-        Color(0xFF1F1F22)
-    } else {
-        Color.White
-    }
+    val panelSurface = noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = Color(0xFF1F1F22),
+        lightDefault = Color.White,
+        darkLift = 0.11f,
+        lightMix = 0.48f
+    )
     val panelStroke = if (isDark) {
         Color.White.copy(alpha = 0.26f)
     } else {
@@ -1858,13 +1941,12 @@ private fun NoMemoAnchoredMenuRow(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val themed = noMemoPaletteHasThemeTint(palette, isDark)
-    val themePressBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
     val pressedBackground = if (destructive) {
         destructiveBase.copy(alpha = if (isDark) 0.22f else 0.14f)
     } else if (themed && isDark) {
-        lerp(themePressBase, Color.White, 0.16f).copy(alpha = 0.32f)
+        Color.White.copy(alpha = 0.105f)
     } else if (themed) {
-        lerp(Color.White, themePressBase, 0.62f).copy(alpha = 0.30f)
+        Color.Black.copy(alpha = 0.058f)
     } else if (isDark) {
         Color.White.copy(alpha = 0.08f)
     } else {

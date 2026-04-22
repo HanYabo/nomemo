@@ -2108,16 +2108,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
             (eventAt - safeLeadMinutes * 60L * 1000L).coerceAtLeast(0L)
         }
 
-        val sheetSurface = if (isDark) {
-            Color(0xFF121316)
-        } else {
-            Color(0xFFF5F6F8)
-        }
-        val cardSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
-        } else {
-            Color.White
-        }
+        val sheetSurface = noMemoThemeSyncedSheetSurface(palette, isDark)
+        val cardSurface = noMemoThemeSyncedContentSurface(
+            palette = palette,
+            isDark = isDark,
+            darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
+            lightDefault = Color.White
+        )
         val timeCardSurface = cardSurface
         val optionCardColor = cardSurface
         val optionSelectedColor = if (isDark) {

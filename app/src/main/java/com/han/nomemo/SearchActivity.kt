@@ -311,7 +311,12 @@ class SearchActivity : BaseComposeActivity() {
     ) {
         val palette = rememberNoMemoPalette()
         val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-        val searchSurface = if (isDark) Color(0xFF1A1A1C) else Color.White.copy(alpha = 0.995f)
+        val searchSurface = noMemoThemeSyncedContentSurface(
+            palette = palette,
+            isDark = isDark,
+            darkDefault = Color(0xFF1A1A1C),
+            lightDefault = Color.White.copy(alpha = 0.995f)
+        )
 
         Card(
             modifier = Modifier

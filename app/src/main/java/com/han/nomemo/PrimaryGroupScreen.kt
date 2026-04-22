@@ -715,13 +715,12 @@ private fun PrimaryGroupDefaultEmptyTile(
     val palette = rememberNoMemoPalette()
     val tileSize = if (compact) 152.dp else 168.dp
     val tileShape = noMemoG2RoundedShape(if (compact) 26.dp else 28.dp)
-    val themed = primaryGroupUsesThemeTint(palette, isDark)
     val tileSurface = primaryGroupThemeSyncedSurface(
         palette = palette,
         isDark = isDark,
         defaultLight = Color.White.copy(alpha = 0.995f)
     )
-    val plusSurface = primaryGroupThemeSyncedInsetSurface(palette, isDark, themed)
+    val plusSurface = primaryGroupThemeSyncedInsetSurface(palette, isDark)
     val interactionSource = remember { MutableInteractionSource() }
     val (tapHighlight, triggerHighlight) = rememberPrimaryGroupTapHighlightColor(
         interactionSource = interactionSource,
@@ -754,7 +753,7 @@ private fun PrimaryGroupDefaultEmptyTile(
                 Icon(
                     painter = painterResource(R.drawable.ic_nm_add),
                     contentDescription = null,
-                    tint = palette.textTertiary.copy(alpha = if (isDark) 0.88f else 0.78f),
+                    tint = palette.textSecondary.copy(alpha = if (isDark) 0.9f else 0.92f),
                     modifier = Modifier.size(24.dp)
                 )
             }
@@ -912,41 +911,31 @@ private fun PrimaryGroupCustomEntryChip(
     }
 }
 
-private fun primaryGroupUsesThemeTint(palette: NoMemoPalette, isDark: Boolean): Boolean {
-    val defaultMid = if (isDark) Color.Black else Color(0xFFF5F5F5)
-    return palette.memoBgMid != defaultMid
-}
-
 private fun primaryGroupThemeSyncedSurface(
     palette: NoMemoPalette,
     isDark: Boolean,
     defaultLight: Color
 ): Color {
-    if (!primaryGroupUsesThemeTint(palette, isDark)) {
-        return noMemoCardSurfaceColor(isDark, defaultLight)
-    }
-    val themeBase = androidx.compose.ui.graphics.lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
-    return if (isDark) {
-        androidx.compose.ui.graphics.lerp(themeBase, Color.White, 0.085f).copy(alpha = 0.98f)
-    } else {
-        androidx.compose.ui.graphics.lerp(Color.White, themeBase, 0.52f).copy(alpha = 0.995f)
-    }
+    return noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = noMemoCardSurfaceColor(isDark),
+        lightDefault = defaultLight
+    )
 }
 
 private fun primaryGroupThemeSyncedInsetSurface(
     palette: NoMemoPalette,
-    isDark: Boolean,
-    themed: Boolean
+    isDark: Boolean
 ): Color {
-    if (!themed) {
-        return if (isDark) Color.White.copy(alpha = 0.08f) else Color(0xFFF0F1F4)
-    }
-    val themeBase = androidx.compose.ui.graphics.lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
-    return if (isDark) {
-        androidx.compose.ui.graphics.lerp(themeBase, Color.White, 0.16f).copy(alpha = 0.72f)
-    } else {
-        androidx.compose.ui.graphics.lerp(Color.White, themeBase, 0.62f).copy(alpha = 0.92f)
-    }
+    return noMemoThemeSyncedInsetSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = Color.White.copy(alpha = 0.08f),
+        lightDefault = Color(0xFFE1E4EA),
+        darkAlpha = 0.72f,
+        lightAlpha = 0.96f
+    )
 }
 
 @Composable
@@ -1001,16 +990,13 @@ private fun PrimaryGroupAddExistingMemorySheet(
     val adaptive = rememberNoMemoAdaptiveSpec()
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val panelSurface = if (isDark) {
-        Color(0xFF121316)
-    } else {
-        Color(0xFFF5F6F8)
-    }
-    val searchSurface = if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
-    } else {
-        Color.White.copy(alpha = 0.995f)
-    }
+    val panelSurface = noMemoThemeSyncedSheetSurface(palette, isDark)
+    val searchSurface = noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
+        lightDefault = Color.White.copy(alpha = 0.995f)
+    )
     val dragHandleColor = Color(0xFF8E8E93).copy(alpha = if (isDark) 0.72f else 0.68f)
     val bodyHeight = rememberNoMemoSheetHeight(
         compactPreferredHeight = 620.dp,
@@ -2237,16 +2223,13 @@ internal fun PrimaryGroupEditAlbumSheet(
     val isDark = isSystemInDarkTheme()
     val context = LocalContext.current
     val activity = remember(context) { context.findActivity() }
-    val panelSurface = if (isDark) {
-        Color(0xFF121316)
-    } else {
-        Color(0xFFF5F6F8)
-    }
-    val inputSurface = if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
-    } else {
-        Color.White.copy(alpha = 0.995f)
-    }
+    val panelSurface = noMemoThemeSyncedSheetSurface(palette, isDark)
+    val inputSurface = noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
+        lightDefault = Color.White.copy(alpha = 0.995f)
+    )
     val dragHandleColor = if (isDark) {
         Color(0xFF8E8E93).copy(alpha = 0.72f)
     } else {

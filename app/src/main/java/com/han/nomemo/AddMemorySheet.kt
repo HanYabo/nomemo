@@ -63,7 +63,6 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
@@ -115,11 +114,7 @@ fun AddMemorySheet(
     val panelSurface = addSheetPanelSurface(isDark, palette)
     val sheetSurface = addSheetBaseSurface(isDark, palette)
     val inputSurface = addSheetInputSurface(isDark, palette)
-    val actionSurface = if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
-    } else {
-        Color.White.copy(alpha = 0.985f)
-    }
+    val actionSurface = addSheetInputSurface(isDark, palette)
     val inputTextColor = palette.textPrimary
     val inputHintColor = palette.textTertiary
     val sheetBodyHeight = rememberNoMemoSheetHeight(
@@ -1402,56 +1397,41 @@ private fun ReminderFooterActionButton(
 }
 
 private fun addSheetPanelSurface(isDark: Boolean, palette: NoMemoPalette): Color {
-    return if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.94f))
-    } else {
-        Color.White.copy(alpha = 0.995f)
-    }
+    return noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.94f)),
+        lightDefault = Color.White.copy(alpha = 0.995f)
+    )
 }
 
 private fun addSheetBaseSurface(isDark: Boolean, palette: NoMemoPalette): Color {
-    return if (isDark) Color(0xFF121316) else Color(0xFFF5F6F8)
+    return noMemoThemeSyncedSheetSurface(palette, isDark)
 }
 
 private fun addSheetInputSurface(isDark: Boolean, palette: NoMemoPalette): Color {
-    return if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
-    } else {
-        Color.White
-    }
-}
-
-private fun addSheetUsesThemeTint(palette: NoMemoPalette, isDark: Boolean): Boolean {
-    val defaultMid = if (isDark) Color.Black else Color(0xFFF5F5F5)
-    return palette.memoBgMid != defaultMid
+    return noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f)),
+        lightDefault = Color.White
+    )
 }
 
 private fun addSheetDetailSurface(isDark: Boolean, palette: NoMemoPalette): Color {
-    if (!addSheetUsesThemeTint(palette, isDark)) {
-        return noMemoCardSurfaceColor(isDark)
-    }
-    val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
-    return if (isDark) {
-        lerp(themeBase, Color.White, 0.085f).copy(alpha = 0.98f)
-    } else {
-        lerp(Color.White, themeBase, 0.52f).copy(alpha = 0.995f)
-    }
+    return noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = noMemoCardSurfaceColor(isDark)
+    )
 }
 
 private fun addSheetCategorySelectorSurface(isDark: Boolean, palette: NoMemoPalette): Color {
-    return if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
-    } else {
-        Color.White
-    }
+    return addSheetInputSurface(isDark, palette)
 }
 
 private fun addSheetCategoryMenuSurface(isDark: Boolean, palette: NoMemoPalette): Color {
-    return if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f))
-    } else {
-        Color.White
-    }
+    return addSheetInputSurface(isDark, palette)
 }
 
 private fun addSheetCategoryDotColor(categoryCode: String): Color {
@@ -1471,6 +1451,16 @@ private fun addSheetBorderColor(isDark: Boolean, palette: NoMemoPalette): Color 
 }
 
 private fun addSheetSubtleSurface(isDark: Boolean, palette: NoMemoPalette): Color {
+    if (noMemoPaletteHasThemeTint(palette, isDark)) {
+        return noMemoThemeSyncedInsetSurface(
+            palette = palette,
+            isDark = isDark,
+            darkDefault = palette.glassFillSoft.copy(alpha = 0.68f),
+            lightDefault = Color.Black.copy(alpha = 0.035f),
+            darkAlpha = 0.62f,
+            lightAlpha = 0.78f
+        )
+    }
     return if (isDark) {
         palette.glassFillSoft.copy(alpha = 0.68f)
     } else {

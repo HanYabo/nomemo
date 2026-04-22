@@ -597,16 +597,13 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
         } else {
             Color(0xFF8E8E93).copy(alpha = 0.68f)
         }
-        val panelSurface = if (isDark) {
-            Color(0xFF121316)
-        } else {
-            Color(0xFFF5F6F8)
-        }
-        val searchSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
-        } else {
-            Color.White.copy(alpha = 0.995f)
-        }
+        val panelSurface = noMemoThemeSyncedSheetSurface(palette, isDark)
+        val searchSurface = noMemoThemeSyncedContentSurface(
+            palette = palette,
+            isDark = isDark,
+            darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
+            lightDefault = Color.White.copy(alpha = 0.995f)
+        )
         val bodyHeight = rememberNoMemoSheetHeight(
             compactPreferredHeight = 620.dp,
             regularPreferredHeight = 700.dp,
