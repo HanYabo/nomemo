@@ -330,14 +330,16 @@ fun noMemoCardSurfaceColor(isDark: Boolean, lightColor: Color = Color.White): Co
 
 fun noMemoSelectedCardGradient(isDark: Boolean): List<Color> {
     return if (isDark) {
+        val selectedColor = Color(0xFF253754)
         listOf(
-            Color(0xFF253754),
-            Color(0xFF1C2D46)
+            selectedColor,
+            selectedColor
         )
     } else {
+        val selectedColor = Color(0xFFE7F0FF)
         listOf(
-            Color(0xFFE7F0FF),
-            Color(0xFFDDE9FF)
+            selectedColor,
+            selectedColor
         )
     }
 }
@@ -355,15 +357,14 @@ internal fun noMemoThemeSyncedSheetSurface(
     palette: NoMemoPalette,
     isDark: Boolean
 ): Color {
+    if (!isDark) {
+        return palette.memoBgMid
+    }
     if (!noMemoPaletteHasThemeTint(palette, isDark)) {
-        return if (isDark) Color(0xFF121316) else Color(0xFFF5F6F8)
+        return Color(0xFF121316)
     }
     val themeBase = noMemoThemeBaseColor(palette)
-    return if (isDark) {
-        lerp(themeBase, Color.White, 0.045f)
-    } else {
-        lerp(Color.White, themeBase, 0.42f)
-    }
+    return lerp(themeBase, Color.White, 0.04f)
 }
 
 internal fun noMemoThemeSyncedContentSurface(
@@ -372,7 +373,7 @@ internal fun noMemoThemeSyncedContentSurface(
     darkDefault: Color = noMemoCardSurfaceColor(true),
     lightDefault: Color = Color.White.copy(alpha = 0.995f),
     darkLift: Float = 0.085f,
-    lightMix: Float = 0.52f,
+    lightMix: Float = 0.28f,
     darkAlpha: Float = 0.98f,
     lightAlpha: Float = 0.995f
 ): Color {
@@ -393,7 +394,7 @@ internal fun noMemoThemeSyncedInsetSurface(
     darkDefault: Color = Color.White.copy(alpha = 0.08f),
     lightDefault: Color = Color(0xFFE7E9EE),
     darkLift: Float = 0.16f,
-    lightMix: Float = 0.62f,
+    lightMix: Float = 0.7f,
     darkAlpha: Float = 0.72f,
     lightAlpha: Float = 0.96f
 ): Color {
@@ -425,22 +426,25 @@ private fun noMemoThemeSyncedRecordCardGradient(
             listOf(defaultCard, defaultCard)
         } else {
             val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+            val cardColor = lerp(themeBase, Color.White, 0.085f)
             listOf(
-                lerp(themeBase, Color.White, 0.085f),
-                lerp(themeBase, Color.White, 0.065f)
+                cardColor,
+                cardColor
             )
         }
     } else {
         if (!themed) {
+            val defaultCard = Color.White.copy(alpha = 0.995f)
             listOf(
-                Color.White.copy(alpha = 0.995f),
-                Color(0xFFFCFCFD).copy(alpha = 0.995f)
+                defaultCard,
+                defaultCard
             )
         } else {
             val themeBase = lerp(palette.memoBgMid, palette.memoBgEnd, 0.45f)
+            val cardColor = lerp(Color.White, themeBase, 0.24f).copy(alpha = 0.995f)
             listOf(
-                lerp(Color.White, themeBase, 0.58f).copy(alpha = 0.995f),
-                lerp(Color(0xFFFCFCFD), themeBase, 0.48f).copy(alpha = 0.995f)
+                cardColor,
+                cardColor
             )
         }
     }
@@ -833,25 +837,16 @@ private fun buildThemedBackgroundRamp(
         mid = base.memoBgMid,
         end = base.memoBgEnd
     )
-    return if (isDark) {
-        val startColor = lerp(themeColor, Color(0xFF111116), 0.84f)
-        val midColor = lerp(themeColor, Color(0xFF121118), 0.87f)
-        val endColor = lerp(themeColor, Color(0xFF101014), 0.90f)
-        NoMemoBackgroundRamp(
-            start = startColor,
-            mid = midColor,
-            end = endColor
-        )
+    val backgroundColor = if (isDark) {
+        lerp(themeColor, Color(0xFF0F0E14), 0.94f)
     } else {
-        val startColor = lerp(themeColor, Color(0xFFFAF8F3), 0.84f)
-        val midColor = lerp(themeColor, Color(0xFFF7F6F2), 0.88f)
-        val endColor = lerp(themeColor, Color(0xFFF4F3F0), 0.92f)
-        NoMemoBackgroundRamp(
-            start = startColor,
-            mid = midColor,
-            end = endColor
-        )
+        lerp(themeColor, Color(0xFFF7F6F2), 0.88f)
     }
+    return NoMemoBackgroundRamp(
+        start = backgroundColor,
+        mid = backgroundColor,
+        end = backgroundColor
+    )
 }
 
 private tailrec fun Context.findActivity(): Activity? {
@@ -897,20 +892,12 @@ fun NoMemoBackground(
     content: @Composable BoxScope.(NoMemoPalette) -> Unit
 ) {
     val palette = rememberNoMemoPaletteValue()
-    val backgroundBrush = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd) {
-        Brush.verticalGradient(
-            colors = listOf(
-                palette.memoBgStart,
-                palette.memoBgMid,
-                palette.memoBgEnd
-            )
-        )
-    }
+    val backgroundColor = palette.memoBgMid
     CompositionLocalProvider(LocalNoMemoPalette provides palette) {
         Box(
             modifier = modifier
                 .fillMaxSize()
-                .background(backgroundBrush)
+                .background(backgroundColor)
         ) {
             content(palette)
         }
@@ -2847,7 +2834,7 @@ fun RecordCard(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Brush.verticalGradient(cardGradient))
+                    .background(cardGradient.first())
             ) {
                 Row(
                     modifier = Modifier

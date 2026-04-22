@@ -70,7 +70,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
@@ -505,15 +504,7 @@ class SettingsActivity : BaseComposeActivity() {
         var autoRetry by remember { mutableStateOf(settingsStore.autoRetry) }
         var economyMode by remember { mutableStateOf(settingsStore.economyMode) }
         var bottomDockOrder by remember { mutableStateOf(settingsStore.bottomDockOrder) }
-        val pageBackgroundBrush = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd) {
-            Brush.verticalGradient(
-                colors = listOf(
-                    palette.memoBgStart,
-                    palette.memoBgMid,
-                    palette.memoBgEnd
-                )
-            )
-        }
+        val pageBackgroundColor = palette.memoBgMid
         val dividerColor = if (showDividers) {
             if (isDark) palette.glassStroke.copy(alpha = 0.22f) else Color.Black.copy(alpha = 0.055f)
         } else {
@@ -561,7 +552,7 @@ class SettingsActivity : BaseComposeActivity() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(pageBackgroundBrush)
+                .background(pageBackgroundColor)
         ) {
             ResponsiveContentFrame(spec = adaptive) { spec ->
                 Column(
@@ -1416,11 +1407,12 @@ class SettingsActivity : BaseComposeActivity() {
             }
 
             SettingsRoute.StorageClean -> {
-                val storageCardSurface = if (isDark) {
-                    Color(0xFF141515).copy(alpha = 0.98f)
-                } else {
-                    Color.White.copy(alpha = 0.985f)
-                }
+                val storageCardSurface = settingsThemedSurface(
+                    palette = palette,
+                    isDark = isDark,
+                    liftLevel = 0,
+                    useThemedSurface = themeGlobalEnabled && themeAccent != SettingsStore.THEME_ACCENT_DEFAULT
+                )
                 val storageAccentColor = if (isDark) Color(0xFF1784FF) else Color(0xFF1677FF)
                 val storageLabelColor = if (isDark) {
                     Color.White.copy(alpha = 0.90f)
@@ -2876,23 +2868,7 @@ class SettingsActivity : BaseComposeActivity() {
                 selectedTab = dockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY
             }
         }
-        val previewBackground = remember(palette.memoBgStart, palette.memoBgMid, palette.memoBgEnd, isDark) {
-            Brush.verticalGradient(
-                colors = if (isDark) {
-                    listOf(
-                        palette.memoBgStart.copy(alpha = 0.92f),
-                        palette.memoBgMid.copy(alpha = 0.96f),
-                        palette.memoBgEnd.copy(alpha = 0.98f)
-                    )
-                } else {
-                    listOf(
-                        palette.memoBgStart.copy(alpha = 0.88f),
-                        palette.memoBgMid.copy(alpha = 0.94f),
-                        palette.memoBgEnd.copy(alpha = 0.96f)
-                    )
-                }
-            )
-        }
+        val previewBackgroundColor = palette.memoBgMid.copy(alpha = if (isDark) 0.96f else 0.94f)
 
         Box(
             modifier = modifier
@@ -2903,7 +2879,7 @@ class SettingsActivity : BaseComposeActivity() {
                 modifier = Modifier
                     .matchParentSize()
                     .layerBackdrop(previewBackdrop)
-                    .background(previewBackground)
+                    .background(previewBackgroundColor)
             )
 
             LiquidGlassDock(
@@ -3021,13 +2997,12 @@ class SettingsActivity : BaseComposeActivity() {
             val lifted = lerp(themeBase, Color.White, lift)
             lerp(lifted, Color(0xFF17171B), 0.24f)
         } else {
-            val tintPull = when (liftLevel) {
-                0 -> 0.50f
-                1 -> 0.62f
-                else -> 0.74f
+            val mix = when (liftLevel) {
+                0 -> 0.40f
+                1 -> 0.30f
+                else -> 0.54f
             }
-            val softTint = lerp(themeBase, Color.White, 0.78f)
-            lerp(Color.White, softTint, tintPull).copy(alpha = 0.99f)
+            lerp(Color.White, themeBase, mix).copy(alpha = 0.99f)
         }
     }
 

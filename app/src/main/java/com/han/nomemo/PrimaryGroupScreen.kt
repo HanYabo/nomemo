@@ -939,7 +939,7 @@ private fun primaryGroupThemeSyncedInsetSurface(
         palette = palette,
         isDark = isDark,
         darkDefault = Color.White.copy(alpha = 0.08f),
-        lightDefault = Color(0xFFCCD1DA),
+        lightDefault = Color(0xFFEEEFF1),
         lightMix = 0.7f,
         darkAlpha = 0.72f,
         lightAlpha = 1f
@@ -1260,22 +1260,20 @@ private fun PrimaryGroupSortAlbumsPage(
     var draggingAlbumId by remember { mutableStateOf<String?>(null) }
     var draggingIndex by remember { mutableStateOf(-1) }
     var dragOffsetY by remember { mutableFloatStateOf(0f) }
-    val pageBackground = if (isDark) Color(0xFF101114) else Color(0xFFF7F5FA)
-    val surface = if (isDark) {
-        noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
-    } else {
-        Color.White.copy(alpha = 0.995f)
-    }
+    val pageBackground = palette.memoBgMid
+    val surface = noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
+        lightDefault = Color.White.copy(alpha = 0.995f),
+        lightMix = 0.24f
+    )
     val dividerColor = if (isDark) {
-        Color.White.copy(alpha = 0.07f)
+        palette.glassStroke.copy(alpha = 0.22f)
     } else {
-        Color.Black.copy(alpha = 0.075f)
+        Color.Black.copy(alpha = 0.055f)
     }
-    val sectionTextColor = if (isDark) {
-        palette.textSecondary.copy(alpha = 0.86f)
-    } else {
-        Color(0xFF8C8A94)
-    }
+    val sectionTextColor = palette.textSecondary.copy(alpha = if (isDark) 0.86f else 0.82f)
 
     Box(
         modifier = modifier
@@ -1428,7 +1426,7 @@ private fun PrimaryGroupSortAlbumsPage(
                                         PrimaryGroupSortDivider(
                                             color = dividerColor,
                                             modifier = Modifier.padding(horizontal = 20.dp),
-                                            thickness = 0.7.dp
+                                            thickness = 1.dp
                                         )
                                     }
                                 }

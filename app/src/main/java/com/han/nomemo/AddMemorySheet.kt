@@ -539,22 +539,17 @@ fun AddMemorySheet(
                 onDismiss = { showExitConfirm = false }
             )
         }
-        if (showReminderPicker) {
-            ReminderPickerDialog(
-                initialMillis = reminderPickerAt,
-                onDismiss = { showReminderPicker = false },
-                onClear = {
-                    reminderAt = 0L
-                    reminderEnabled = false
-                    showReminderPicker = false
-                },
-                onConfirm = { selected ->
-                    reminderAt = selected
-                    reminderEnabled = true
-                    showReminderPicker = false
-                }
-            )
-        }
+        NoMemoReminderSetupSheet(
+            visible = showReminderPicker,
+            initialReminderAt = reminderPickerAt,
+            onDismiss = { showReminderPicker = false },
+            onConfirm = { selected ->
+                reminderAt = selected
+                reminderPickerAt = selected
+                reminderEnabled = true
+                showReminderPicker = false
+            }
+        )
     }
 }
 
@@ -646,7 +641,8 @@ private fun SheetModeChip(
     PressScaleBox(
         onClick = { if (enabled) onClick() },
         modifier = modifier
-            .clip(shape)
+            .clip(shape),
+        pressedScale = 1f
     ) {
         if (selected) {
             Box(
@@ -1401,7 +1397,8 @@ private fun addSheetPanelSurface(isDark: Boolean, palette: NoMemoPalette): Color
         palette = palette,
         isDark = isDark,
         darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.94f)),
-        lightDefault = Color.White.copy(alpha = 0.995f)
+        lightDefault = Color.White.copy(alpha = 0.995f),
+        lightMix = 0.24f
     )
 }
 
@@ -1414,7 +1411,8 @@ private fun addSheetInputSurface(isDark: Boolean, palette: NoMemoPalette): Color
         palette = palette,
         isDark = isDark,
         darkDefault = noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f)),
-        lightDefault = Color.White
+        lightDefault = Color.White,
+        lightMix = 0.22f
     )
 }
 
