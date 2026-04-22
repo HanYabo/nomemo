@@ -299,9 +299,16 @@ internal fun GroupPrimaryScreenRoute(
         albumList = albumStore.loadAlbums()
     }
 
-    LaunchedEffect(isActive, showAddExistingSheet) {
+    fun dismissAddExistingSheet() {
+        showAddExistingSheet = false
+        addExistingTargetAlbumId = null
+        selectedExistingRecordIds = emptySet()
+        addExistingSearchQuery = ""
+    }
+
+    LaunchedEffect(isActive) {
         if (isActive) {
-            onPrimaryDockStateChanged(!showAddExistingSheet) {
+            onPrimaryDockStateChanged(true) {
                 showAddSheet = true
             }
         }
@@ -311,7 +318,12 @@ internal fun GroupPrimaryScreenRoute(
         showAddSheet,
         showCreateAlbumDialog,
         albumNameInput,
-        albumDescriptionInput
+        albumDescriptionInput,
+        showAddExistingSheet,
+        addExistingTargetAlbum,
+        filteredExistingRecords,
+        selectedExistingRecordIds,
+        addExistingSearchQuery
     ) {
         if (isActive) {
             val overlay = when {
@@ -345,17 +357,43 @@ internal fun GroupPrimaryScreenRoute(
                 showAddSheet -> PrimaryHostOverlay.AddMemory(
                     onDismiss = { showAddSheet = false }
                 )
+                showAddExistingSheet && addExistingTargetAlbum != null -> PrimaryHostOverlay.GroupAddExistingMemory(
+                    records = filteredExistingRecords,
+                    selectedRecordIds = selectedExistingRecordIds,
+                    searchQuery = addExistingSearchQuery,
+                    onSearchQueryChange = { addExistingSearchQuery = it },
+                    onToggleRecord = { recordId ->
+                        selectedExistingRecordIds = if (selectedExistingRecordIds.contains(recordId)) {
+                            selectedExistingRecordIds - recordId
+                        } else {
+                            selectedExistingRecordIds + recordId
+                        }
+                    },
+                    onDismiss = { dismissAddExistingSheet() },
+                    onConfirm = {
+                        if (selectedExistingRecordIds.isEmpty()) {
+                            Toast.makeText(context, "请先选择记忆", Toast.LENGTH_SHORT).show()
+                            false
+                        } else {
+                            val added = albumStore.addRecordIds(
+                                addExistingTargetAlbum.albumId,
+                                selectedExistingRecordIds
+                            )
+                            albumList = albumStore.loadAlbums()
+                            if (added) {
+                                Toast.makeText(context, "已添加到分组", Toast.LENGTH_SHORT).show()
+                                true
+                            } else {
+                                Toast.makeText(context, "未添加成功，请重试", Toast.LENGTH_SHORT).show()
+                                false
+                            }
+                        }
+                    }
+                )
                 else -> null
             }
             onPrimaryOverlayChanged(overlay)
         }
-    }
-
-    fun dismissAddExistingSheet() {
-        showAddExistingSheet = false
-        addExistingTargetAlbumId = null
-        selectedExistingRecordIds = emptySet()
-        addExistingSearchQuery = ""
     }
 
     BackHandler(enabled = showAddExistingSheet) {
@@ -556,41 +594,6 @@ internal fun GroupPrimaryScreenRoute(
                     )
                 )
 
-                if (showAddExistingSheet && addExistingTargetAlbum != null) {
-                    PrimaryGroupAddExistingMemorySheet(
-                        records = filteredExistingRecords,
-                        selectedRecordIds = selectedExistingRecordIds,
-                        searchQuery = addExistingSearchQuery,
-                        onSearchQueryChange = { addExistingSearchQuery = it },
-                        onToggleRecord = { recordId ->
-                            selectedExistingRecordIds = if (selectedExistingRecordIds.contains(recordId)) {
-                                selectedExistingRecordIds - recordId
-                            } else {
-                                selectedExistingRecordIds + recordId
-                            }
-                        },
-                        onDismiss = { dismissAddExistingSheet() },
-                        onConfirm = {
-                            if (selectedExistingRecordIds.isEmpty()) {
-                                Toast.makeText(context, "请先选择记忆", Toast.LENGTH_SHORT).show()
-                                return@PrimaryGroupAddExistingMemorySheet false
-                            }
-                            val added = albumStore.addRecordIds(
-                                addExistingTargetAlbum.albumId,
-                                selectedExistingRecordIds
-                            )
-                            albumList = albumStore.loadAlbums()
-                            if (added) {
-                                Toast.makeText(context, "已添加到分组", Toast.LENGTH_SHORT).show()
-                                true
-                            } else {
-                                Toast.makeText(context, "未添加成功，请重试", Toast.LENGTH_SHORT).show()
-                                false
-                            }
-                        }
-                    )
-                }
-
             }
         }
     }
@@ -753,8 +756,12 @@ private fun PrimaryGroupDefaultEmptyTile(
                 Icon(
                     painter = painterResource(R.drawable.ic_nm_add),
                     contentDescription = null,
-                    tint = palette.textSecondary.copy(alpha = if (isDark) 0.9f else 0.92f),
-                    modifier = Modifier.size(24.dp)
+                    tint = if (isDark) {
+                        palette.textSecondary.copy(alpha = 0.9f)
+                    } else {
+                        palette.textSecondary.copy(alpha = 0.8f)
+                    },
+                    modifier = Modifier.size(26.dp)
                 )
             }
         }
@@ -932,9 +939,10 @@ private fun primaryGroupThemeSyncedInsetSurface(
         palette = palette,
         isDark = isDark,
         darkDefault = Color.White.copy(alpha = 0.08f),
-        lightDefault = Color(0xFFE1E4EA),
+        lightDefault = Color(0xFFCCD1DA),
+        lightMix = 0.7f,
         darkAlpha = 0.72f,
-        lightAlpha = 0.96f
+        lightAlpha = 1f
     )
 }
 
@@ -978,7 +986,7 @@ private fun rememberPrimaryGroupTapHighlightColor(
 }
 
 @Composable
-private fun PrimaryGroupAddExistingMemorySheet(
+internal fun PrimaryGroupAddExistingMemorySheet(
     records: List<MemoryRecord>,
     selectedRecordIds: Set<String>,
     searchQuery: String,
@@ -1223,10 +1231,6 @@ private fun PrimaryGroupAddExistingMemorySheet(
                                     selected = selected,
                                     allowImageLoading = true,
                                     showShadow = false,
-                                    darkCardBackgroundOverride = noMemoCardSurfaceColor(
-                                        true,
-                                        palette.glassFill.copy(alpha = 0.92f)
-                                    ),
                                     onClick = { onToggleRecord(record.recordId) },
                                     onLongPress = { onToggleRecord(record.recordId) }
                                 )

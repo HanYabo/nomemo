@@ -1816,10 +1816,6 @@ class GroupActivity : BaseComposeActivity() {
                                     selected = selected,
                                     allowImageLoading = true,
                                     showShadow = false,
-                                    darkCardBackgroundOverride = noMemoCardSurfaceColor(
-                                        true,
-                                        palette.glassFill.copy(alpha = 0.92f)
-                                    ),
                                     onClick = { onToggleRecord(record.recordId) },
                                     onLongPress = { onToggleRecord(record.recordId) }
                                 )

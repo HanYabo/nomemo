@@ -117,6 +117,16 @@ internal sealed interface PrimaryHostOverlay {
         val onDismiss: () -> Unit,
         val onConfirm: () -> Boolean
     ) : PrimaryHostOverlay
+
+    data class GroupAddExistingMemory(
+        val records: List<MemoryRecord>,
+        val selectedRecordIds: Set<String>,
+        val searchQuery: String,
+        val onSearchQueryChange: (String) -> Unit,
+        val onToggleRecord: (String) -> Unit,
+        val onDismiss: () -> Unit,
+        val onConfirm: () -> Boolean
+    ) : PrimaryHostOverlay
 }
 
 class MainActivity : BaseComposeActivity() {
@@ -416,6 +426,17 @@ class MainActivity : BaseComposeActivity() {
                         albumDescription = overlay.albumDescription,
                         onNameChange = overlay.onNameChange,
                         onDescriptionChange = overlay.onDescriptionChange,
+                        onDismiss = overlay.onDismiss,
+                        onConfirm = overlay.onConfirm
+                    )
+                }
+                is PrimaryHostOverlay.GroupAddExistingMemory -> {
+                    PrimaryGroupAddExistingMemorySheet(
+                        records = overlay.records,
+                        selectedRecordIds = overlay.selectedRecordIds,
+                        searchQuery = overlay.searchQuery,
+                        onSearchQueryChange = overlay.onSearchQueryChange,
+                        onToggleRecord = overlay.onToggleRecord,
                         onDismiss = overlay.onDismiss,
                         onConfirm = overlay.onConfirm
                     )
