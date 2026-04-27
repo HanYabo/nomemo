@@ -47,6 +47,10 @@ public class MemoryStore {
         for (MemoryRecord r : records) {
             String img = r.getImageUri();
             String normalizedUri = img == null ? "" : img;
+            String normalizedVisualState = normalizeAiVisualState(
+                    r.getAiVisualStateJson(),
+                    r.getAiAnalysisStateJson()
+            );
             if (!normalizedUri.isEmpty()) {
                 try {
                     android.net.Uri parsed = android.net.Uri.parse(normalizedUri);
@@ -63,7 +67,7 @@ public class MemoryStore {
                 } catch (Exception ignored) {
                 }
             }
-            if (!normalizedUri.equals(img)) {
+            if (!normalizedUri.equals(img) || !normalizedVisualState.equals(r.getAiVisualStateJson())) {
                 // create updated record with new imageUri
                 MemoryRecord updated = new MemoryRecord(
                         r.getRecordId(),
@@ -83,7 +87,9 @@ public class MemoryStore {
                         r.getReminderAt(),
                         r.isReminderDone(),
                         r.isArchived(),
-                        r.getStructuredFactsJson()
+                        r.getStructuredFactsJson(),
+                        r.getAiAnalysisStateJson(),
+                        normalizedVisualState
                 );
                 normalized.add(updated);
                 updatedAny = true;
@@ -130,7 +136,7 @@ public class MemoryStore {
         if (records.size() > MAX_RECORDS) {
             records = new ArrayList<>(records.subList(0, MAX_RECORDS));
         }
-        persist(records);
+        persist(records, shouldPersistSynchronously(record));
         ReminderScheduler.schedule(appContext, record);
         MemoryStoreNotifier.notifyChanged(appContext, record.getRecordId());
     }
@@ -207,7 +213,7 @@ public class MemoryStore {
             }
         }
         if (changed) {
-            persist(records);
+            persist(records, shouldPersistSynchronously(updatedRecord));
             ReminderScheduler.schedule(appContext, updatedRecord);
             MemoryStoreNotifier.notifyChanged(appContext, updatedRecord.getRecordId());
         }
@@ -250,7 +256,9 @@ public class MemoryStore {
                         record.getReminderAt(),
                         record.isReminderDone(),
                         record.isArchived(),
-                        record.getStructuredFactsJson()
+                        record.getStructuredFactsJson(),
+                        record.getAiAnalysisStateJson(),
+                        record.getAiVisualStateJson()
                 ));
                 changed = true;
                 break;
@@ -289,6 +297,10 @@ public class MemoryStore {
     }
 
     private void persist(List<MemoryRecord> records) {
+        persist(records, false);
+    }
+
+    private void persist(List<MemoryRecord> records, boolean synchronous) {
         JSONArray jsonArray = new JSONArray();
         for (MemoryRecord record : records) {
             try {
@@ -298,9 +310,38 @@ public class MemoryStore {
             }
         }
         String raw = jsonArray.toString();
-        preferences.edit().putString(KEY_RECORDS, raw).apply();
+        SharedPreferences.Editor editor = preferences.edit().putString(KEY_RECORDS, raw);
+        if (synchronous) {
+            editor.commit();
+        } else {
+            editor.apply();
+        }
         cachedRawRecords = raw;
         cachedRecords = new ArrayList<>(records);
+    }
+
+    private boolean shouldPersistSynchronously(MemoryRecord record) {
+        if (record == null) {
+            return false;
+        }
+        if (MemoryRecord.MODE_AI.equals(record.getMode())) {
+            return true;
+        }
+        return AiAnalysisStateJson.isActive(record.getAiAnalysisStateJson());
+    }
+
+    private String normalizeAiVisualState(String rawVisualState, String rawAnalysisState) {
+        String retained = AiVisualProcessingStateJson.retainIfVisible(
+                rawVisualState,
+                System.currentTimeMillis()
+        );
+        if (!retained.isEmpty()) {
+            return retained;
+        }
+        if (AiAnalysisStateJson.isActive(rawAnalysisState)) {
+            return "";
+        }
+        return "";
     }
 
     private void sortNewestFirst(List<MemoryRecord> records) {

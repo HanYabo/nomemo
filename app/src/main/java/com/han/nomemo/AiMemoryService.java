@@ -89,6 +89,132 @@ public class AiMemoryService {
         return generateMemoryInternal(userText, imageUri, true, detailContext, attemptListener, true);
     }
 
+    public AiAnalysisOutcome analyzeWithPolicy(
+            String userText,
+            @Nullable Uri imageUri,
+            boolean enhanced,
+            @Nullable String detailContext,
+            @Nullable AttemptListener attemptListener,
+            AiExecutionPolicy policy
+    ) {
+        String safeText = userText == null ? "" : userText.trim();
+        String safeContext = detailContext == null ? "" : detailContext.trim();
+        Exception lastCloudError = null;
+        AiFailureStage lastFailureStage = null;
+        boolean repairUsed = false;
+        boolean fullPromptRescueUsed = false;
+        int attemptsPerformed = 0;
+        int totalAttemptLimit = policy.getTotalAttemptLimit();
+        if (hasCloudConfig()) {
+            for (int attempt = 1; attempt <= policy.getCloudAttemptLimit(); attempt++) {
+                attemptsPerformed = attempt;
+                if (attemptListener != null) {
+                    attemptListener.onAttempt(attempt, totalAttemptLimit);
+                }
+                try {
+                    CloudGenerationResult cloudResult = generateByCloud(
+                            safeText,
+                            imageUri,
+                            enhanced,
+                            safeContext,
+                            policy.getCostMode() == AiCostMode.ECONOMY
+                    );
+                    return AiAnalysisOutcome.success(
+                            cloudResult.getResult(),
+                            attempt,
+                            totalAttemptLimit,
+                            cloudResult.isRepairUsed(),
+                            false
+                    );
+                } catch (AiGenerationException exception) {
+                    lastCloudError = exception;
+                    lastFailureStage = exception.getFailureStage();
+                } catch (Exception exception) {
+                    lastCloudError = exception;
+                    lastFailureStage = AiFailureStage.CLOUD_REQUEST;
+                }
+                if (attempt < policy.getCloudAttemptLimit() && !sleepBeforeRetry(attempt)) {
+                    break;
+                }
+            }
+            if (lastCloudError != null && policy.isAllowFullPromptRescue()) {
+                fullPromptRescueUsed = true;
+                attemptsPerformed = totalAttemptLimit;
+                if (attemptListener != null) {
+                    attemptListener.onAttempt(totalAttemptLimit, totalAttemptLimit);
+                }
+                try {
+                    CloudGenerationResult cloudResult = generateByCloud(
+                            safeText,
+                            imageUri,
+                            enhanced,
+                            safeContext,
+                            false
+                    );
+                    return AiAnalysisOutcome.success(
+                            cloudResult.getResult(),
+                            totalAttemptLimit,
+                            totalAttemptLimit,
+                            cloudResult.isRepairUsed(),
+                            true
+                    );
+                } catch (AiGenerationException exception) {
+                    lastCloudError = exception;
+                    lastFailureStage = exception.getFailureStage();
+                } catch (Exception exception) {
+                    lastCloudError = exception;
+                    lastFailureStage = AiFailureStage.CLOUD_REQUEST;
+                }
+            }
+        } else if (!policy.isAllowLocalFallback()) {
+            return AiAnalysisOutcome.failure(
+                    0,
+                    totalAttemptLimit,
+                    false,
+                    false,
+                    AiFailureStage.CLOUD_REQUEST,
+                    "Cloud AI config unavailable"
+            );
+        }
+
+        if (!policy.isAllowLocalFallback()) {
+            return AiAnalysisOutcome.failure(
+                    attemptsPerformed,
+                    totalAttemptLimit,
+                    repairUsed,
+                    fullPromptRescueUsed,
+                    lastFailureStage,
+                    lastCloudError == null ? "Cloud AI request failed" : lastCloudError.getMessage()
+            );
+        }
+
+        int localAttemptCount = attemptsPerformed > 0 ? attemptsPerformed : 1;
+        if (attemptListener != null && attemptsPerformed == 0) {
+            attemptListener.onAttempt(localAttemptCount, totalAttemptLimit);
+        }
+        try {
+            GenerationResult result = enhanced
+                    ? generateByRulesEnhanced(safeText, imageUri, safeContext)
+                    : generateByRules(safeText, imageUri);
+            return AiAnalysisOutcome.success(
+                    result,
+                    localAttemptCount,
+                    totalAttemptLimit,
+                    repairUsed,
+                    fullPromptRescueUsed
+            );
+        } catch (Exception localError) {
+            GenerationResult emergencyResult = buildEmergencyLocalResult(safeText, imageUri, enhanced, safeContext);
+            return AiAnalysisOutcome.success(
+                    emergencyResult,
+                    localAttemptCount,
+                    totalAttemptLimit,
+                    repairUsed,
+                    fullPromptRescueUsed
+            );
+        }
+    }
+
     private GenerationResult generateMemoryInternal(
             String userText,
             @Nullable Uri imageUri,
@@ -97,60 +223,21 @@ public class AiMemoryService {
             @Nullable AttemptListener attemptListener,
             boolean requireCloudSuccess
     ) {
-        String safeText = userText == null ? "" : userText.trim();
-        String safeContext = detailContext == null ? "" : detailContext.trim();
-        boolean economyMode = isEconomyMode();
-        boolean retryWithFullPromptProfile = shouldRetryWithFullPromptProfile(enhanced, economyMode);
-        boolean allowLocalFallback = shouldAllowLocalFallback(requireCloudSuccess);
-        if (hasCloudConfig()) {
-            Exception lastCloudError = null;
-            int attemptLimit = resolveCloudAttemptLimit();
-            for (int attempt = 1; attempt <= attemptLimit; attempt++) {
-                if (attemptListener != null) {
-                    attemptListener.onAttempt(attempt, attemptLimit);
-                }
-                try {
-                    return generateByCloud(safeText, imageUri, enhanced, safeContext, economyMode);
-                } catch (Exception exception) {
-                    lastCloudError = exception;
-                    if (attempt < attemptLimit) {
-                        if (!sleepBeforeRetry(attempt)) {
-                            break;
-                        }
-                    }
-                }
-            }
-            // Economy reanalysis fallback: retry once with full prompt profile before giving up.
-            if (lastCloudError != null && retryWithFullPromptProfile) {
-                try {
-                    return generateByCloud(safeText, imageUri, enhanced, safeContext, false);
-                } catch (Exception recoveryError) {
-                    lastCloudError.addSuppressed(recoveryError);
-                }
-            }
-            if (lastCloudError != null) {
-                if (!allowLocalFallback) {
-                    throw new IllegalStateException("Cloud AI request failed after retries", lastCloudError);
-                }
-                // Falls back to local generation below after cloud attempts are exhausted.
-            }
+        AiExecutionPolicy policy = resolveLegacyPolicy(enhanced, requireCloudSuccess);
+        AiAnalysisOutcome outcome = analyzeWithPolicy(
+                userText,
+                imageUri,
+                enhanced,
+                detailContext,
+                attemptListener,
+                policy
+        );
+        if (outcome.isSuccess() && outcome.getGenerationResult() != null) {
+            return outcome.getGenerationResult();
         }
-        if (!allowLocalFallback) {
-            throw new IllegalStateException("Cloud AI config unavailable");
-        }
-        if (attemptListener != null) {
-            attemptListener.onAttempt(1, 1);
-        }
-        try {
-            return enhanced
-                    ? generateByRulesEnhanced(safeText, imageUri, safeContext)
-                    : generateByRules(safeText, imageUri);
-        } catch (Exception localError) {
-            if (!allowLocalFallback) {
-                throw new IllegalStateException("Strict AI generation cannot fall back to local", localError);
-            }
-            return buildEmergencyLocalResult(safeText, imageUri, enhanced, safeContext);
-        }
+        throw new IllegalStateException(
+                outcome.getFailureMessage() == null ? "AI generation failed" : outcome.getFailureMessage()
+        );
     }
 
     static boolean shouldRetryWithFullPromptProfile(boolean enhanced, boolean economyMode) {
@@ -176,6 +263,17 @@ public class AiMemoryService {
         return settingsStore.getEconomyMode();
     }
 
+    private AiExecutionPolicy resolveLegacyPolicy(boolean enhanced, boolean requireCloudSuccess) {
+        AiCostMode costMode = isEconomyMode() ? AiCostMode.ECONOMY : AiCostMode.STANDARD;
+        return new AiExecutionPolicy(
+                enhanced ? AiOperationKind.REANALYZE : AiOperationKind.INITIAL_ANALYSIS,
+                costMode,
+                resolveCloudAttemptLimit(),
+                shouldRetryWithFullPromptProfile(enhanced, costMode == AiCostMode.ECONOMY),
+                shouldAllowLocalFallback(requireCloudSuccess)
+        );
+    }
+
     private boolean sleepBeforeRetry(int retryIndex) {
         long delayMs = Math.min(RETRY_BASE_DELAY_MS * retryIndex, RETRY_MAX_DELAY_MS);
         try {
@@ -194,7 +292,7 @@ public class AiMemoryService {
                 && !TextUtils.isEmpty(settingsStore.resolvedApiModel());
     }
 
-    private GenerationResult generateByCloud(
+    private CloudGenerationResult generateByCloud(
             String userText,
             @Nullable Uri imageUri,
             boolean enhanced,
@@ -256,19 +354,38 @@ public class AiMemoryService {
         }
     }
 
-    private GenerationResult requestCloudGeneration(
+    private CloudGenerationResult requestCloudGeneration(
             JSONObject payload,
             String userText,
             @Nullable Uri imageUri
     ) throws Exception {
         String content = executeCloudRequest(payload);
         JSONObject resultJson;
+        boolean repairUsed = false;
         try {
             resultJson = parseAndValidateResultJson(content);
-        } catch (Exception parseException) {
+        } catch (AiGenerationException parseException) {
             JSONObject repairPayload = buildRepairPayload(payload, content);
-            String repairedContent = executeCloudRequest(repairPayload);
-            resultJson = parseAndValidateResultJson(repairedContent);
+            String repairedContent;
+            try {
+                repairedContent = executeCloudRequest(repairPayload);
+            } catch (Exception repairRequestException) {
+                throw new AiGenerationException(
+                        AiFailureStage.JSON_REPAIR,
+                        "Repair request failed",
+                        repairRequestException
+                );
+            }
+            try {
+                resultJson = parseAndValidateResultJson(repairedContent);
+                repairUsed = true;
+            } catch (AiGenerationException repairedParseException) {
+                throw new AiGenerationException(
+                        AiFailureStage.JSON_REPAIR,
+                        "Repair output is still invalid",
+                        repairedParseException
+                );
+            }
         }
 
         String title = resultJson.optString("title", "").trim();
@@ -304,7 +421,10 @@ public class AiMemoryService {
                 suggestedCategoryCode
         );
         summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
-        return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "cloud", structuredFactsJson);
+        return new CloudGenerationResult(
+                new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "cloud", structuredFactsJson),
+                repairUsed
+        );
     }
 
     private String fallbackMemory(String userText, @Nullable Uri imageUri) {
@@ -346,6 +466,10 @@ public class AiMemoryService {
 
             JSONObject json = new JSONObject(responseBody);
             return extractMessageContent(json);
+        } catch (AiGenerationException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new AiGenerationException(AiFailureStage.CLOUD_REQUEST, "Cloud request failed", exception);
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -544,7 +668,17 @@ public class AiMemoryService {
     }
 
     private JSONObject parseAndValidateResultJson(String content) throws Exception {
-        return parseStrictJson(content);
+        final JSONObject parsed;
+        try {
+            parsed = parseStrictJson(content);
+        } catch (Exception exception) {
+            throw new AiGenerationException(AiFailureStage.JSON_PARSE, "Failed to parse AI JSON", exception);
+        }
+        try {
+            return AiResultValidator.validate(parsed);
+        } catch (Exception exception) {
+            throw new AiGenerationException(AiFailureStage.SCHEMA_VALIDATE, "AI JSON schema validation failed", exception);
+        }
     }
 
     private JSONObject buildRepairPayload(JSONObject originalPayload, String rawModelOutput) throws Exception {
@@ -903,6 +1037,37 @@ public class AiMemoryService {
 
         public String getStructuredFactsJson() {
             return structuredFactsJson;
+        }
+    }
+
+    private static final class CloudGenerationResult {
+        private final GenerationResult result;
+        private final boolean repairUsed;
+
+        private CloudGenerationResult(GenerationResult result, boolean repairUsed) {
+            this.result = result;
+            this.repairUsed = repairUsed;
+        }
+
+        private GenerationResult getResult() {
+            return result;
+        }
+
+        private boolean isRepairUsed() {
+            return repairUsed;
+        }
+    }
+
+    private static final class AiGenerationException extends Exception {
+        private final AiFailureStage failureStage;
+
+        private AiGenerationException(AiFailureStage failureStage, String message, Throwable cause) {
+            super(message, cause);
+            this.failureStage = failureStage;
+        }
+
+        private AiFailureStage getFailureStage() {
+            return failureStage;
         }
     }
 }

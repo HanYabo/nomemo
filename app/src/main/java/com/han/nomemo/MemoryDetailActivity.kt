@@ -406,7 +406,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
             currentRecord.reminderAt,
             currentRecord.isReminderDone,
             currentRecord.isArchived,
-            updatedStructuredFactsJson
+            updatedStructuredFactsJson,
+            currentRecord.aiAnalysisStateJson,
+            currentRecord.aiVisualStateJson
         )
         val saved = memoryStore.updateRecord(updated)
         if (saved) {
@@ -438,7 +440,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
             normalizedReminderAt,
             false,
             currentRecord.isArchived,
-            currentRecord.structuredFactsJson
+            currentRecord.structuredFactsJson,
+            currentRecord.aiAnalysisStateJson,
+            currentRecord.aiVisualStateJson
         )
         val saved = memoryStore.updateRecord(updated)
         if (saved) {
@@ -449,36 +453,73 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun reanalyzeRecord(currentRecord: MemoryRecord) {
         val recordId = currentRecord.recordId
-        if (!aiEnabled || reanalyzing || AiProcessingStateRegistry.isProcessing(recordId)) {
+        if (
+            !aiEnabled ||
+            reanalyzing ||
+            AiProcessingStateRegistry.isProcessing(recordId) ||
+            AiAnalysisStateJson.isActive(currentRecord.aiAnalysisStateJson)
+        ) {
             return
         }
         val previousRecord = normalizeStableAiRecord(currentRecord)
         val appContext = applicationContext
-        AiProcessingStateRegistry.markProcessing(recordId, attempt = 1)
+        val reanalyzePolicy = AiAnalysisPolicies.resolve(settingsStore, AiOperationKind.REANALYZE)
+        val initialAttemptLimit = reanalyzePolicy.totalAttemptLimit
+        val pendingRecord = buildReanalyzePendingRecord(
+            baseRecord = previousRecord,
+            costMode = reanalyzePolicy.costMode,
+            attemptLimit = initialAttemptLimit
+        )
+        record = pendingRecord
+        AiProcessingStateRegistry.markProcessing(recordId, attempt = 1, attemptLimit = initialAttemptLimit)
         reanalyzing = true
         MemoryDetailReanalyzeScope.scope.launch {
             val startedAt = SystemClock.elapsedRealtime()
             delay(ReanalyzeStateRevealDelayMs)
             try {
+                withContext(Dispatchers.IO) {
+                    memoryStore.updateRecord(pendingRecord)
+                }
                 val updated = withContext(Dispatchers.IO) {
-                    val service = AiMemoryService(appContext)
+                    val orchestrator = AiAnalysisOrchestrator(appContext)
                     val input = buildAiInput(previousRecord)
                     val imageUri = previousRecord.imageUri
                         ?.takeIf { it.isNotBlank() }
                         ?.let(Uri::parse)
                     val detailContext = buildEnhancedAiContext(previousRecord)
                     val progressListener =
-                        AiMemoryService.AttemptListener { attempt, _ ->
+                        AiMemoryService.AttemptListener { attempt, attemptLimit ->
+                            val latest = memoryStore.findRecordById(recordId) ?: previousRecord
+                            val progressRecord = buildReanalyzeRunningRecord(
+                                baseRecord = latest,
+                                costMode = reanalyzePolicy.costMode,
+                                attempt = attempt,
+                                attemptLimit = attemptLimit
+                            )
+                            memoryStore.updateRecord(progressRecord)
                             runOnUiThread {
-                                AiProcessingStateRegistry.markProcessing(recordId, attempt)
+                                if (record?.recordId == recordId) {
+                                    record = progressRecord
+                                }
+                                AiProcessingStateRegistry.markProcessing(recordId, attempt, attemptLimit)
                             }
                         }
-                    val result = service.generateEnhancedMemoryStrict(
+                    val outcome = orchestrator.runReanalysis(
                         input,
                         imageUri,
                         detailContext,
                         progressListener
                     )
+                    if (!outcome.isSuccess || outcome.generationResult == null) {
+                        Log.e(
+                            "MemoryDetailActivity",
+                            "Reanalyze failed recordId=$recordId operationKind=${orchestrator.reanalyzePolicy().operationKind} " +
+                                "costMode=${orchestrator.reanalyzePolicy().costMode} attempts=${outcome.attemptCount}/${outcome.attemptLimit} " +
+                                "failureStage=${outcome.failureStage} message=${outcome.failureMessage}"
+                        )
+                        return@withContext null
+                    }
+                    val result = outcome.generationResult ?: return@withContext null
                     val resolvedTitle = result.title
                         .trim()
                         .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
@@ -520,32 +561,66 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         previousRecord.reminderAt,
                         previousRecord.isReminderDone,
                         previousRecord.isArchived,
-                        resolvedFactsJson
+                        resolvedFactsJson,
+                        "",
+                        ""
                     )
                 }
-                val updateSuccess = withContext(Dispatchers.IO) {
-                    memoryStore.updateRecord(updated)
-                }
-                if (!updateSuccess) {
+                if (updated == null) {
+                    val clearedRecord = clearAiProgressState(previousRecord)
+                    withContext(Dispatchers.IO) {
+                        memoryStore.updateRecord(clearedRecord)
+                    }
                     waitForMinimumReanalyzeFeedback(startedAt)
                     withContext(Dispatchers.Main) {
+                        if (record?.recordId == recordId) {
+                            record = clearedRecord
+                        }
                         reanalyzing = false
                         Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
                     }
                     return@launch
                 }
+                val updateSuccess = withContext(Dispatchers.IO) {
+                    memoryStore.updateRecord(updated)
+                }
+                if (!updateSuccess) {
+                    val clearedRecord = clearAiProgressState(previousRecord)
+                    withContext(Dispatchers.IO) {
+                        memoryStore.updateRecord(clearedRecord)
+                    }
+                    waitForMinimumReanalyzeFeedback(startedAt)
+                    withContext(Dispatchers.Main) {
+                        if (record?.recordId == recordId) {
+                            record = clearedRecord
+                        }
+                        reanalyzing = false
+                        Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                    }
+                    return@launch
+                }
+                withContext(Dispatchers.IO) {
+                    AiSummaryNotifier.notifyAnalysisReady(appContext, updated)
+                }
                 waitForMinimumReanalyzeFeedback(startedAt)
                 withContext(Dispatchers.Main) {
+                    if (record?.recordId == recordId) {
+                        record = updated
+                    }
                     reanalyzing = false
                     Toast.makeText(appContext, "已重新分析", Toast.LENGTH_SHORT).show()
-                    if (record?.recordId == recordId) {
-                        loadRecordOrFinish()
-                    }
                 }
             } catch (exception: Exception) {
                 Log.e("MemoryDetailActivity", "Reanalyze failed for recordId=$recordId", exception)
+                val clearedRecord = clearAiProgressState(previousRecord)
+                withContext(Dispatchers.IO) {
+                    memoryStore.updateRecord(clearedRecord)
+                }
                 waitForMinimumReanalyzeFeedback(startedAt)
                 withContext(Dispatchers.Main) {
+                    if (record?.recordId == recordId) {
+                        record = clearedRecord
+                    }
                     reanalyzing = false
                     Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
                 }
@@ -557,6 +632,85 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
             }
         }
+    }
+
+    private fun buildReanalyzePendingRecord(
+        baseRecord: MemoryRecord,
+        costMode: AiCostMode,
+        attemptLimit: Int
+    ): MemoryRecord {
+        return copyRecordWithAiState(
+            baseRecord = baseRecord,
+            aiAnalysisStateJson = AiAnalysisStateJson.pending(
+                AiOperationKind.REANALYZE,
+                costMode,
+                attemptLimit
+            ),
+            aiVisualStateJson = AiVisualProcessingStateJson.active(
+                operationKind = AiOperationKind.REANALYZE,
+                attemptCount = 1,
+                attemptLimit = attemptLimit
+            )
+        )
+    }
+
+    private fun buildReanalyzeRunningRecord(
+        baseRecord: MemoryRecord,
+        costMode: AiCostMode,
+        attempt: Int,
+        attemptLimit: Int
+    ): MemoryRecord {
+        return copyRecordWithAiState(
+            baseRecord = baseRecord,
+            aiAnalysisStateJson = AiAnalysisStateJson.running(
+                AiOperationKind.REANALYZE,
+                costMode,
+                attemptCount = attempt.coerceAtLeast(1),
+                attemptLimit = attemptLimit.coerceAtLeast(1)
+            ),
+            aiVisualStateJson = AiVisualProcessingStateJson.active(
+                operationKind = AiOperationKind.REANALYZE,
+                attemptCount = attempt.coerceAtLeast(1),
+                attemptLimit = attemptLimit.coerceAtLeast(1)
+            )
+        )
+    }
+
+    private fun clearAiProgressState(baseRecord: MemoryRecord): MemoryRecord {
+        return copyRecordWithAiState(
+            baseRecord = baseRecord,
+            aiAnalysisStateJson = "",
+            aiVisualStateJson = ""
+        )
+    }
+
+    private fun copyRecordWithAiState(
+        baseRecord: MemoryRecord,
+        aiAnalysisStateJson: String,
+        aiVisualStateJson: String
+    ): MemoryRecord {
+        return MemoryRecord(
+            baseRecord.recordId,
+            baseRecord.createdAt,
+            baseRecord.mode,
+            baseRecord.title,
+            baseRecord.summary,
+            baseRecord.sourceText,
+            baseRecord.note,
+            baseRecord.imageUri,
+            baseRecord.analysis,
+            baseRecord.memory,
+            baseRecord.engine,
+            baseRecord.categoryGroupCode,
+            baseRecord.categoryCode,
+            baseRecord.categoryName,
+            baseRecord.reminderAt,
+            baseRecord.isReminderDone,
+            baseRecord.isArchived,
+            baseRecord.structuredFactsJson,
+            aiAnalysisStateJson,
+            aiVisualStateJson
+        )
     }
 
     private suspend fun waitForMinimumReanalyzeFeedback(startedAt: Long) {
@@ -613,7 +767,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
             record.reminderAt,
             record.isReminderDone,
             record.isArchived,
-            record.structuredFactsJson
+            record.structuredFactsJson,
+            record.aiAnalysisStateJson,
+            record.aiVisualStateJson
         )
     }
 
@@ -1330,11 +1486,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 }
                             )
                         } else if (aiEnabled) {
-                            val buttonProcessing = reanalyzing || AiProcessingStateRegistry.isProcessing(currentRecord.recordId)
+                            val aiVisualState = rememberAiVisualState(currentRecord)
+                            val buttonProcessing = reanalyzing || aiVisualState.isProcessing
                             NoMemoDetailReanalyzeButton(
                                 text = when {
-                                    buttonProcessing && currentRecord.mode == MemoryRecord.MODE_AI -> "正在重新分析"
-                                    buttonProcessing -> "正在AI分析"
+                                    aiVisualState.isProcessing -> aiVisualState.displayText
                                     currentRecord.mode == MemoryRecord.MODE_AI -> "重新分析"
                                     else -> "AI分析"
                                 },

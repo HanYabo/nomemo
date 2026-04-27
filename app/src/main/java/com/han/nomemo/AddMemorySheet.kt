@@ -88,7 +88,6 @@ fun AddMemorySheet(
     val activity = remember(context) { context.findActivity() }
     val memoryStore = remember(context) { MemoryStore(context) }
     val settingsStore = remember(context) { SettingsStore(context) }
-    val aiMemoryService = remember(context) { AiMemoryService(context) }
     val adaptive = rememberNoMemoAdaptiveSpec()
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
@@ -219,7 +218,6 @@ fun AddMemorySheet(
         saveRecord(
             context = context,
             memoryStore = memoryStore,
-            aiMemoryService = aiMemoryService,
             input = pendingSave.input,
             imageUri = selectedImageUri,
             aiMode = pendingSave.aiMode,
@@ -253,7 +251,6 @@ fun AddMemorySheet(
             saveRecord(
                 context = context,
                 memoryStore = memoryStore,
-                aiMemoryService = aiMemoryService,
                 input = input,
                 imageUri = selectedImageUri,
                 aiMode = finalAiMode,
@@ -1483,7 +1480,6 @@ private data class PendingAddMemorySave(
 private fun saveRecord(
     context: Context,
     memoryStore: MemoryStore,
-    aiMemoryService: AiMemoryService,
     input: String,
     imageUri: Uri?,
     aiMode: Boolean,
@@ -1541,6 +1537,13 @@ private fun saveRecord(
 
     val aiCategory = quickNoteCategory
     val createdAt = System.currentTimeMillis()
+    val initialPolicy = AiAnalysisPolicies.resolve(SettingsStore(context), AiOperationKind.INITIAL_ANALYSIS)
+    val initialVisualState = AiVisualProcessingStateJson.active(
+        operationKind = AiOperationKind.INITIAL_ANALYSIS,
+        attemptCount = 1,
+        attemptLimit = initialPolicy.totalAttemptLimit,
+        nowMs = createdAt
+    )
     val placeholder = MemoryRecord(
         createdAt,
         MemoryRecord.MODE_AI,
@@ -1551,82 +1554,24 @@ private fun saveRecord(
         imageUriText,
         "AI 分析中...",
         if (input.isBlank()) "已保存图片记忆" else input,
-        "pending",
+        "manual",
         aiCategory.groupCode,
         aiCategory.categoryCode,
         aiCategory.categoryName,
         finalReminderAt,
         false,
-        false
+        false,
+        "",
+        AiAnalysisStateJson.pending(
+            AiOperationKind.INITIAL_ANALYSIS,
+            initialPolicy.costMode,
+            initialPolicy.totalAttemptLimit
+        ),
+        initialVisualState
     )
     memoryStore.prependRecord(placeholder)
     Toast.makeText(context, "已创建记忆，AI 分析完成后会自动更新", Toast.LENGTH_SHORT).show()
-
-    Thread {
-        val resolved = try {
-            val result = aiMemoryService.generateMemory(input, imageUri)
-            val resolvedCategory = CategoryCatalog.getAllCategories().firstOrNull {
-                it.categoryCode == result.suggestedCategoryCode
-            } ?: aiCategory
-            MemoryRecord(
-                placeholder.recordId,
-                createdAt,
-                MemoryRecord.MODE_AI,
-                result.title,
-                result.summary,
-                input,
-                input,
-                imageUriText,
-                result.analysis,
-                result.memory,
-                result.engine,
-                resolvedCategory.groupCode,
-                resolvedCategory.categoryCode,
-                resolvedCategory.categoryName,
-                finalReminderAt,
-                false,
-                false,
-                result.structuredFactsJson
-            )
-        } catch (_: Exception) {
-            val fallbackMemory = if (input.isBlank()) "已保存图片记忆" else input
-            val fallbackTitle = compactTitle(input, aiCategory.categoryName)
-            val fallbackSummary = compactSummary(input, fallbackMemory)
-            val fallbackFactsJson = MemoryFactReconciler.reconcileToJson(
-                input,
-                "",
-                fallbackTitle,
-                fallbackSummary,
-                context.getString(R.string.memory_fallback_analysis),
-                fallbackMemory,
-                aiCategory.categoryCode
-            )
-            MemoryRecord(
-                placeholder.recordId,
-                createdAt,
-                MemoryRecord.MODE_AI,
-                fallbackTitle,
-                MemoryFactReconciler.stableSummary(aiCategory.categoryCode, fallbackSummary, fallbackFactsJson),
-                input,
-                input,
-                imageUriText,
-                context.getString(R.string.memory_fallback_analysis),
-                fallbackMemory,
-                "local",
-                aiCategory.groupCode,
-                aiCategory.categoryCode,
-                aiCategory.categoryName,
-                finalReminderAt,
-                false,
-                false,
-                fallbackFactsJson
-            )
-        }
-        if (!memoryStore.updateRecord(resolved)) {
-            memoryStore.prependRecord(resolved)
-        }
-        AiSummaryNotifier.notifyAnalysisReady(context.applicationContext, resolved)
-    }.start()
+    AiInitialAnalysisWorkScheduler.enqueue(context.applicationContext, placeholder.recordId)
 }
 
 private fun shouldRequestNotificationPermission(context: Context): Boolean =

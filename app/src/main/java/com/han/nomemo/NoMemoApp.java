@@ -9,6 +9,7 @@ public class NoMemoApp extends Application {
         SettingsStore.applyTheme(this);
         AiSummaryNotifier.ensureChannel(this);
         ReminderNotifier.ensureChannel(this);
+        AiInitialAnalysisWorkScheduler.recoverPendingRecords(this);
         new Thread(() -> ReminderScheduler.scheduleAll(this)).start();
     }
 }

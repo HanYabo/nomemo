@@ -10,6 +10,7 @@ import android.widget.TextView
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -27,11 +28,18 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -107,6 +115,25 @@ fun NoMemoDetailReanalyzeButton(
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
     val actionSurface = memoryDetailActionSurface(isDark, palette)
     val actionColor = memoryDetailActionColor(isDark)
+    val transition = rememberInfiniteTransition(label = "detailAiProcessing")
+    val dotScale by transition.animateFloat(
+        initialValue = 0.84f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "detailAiProcessingDotScale"
+    )
+    val dotAlpha by transition.animateFloat(
+        initialValue = 0.68f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "detailAiProcessingDotAlpha"
+    )
     PressScaleBox(
         onClick = {
             if (!processing) {
@@ -128,12 +155,30 @@ fun NoMemoDetailReanalyzeButton(
                     .padding(horizontal = 20.dp, vertical = 17.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = text,
-                    color = actionColor,
-                    fontSize = 17.sp,
-                    fontWeight = FontWeight.SemiBold
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    if (processing) {
+                        Box(
+                            modifier = Modifier
+                                .graphicsLayer {
+                                    scaleX = dotScale
+                                    scaleY = dotScale
+                                    alpha = dotAlpha
+                                }
+                                .size(8.dp)
+                                .background(actionColor, CircleShape)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                    }
+                    Text(
+                        text = text,
+                        color = actionColor,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
         }
     }

@@ -27,6 +27,8 @@ public class MemoryRecord {
     private final boolean reminderDone;
     private final boolean archived;
     private final String structuredFactsJson;
+    private final String aiAnalysisStateJson;
+    private final String aiVisualStateJson;
 
     public MemoryRecord(
             long createdAt,
@@ -64,6 +66,8 @@ public class MemoryRecord {
                 reminderAt,
                 reminderDone,
                 archived,
+                "",
+                "",
                 ""
         );
     }
@@ -105,7 +109,98 @@ public class MemoryRecord {
                 reminderAt,
                 reminderDone,
                 archived,
-                structuredFactsJson
+                structuredFactsJson,
+                "",
+                ""
+        );
+    }
+
+    public MemoryRecord(
+            long createdAt,
+            String mode,
+            String title,
+            String summary,
+            String sourceText,
+            String note,
+            String imageUri,
+            String analysis,
+            String memory,
+            String engine,
+            String categoryGroupCode,
+            String categoryCode,
+            String categoryName,
+            long reminderAt,
+            boolean reminderDone,
+            boolean archived,
+            String structuredFactsJson,
+            String aiAnalysisStateJson
+    ) {
+        this(
+                UUID.randomUUID().toString(),
+                createdAt,
+                mode,
+                title,
+                summary,
+                sourceText,
+                note,
+                imageUri,
+                analysis,
+                memory,
+                engine,
+                categoryGroupCode,
+                categoryCode,
+                categoryName,
+                reminderAt,
+                reminderDone,
+                archived,
+                structuredFactsJson,
+                aiAnalysisStateJson,
+                ""
+        );
+    }
+
+    public MemoryRecord(
+            long createdAt,
+            String mode,
+            String title,
+            String summary,
+            String sourceText,
+            String note,
+            String imageUri,
+            String analysis,
+            String memory,
+            String engine,
+            String categoryGroupCode,
+            String categoryCode,
+            String categoryName,
+            long reminderAt,
+            boolean reminderDone,
+            boolean archived,
+            String structuredFactsJson,
+            String aiAnalysisStateJson,
+            String aiVisualStateJson
+    ) {
+        this(
+                UUID.randomUUID().toString(),
+                createdAt,
+                mode,
+                title,
+                summary,
+                sourceText,
+                note,
+                imageUri,
+                analysis,
+                memory,
+                engine,
+                categoryGroupCode,
+                categoryCode,
+                categoryName,
+                reminderAt,
+                reminderDone,
+                archived,
+                structuredFactsJson,
+                aiAnalysisStateJson,
+                aiVisualStateJson
         );
     }
 
@@ -146,6 +241,8 @@ public class MemoryRecord {
                 reminderAt,
                 reminderDone,
                 archived,
+                "",
+                "",
                 ""
         );
     }
@@ -170,6 +267,97 @@ public class MemoryRecord {
             boolean archived,
             String structuredFactsJson
     ) {
+        this(
+                recordId,
+                createdAt,
+                mode,
+                title,
+                summary,
+                sourceText,
+                note,
+                imageUri,
+                analysis,
+                memory,
+                engine,
+                categoryGroupCode,
+                categoryCode,
+                categoryName,
+                reminderAt,
+                reminderDone,
+                archived,
+                structuredFactsJson,
+                "",
+                ""
+        );
+    }
+
+    public MemoryRecord(
+            String recordId,
+            long createdAt,
+            String mode,
+            String title,
+            String summary,
+            String sourceText,
+            String note,
+            String imageUri,
+            String analysis,
+            String memory,
+            String engine,
+            String categoryGroupCode,
+            String categoryCode,
+            String categoryName,
+            long reminderAt,
+            boolean reminderDone,
+            boolean archived,
+            String structuredFactsJson,
+            String aiAnalysisStateJson
+    ) {
+        this(
+                recordId,
+                createdAt,
+                mode,
+                title,
+                summary,
+                sourceText,
+                note,
+                imageUri,
+                analysis,
+                memory,
+                engine,
+                categoryGroupCode,
+                categoryCode,
+                categoryName,
+                reminderAt,
+                reminderDone,
+                archived,
+                structuredFactsJson,
+                aiAnalysisStateJson,
+                ""
+        );
+    }
+
+    public MemoryRecord(
+            String recordId,
+            long createdAt,
+            String mode,
+            String title,
+            String summary,
+            String sourceText,
+            String note,
+            String imageUri,
+            String analysis,
+            String memory,
+            String engine,
+            String categoryGroupCode,
+            String categoryCode,
+            String categoryName,
+            long reminderAt,
+            boolean reminderDone,
+            boolean archived,
+            String structuredFactsJson,
+            String aiAnalysisStateJson,
+            String aiVisualStateJson
+    ) {
         this.recordId = recordId;
         this.createdAt = createdAt;
         this.mode = mode;
@@ -188,6 +376,8 @@ public class MemoryRecord {
         this.reminderDone = reminderDone;
         this.archived = archived;
         this.structuredFactsJson = structuredFactsJson == null ? "" : structuredFactsJson;
+        this.aiAnalysisStateJson = aiAnalysisStateJson == null ? "" : aiAnalysisStateJson;
+        this.aiVisualStateJson = aiVisualStateJson == null ? "" : aiVisualStateJson;
     }
 
     public String getRecordId() {
@@ -262,6 +452,14 @@ public class MemoryRecord {
         return structuredFactsJson;
     }
 
+    public String getAiAnalysisStateJson() {
+        return aiAnalysisStateJson;
+    }
+
+    public String getAiVisualStateJson() {
+        return aiVisualStateJson;
+    }
+
     public MemoryRecord withReminderDone(boolean done) {
         return new MemoryRecord(
                 recordId,
@@ -281,7 +479,9 @@ public class MemoryRecord {
                 reminderAt,
                 done,
                 archived,
-                structuredFactsJson
+                structuredFactsJson,
+                aiAnalysisStateJson,
+                aiVisualStateJson
         );
     }
 
@@ -304,7 +504,9 @@ public class MemoryRecord {
                 reminderAt,
                 reminderDone,
                 archivedValue,
-                structuredFactsJson
+                structuredFactsJson,
+                aiAnalysisStateJson,
+                aiVisualStateJson
         );
     }
 
@@ -328,6 +530,8 @@ public class MemoryRecord {
         json.put("reminderDone", reminderDone);
         json.put("archived", archived);
         json.put("structuredFactsJson", structuredFactsJson);
+        json.put("aiAnalysisStateJson", aiAnalysisStateJson);
+        json.put("aiVisualStateJson", aiVisualStateJson);
         return json;
     }
 
@@ -370,7 +574,9 @@ public class MemoryRecord {
                 json.optLong("reminderAt", 0L),
                 json.optBoolean("reminderDone", false),
                 json.optBoolean("archived", false),
-                json.optString("structuredFactsJson", "")
+                json.optString("structuredFactsJson", ""),
+                json.optString("aiAnalysisStateJson", ""),
+                json.optString("aiVisualStateJson", "")
         );
     }
 

@@ -6,7 +6,9 @@ import android.content.ContextWrapper
 import android.content.SharedPreferences
 import android.graphics.PathMeasure
 import android.graphics.RectF
+import android.os.Handler
 import android.os.Build
+import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -181,18 +183,57 @@ fun noMemoG2RoundedShape(
 }
 
 object AiProcessingStateRegistry {
-    private val processingState = mutableStateMapOf<String, Int>()
+    data class ProcessingState(
+        val attempt: Int,
+        val attemptLimit: Int,
+        val recovered: Boolean = false
+    )
 
-    fun markProcessing(recordId: String, attempt: Int = 1) {
-        if (recordId.isNotBlank()) {
-            processingState[recordId] = attempt.coerceAtLeast(1)
+    private val processingState = mutableStateMapOf<String, ProcessingState>()
+    private val mainHandler = Handler(Looper.getMainLooper())
+
+    private fun updateState(recordId: String, state: ProcessingState?) {
+        if (recordId.isBlank()) {
+            return
+        }
+        val applyUpdate = {
+            if (state == null) {
+                processingState.remove(recordId)
+            } else {
+                processingState[recordId] = state
+            }
+        }
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            applyUpdate()
+        } else {
+            mainHandler.post { applyUpdate() }
         }
     }
 
+    fun markProcessing(recordId: String, attempt: Int = 1, attemptLimit: Int = attempt.coerceAtLeast(1)) {
+        updateState(
+            recordId,
+            ProcessingState(
+                attempt = attempt.coerceAtLeast(1),
+                attemptLimit = attemptLimit.coerceAtLeast(1),
+                recovered = false
+            )
+        )
+    }
+
+    fun markRecovering(recordId: String, attempt: Int = 1, attemptLimit: Int = attempt.coerceAtLeast(1)) {
+        updateState(
+            recordId,
+            ProcessingState(
+                attempt = attempt.coerceAtLeast(1),
+                attemptLimit = attemptLimit.coerceAtLeast(1),
+                recovered = true
+            )
+        )
+    }
+
     fun clearProcessing(recordId: String) {
-        if (recordId.isNotBlank()) {
-            processingState.remove(recordId)
-        }
+        updateState(recordId, null)
     }
 
     fun isProcessing(recordId: String): Boolean {
@@ -200,7 +241,15 @@ object AiProcessingStateRegistry {
     }
 
     fun attempt(recordId: String): Int {
-        return processingState[recordId] ?: 0
+        return processingState[recordId]?.attempt ?: 0
+    }
+
+    fun attemptLimit(recordId: String): Int {
+        return processingState[recordId]?.attemptLimit ?: 0
+    }
+
+    fun state(recordId: String): ProcessingState? {
+        return processingState[recordId]
     }
 }
 
@@ -1365,7 +1414,8 @@ private fun NoMemoDialogShell(
         darkDefault = Color(0xFF1F1F22),
         lightDefault = Color.White,
         darkLift = 0.11f,
-        lightMix = 0.48f
+        lightMix = 0.48f,
+        darkAlpha = 1f
     )
     val panelStroke = if (isDark) {
         Color.White.copy(alpha = 0.26f)
@@ -1773,8 +1823,7 @@ fun NoMemoMenuList(
     } else {
         Color.White.copy(alpha = 0.7f)
     }
-    val contentHorizontalInset = 6.dp
-    val contentVerticalInset = 10.dp
+    val contentInset = 6.dp
 
     Box(
         modifier = modifier
@@ -1799,10 +1848,10 @@ fun NoMemoMenuList(
         }
         Column(
             modifier = Modifier.padding(
-                horizontal = contentHorizontalInset,
-                vertical = contentVerticalInset
+                horizontal = contentInset,
+                vertical = contentInset
             ),
-            verticalArrangement = Arrangement.spacedBy(1.dp)
+            verticalArrangement = Arrangement.spacedBy(contentInset)
         ) {
             actions.forEach { item ->
                 NoMemoAnchoredMenuRow(
@@ -1939,44 +1988,44 @@ private fun NoMemoAnchoredMenuRow(
     } else {
         Color.Black.copy(alpha = 0.045f)
     }
-    val rowShape = noMemoG2RoundedShape(20.dp)
-    Box(
+    val rowShape = noMemoAnchoredMenuRowShape()
+    Row(
         modifier = Modifier
             .fillMaxWidth()
+            .height(46.dp)
+            .clip(rowShape)
+            .background(if (pressed) pressedBackground else Color.Transparent)
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick
             )
+            .padding(horizontal = 18.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = contentColor,
+            modifier = Modifier.size(18.dp)
+        )
+        Text(
+            text = label,
+            color = contentColor,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             modifier = Modifier
-                .fillMaxWidth()
-                .height(46.dp)
-                .clip(rowShape)
-                .background(if (pressed) pressedBackground else Color.Transparent)
-                .padding(horizontal = 18.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.size(18.dp)
-            )
-            Text(
-                text = label,
-                color = contentColor,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier
-                    .padding(start = 16.dp)
-                    .weight(1f)
-            )
-        }
+                .padding(start = 16.dp)
+                .weight(1f)
+        )
     }
+}
+
+private fun noMemoAnchoredMenuRowShape(
+): Shape {
+    return noMemoG2RoundedShape(18.dp)
 }
 
 data class NoMemoMenuActionItem(
@@ -2710,24 +2759,8 @@ fun RecordCard(
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val isDark = isSystemInDarkTheme()
-    val transientAiAttempt = AiProcessingStateRegistry.attempt(record.recordId)
-    val transientAiProcessing = transientAiAttempt > 0
-    val persistedAiProcessing = remember(
-        record.recordId,
-        record.mode,
-        record.engine,
-        record.analysis,
-        record.title,
-        record.summary
-    ) {
-        isAiProcessingRecord(record)
-    }
-    val aiProcessing = transientAiProcessing || persistedAiProcessing
-    val aiProcessingChipText = if (transientAiAttempt >= 2) {
-        "重试中"
-    } else {
-        "分析中"
-    }
+    val aiVisualState = rememberAiVisualState(record)
+    val aiProcessing = aiVisualState.isProcessing
     val timeFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val titleText = remember(record.recordId, record.title, record.memory) {
         record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
@@ -2849,7 +2882,7 @@ fun RecordCard(
                         if (aiProcessing) {
                             AiProcessingStatusChip(
                                 isDark = isDark,
-                                text = aiProcessingChipText,
+                                text = aiVisualState.displayText,
                                 modifier = Modifier.padding(end = 10.dp)
                             )
                         }
@@ -2930,17 +2963,20 @@ fun RecordCard(
     }
 }
 
-private fun isAiProcessingRecord(record: MemoryRecord): Boolean {
+private fun legacyIsAiProcessingRecord(record: MemoryRecord): Boolean {
     if (record.mode != MemoryRecord.MODE_AI) {
         return false
     }
-    val analysisPending = isAiProcessingPlaceholderText(record.analysis)
-    val titlePending = isAiProcessingPlaceholderText(record.title)
-    val summaryPending = isAiProcessingPlaceholderText(record.summary)
+    if (AiAnalysisStateJson.isActive(record.aiAnalysisStateJson)) {
+        return true
+    }
+    val analysisPending = legacyIsAiProcessingPlaceholderText(record.analysis)
+    val titlePending = legacyIsAiProcessingPlaceholderText(record.title)
+    val summaryPending = legacyIsAiProcessingPlaceholderText(record.summary)
     return analysisPending || titlePending || summaryPending
 }
 
-private fun isAiProcessingPlaceholderText(value: String?): Boolean {
+private fun legacyIsAiProcessingPlaceholderText(value: String?): Boolean {
     val normalized = value?.trim().orEmpty()
     if (normalized.isEmpty()) return false
     return normalized == "AI 分析中"
@@ -2957,6 +2993,25 @@ private fun AiProcessingStatusChip(
     text: String,
     modifier: Modifier = Modifier
 ) {
+    val transition = rememberInfiniteTransition(label = "aiProcessingStatusChip")
+    val dotScale by transition.animateFloat(
+        initialValue = 0.82f,
+        targetValue = 1.12f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "aiProcessingStatusChipDotScale"
+    )
+    val dotAlpha by transition.animateFloat(
+        initialValue = 0.66f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "aiProcessingStatusChipDotAlpha"
+    )
     val chipBackground = if (isDark) {
         Color.Black.copy(alpha = 0.78f)
     } else {
@@ -2988,6 +3043,11 @@ private fun AiProcessingStatusChip(
     ) {
         Box(
             modifier = Modifier
+                .graphicsLayer {
+                    scaleX = dotScale
+                    scaleY = dotScale
+                    alpha = dotAlpha
+                }
                 .size(7.dp)
                 .background(dotBrush, CircleShape)
         )
@@ -2998,6 +3058,22 @@ private fun AiProcessingStatusChip(
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
+    }
+}
+
+private fun formatAiProcessingStatusText(attempt: Int, attemptLimit: Int): String {
+    val normalizedAttempt = attempt.coerceAtLeast(1)
+    val normalizedLimit = attemptLimit.coerceAtLeast(normalizedAttempt)
+    return if (normalizedLimit > 1) {
+        if (normalizedAttempt >= 2) {
+            "重试中 $normalizedAttempt/$normalizedLimit"
+        } else {
+            "分析中 $normalizedAttempt/$normalizedLimit"
+        }
+    } else if (normalizedAttempt >= 2) {
+        "重试中"
+    } else {
+        "分析中"
     }
 }
 
