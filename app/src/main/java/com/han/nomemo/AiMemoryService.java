@@ -28,10 +28,6 @@ import java.util.Scanner;
 public class AiMemoryService {
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 30_000;
-    private static final int IMAGE_MAX_SIZE = 1024;
-    private static final int ECONOMY_IMAGE_MAX_SIZE = 640;
-    private static final int IMAGE_JPEG_QUALITY = 80;
-    private static final int ECONOMY_IMAGE_JPEG_QUALITY = 60;
     private static final int MAX_AUTO_RETRY_COUNT = 6;
     private static final int ECONOMY_TOTAL_ATTEMPTS = 2;
     private static final long RETRY_BASE_DELAY_MS = 1_500L;
@@ -103,6 +99,9 @@ public class AiMemoryService {
     ) {
         String safeText = userText == null ? "" : userText.trim();
         String safeContext = detailContext == null ? "" : detailContext.trim();
+        boolean economyMode = isEconomyMode();
+        boolean retryWithFullPromptProfile = shouldRetryWithFullPromptProfile(enhanced, economyMode);
+        boolean allowLocalFallback = shouldAllowLocalFallback(requireCloudSuccess);
         if (hasCloudConfig()) {
             Exception lastCloudError = null;
             int attemptLimit = resolveCloudAttemptLimit();
@@ -111,7 +110,7 @@ public class AiMemoryService {
                     attemptListener.onAttempt(attempt, attemptLimit);
                 }
                 try {
-                    return generateByCloud(safeText, imageUri, enhanced, safeContext);
+                    return generateByCloud(safeText, imageUri, enhanced, safeContext, economyMode);
                 } catch (Exception exception) {
                     lastCloudError = exception;
                     if (attempt < attemptLimit) {
@@ -121,22 +120,45 @@ public class AiMemoryService {
                     }
                 }
             }
+            // Economy reanalysis fallback: retry once with full prompt profile before giving up.
+            if (lastCloudError != null && retryWithFullPromptProfile) {
+                try {
+                    return generateByCloud(safeText, imageUri, enhanced, safeContext, false);
+                } catch (Exception recoveryError) {
+                    lastCloudError.addSuppressed(recoveryError);
+                }
+            }
             if (lastCloudError != null) {
-                if (enhanced || requireCloudSuccess) {
+                if (!allowLocalFallback) {
                     throw new IllegalStateException("Cloud AI request failed after retries", lastCloudError);
                 }
                 // Falls back to local generation below after cloud attempts are exhausted.
             }
         }
-        if (requireCloudSuccess) {
+        if (!allowLocalFallback) {
             throw new IllegalStateException("Cloud AI config unavailable");
         }
         if (attemptListener != null) {
             attemptListener.onAttempt(1, 1);
         }
-        return enhanced
-                ? generateByRulesEnhanced(safeText, imageUri, safeContext)
-                : generateByRules(safeText, imageUri);
+        try {
+            return enhanced
+                    ? generateByRulesEnhanced(safeText, imageUri, safeContext)
+                    : generateByRules(safeText, imageUri);
+        } catch (Exception localError) {
+            if (!allowLocalFallback) {
+                throw new IllegalStateException("Strict AI generation cannot fall back to local", localError);
+            }
+            return buildEmergencyLocalResult(safeText, imageUri, enhanced, safeContext);
+        }
+    }
+
+    static boolean shouldRetryWithFullPromptProfile(boolean enhanced, boolean economyMode) {
+        return economyMode && enhanced;
+    }
+
+    static boolean shouldAllowLocalFallback(boolean requireCloudSuccess) {
+        return !requireCloudSuccess;
     }
 
     private int resolveCloudAttemptLimit() {
@@ -152,22 +174,6 @@ public class AiMemoryService {
 
     private boolean isEconomyMode() {
         return settingsStore.getEconomyMode();
-    }
-
-    @Nullable
-    private Integer resolveMaxTokens(CloudRequestMode requestMode, boolean enhanced) {
-        if (!isEconomyMode()) {
-            return null;
-        }
-        switch (requestMode) {
-            case IMAGE:
-                return enhanced ? 200 : 160;
-            case MULTIMODAL:
-                return enhanced ? 220 : 180;
-            case TEXT:
-            default:
-                return enhanced ? 180 : 140;
-        }
     }
 
     private boolean sleepBeforeRetry(int retryIndex) {
@@ -192,17 +198,27 @@ public class AiMemoryService {
             String userText,
             @Nullable Uri imageUri,
             boolean enhanced,
-            @Nullable String detailContext
+            @Nullable String detailContext,
+            boolean economyMode
     ) throws Exception {
         CloudRequestMode requestMode = resolveRequestMode(userText, imageUri);
+        String localCandidatesJson = buildLocalCandidatesJson(userText);
+        AiPromptSpec promptSpec = AiPromptBuilder.build(
+                requestMode.name(),
+                enhanced,
+                economyMode,
+                userText,
+                detailContext,
+                localCandidatesJson
+        );
         JSONObject payload = new JSONObject();
         payload.put("model", resolveModelForMode(requestMode));
-        payload.put("temperature", isEconomyMode() ? 0.2 : 0.35);
-        Integer maxTokens = resolveMaxTokens(requestMode, enhanced);
+        payload.put("temperature", promptSpec.getTemperature());
+        Integer maxTokens = promptSpec.getMaxTokens();
         if (maxTokens != null) {
             payload.put("max_tokens", maxTokens);
         }
-        payload.put("messages", buildMessages(requestMode, userText, imageUri, enhanced, detailContext));
+        payload.put("messages", buildMessages(requestMode, imageUri, promptSpec));
 
         Exception firstError = null;
         try {
@@ -223,11 +239,85 @@ public class AiMemoryService {
         }
     }
 
+    private String buildLocalCandidatesJson(String userText) {
+        try {
+            MemoryStructuredFacts facts = MemoryFactExtractor.extractLocalFacts(
+                    userText,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null,
+                    null
+            );
+            return MemoryStructuredFactsJson.toJson(facts);
+        } catch (Exception ignored) {
+            return "{}";
+        }
+    }
+
     private GenerationResult requestCloudGeneration(
             JSONObject payload,
             String userText,
             @Nullable Uri imageUri
     ) throws Exception {
+        String content = executeCloudRequest(payload);
+        JSONObject resultJson;
+        try {
+            resultJson = parseAndValidateResultJson(content);
+        } catch (Exception parseException) {
+            JSONObject repairPayload = buildRepairPayload(payload, content);
+            String repairedContent = executeCloudRequest(repairPayload);
+            resultJson = parseAndValidateResultJson(repairedContent);
+        }
+
+        String title = resultJson.optString("title", "").trim();
+        String summary = resultJson.optString("summary", "").trim();
+        String analysis = resultJson.optString("analysis", "").trim();
+        String memory = resultJson.optString("memory", "").trim();
+        String suggestedCategoryCode = resultJson.optString("suggestedCategoryCode", "").trim();
+        JSONObject structuredFactsObject = resultJson.optJSONObject("structuredFacts");
+        String aiStructuredFactsJson = structuredFactsObject == null ? "" : structuredFactsObject.toString();
+
+        if (TextUtils.isEmpty(memory)) {
+            memory = fallbackMemory(userText, imageUri);
+        }
+        if (TextUtils.isEmpty(title)) {
+            title = cropSingleLine(memory, 18);
+        }
+        if (TextUtils.isEmpty(summary)) {
+            summary = cropSingleLine(userText, 36);
+        }
+        if (TextUtils.isEmpty(analysis)) {
+            analysis = "AI 已完成内容整理";
+        }
+        if (TextUtils.isEmpty(suggestedCategoryCode)) {
+            suggestedCategoryCode = classifyCategoryCode(userText, imageUri != null);
+        }
+        String structuredFactsJson = reconcileSafely(
+                userText,
+                aiStructuredFactsJson,
+                title,
+                summary,
+                analysis,
+                memory,
+                suggestedCategoryCode
+        );
+        summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
+        return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "cloud", structuredFactsJson);
+    }
+
+    private String fallbackMemory(String userText, @Nullable Uri imageUri) {
+        if (!TextUtils.isEmpty(userText)) {
+            return cropSingleLine(userText, 80);
+        }
+        if (imageUri != null) {
+            return "已保存截图记忆。";
+        }
+        return "已记录一条记忆。";
+    }
+
+    private String executeCloudRequest(JSONObject payload) throws Exception {
         HttpURLConnection connection = null;
         try {
             URL url = new URL(resolveChatCompletionsUrl());
@@ -255,31 +345,7 @@ public class AiMemoryService {
             }
 
             JSONObject json = new JSONObject(responseBody);
-            String content = extractMessageContent(json);
-
-            JSONObject resultJson = parseStrictJson(content);
-            String title = resultJson.optString("title", "").trim();
-            String summary = resultJson.optString("summary", "").trim();
-            String analysis = resultJson.optString("analysis", "").trim();
-            String memory = resultJson.optString("memory", "").trim();
-            String suggestedCategoryCode = resultJson.optString("suggestedCategoryCode", "").trim();
-
-            if (TextUtils.isEmpty(memory)) {
-                throw new IllegalStateException("Cloud AI returned empty memory");
-            }
-            if (TextUtils.isEmpty(title)) {
-                title = cropSingleLine(memory, 18);
-            }
-            if (TextUtils.isEmpty(summary)) {
-                summary = cropSingleLine(userText, 36);
-            }
-            if (TextUtils.isEmpty(analysis)) {
-                analysis = "AI 已完成内容整理";
-            }
-            if (TextUtils.isEmpty(suggestedCategoryCode)) {
-                suggestedCategoryCode = classifyCategoryCode(userText, imageUri != null);
-            }
-            return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "cloud");
+            return extractMessageContent(json);
         } finally {
             if (connection != null) {
                 connection.disconnect();
@@ -325,82 +391,49 @@ public class AiMemoryService {
         }
     }
 
-    String SYSTEM_PROMPT = "# Role\n" +
-            "你是一个极简主义的记忆助手。你的任务是分析用户输入的文本或 OCR 提取内容，并严格以 JSON 格式输出。\n" +
-            "\n" +
-            "# Response Protocol\n" +
-            "- **语言：** 所有文本值必须使用简洁、高级的中文。\n" +
-            "- **语气：** 冷静、专业，禁止任何寒暄或解释性文字。\n" +
-            "- **格式：** 必须且只能输出 JSON 对象，严禁包含 Markdown 代码块标记（如 ```json）。\n" +
-            "\n" +
-            "# Classification Logic (Priority Order)\n" +
-            "1. **WORK_SCHEDULE (日程):** 包含明确的具体时间点、会议、约会。\n" +
-            "2. **WORK_TODO (待办):** 包含明确的动作指令，如“去写代码”、“联系某人”。\n" +
-            "3. **LIFE_PICKUP (取餐):** 包含取餐码、排队号、餐饮单号。\n" +
-            "4. **LIFE_DELIVERY (取件):** 包含快递单号、驿站取件码（如 5-2-101）。\n" +
-            "5. **LIFE_CARD (卡证):** 包含身份证、银行卡、工牌、会员卡等证件号码。\n" +
-            "6. **LIFE_TICKET (票券):** 包含车票、电影票、展会门票、行程单。\n" +
-            "7. **QUICK_NOTE (小记):** 【默认/兜底】任何无法归入上述类别的信息、灵感、碎碎念或不确定的 OCR 乱码。\n" +
-            "\n" +
-            "# JSON Schema\n" +
-            "{\n" +
-            "  \"title\": \"5字内核心主题\",\n" +
-            "  \"summary\": \"15字内摘要\",\n" +
-            "  \"analysis\": \"对原始信息的关键点提炼（保留单号、时间等硬核数据）\",\n" +
-            "  \"memory\": \"还原后的规范化完整内容\",\n" +
-            "  \"suggestedCategoryCode\": \"必须是上述定义的枚举值之一\"\n" +
-            "}";
-
     private JSONArray buildMessages(
             CloudRequestMode requestMode,
-            String userText,
             @Nullable Uri imageUri,
-            boolean enhanced,
-            @Nullable String detailContext
+            AiPromptSpec promptSpec
     ) throws Exception {
         switch (requestMode) {
             case IMAGE:
-                return buildImageMessages(imageUri, enhanced, detailContext);
+                return buildImageMessages(imageUri, promptSpec);
             case MULTIMODAL:
-                return buildMultimodalMessages(userText, imageUri, enhanced, detailContext);
+                return buildMultimodalMessages(imageUri, promptSpec);
             case TEXT:
             default:
-                return buildTextMessages(userText, enhanced, detailContext);
+                return buildTextMessages(promptSpec);
         }
     }
 
-    private JSONArray buildTextMessages(
-            String userText,
-            boolean enhanced,
-            @Nullable String detailContext
-    ) throws Exception {
+    private JSONArray buildTextMessages(AiPromptSpec promptSpec) throws Exception {
         JSONArray messages = new JSONArray();
         messages.put(new JSONObject()
                 .put("role", "system")
-                .put("content", buildSystemPrompt(enhanced)));
+                .put("content", promptSpec.getSystemPrompt()));
         messages.put(new JSONObject()
                 .put("role", "user")
-                .put("content", buildUserPrompt(userText, enhanced, detailContext)));
+                .put("content", promptSpec.getUserPrompt()));
         return messages;
     }
 
     private JSONArray buildImageMessages(
             @Nullable Uri imageUri,
-            boolean enhanced,
-            @Nullable String detailContext
+            AiPromptSpec promptSpec
     ) throws Exception {
         JSONArray messages = new JSONArray();
         messages.put(new JSONObject()
                 .put("role", "system")
-                .put("content", buildSystemPrompt(enhanced)));
+                .put("content", promptSpec.getSystemPrompt()));
 
         JSONArray userContent = new JSONArray();
         userContent.put(new JSONObject()
                 .put("type", "text")
-                .put("text", buildImageOnlyPrompt(enhanced, detailContext)));
+                .put("text", promptSpec.getUserPrompt()));
         userContent.put(new JSONObject()
                 .put("type", "image_url")
-                .put("image_url", new JSONObject().put("url", requireImageDataUri(imageUri))));
+                .put("image_url", new JSONObject().put("url", requireImageDataUri(imageUri, promptSpec))));
 
         messages.put(new JSONObject()
                 .put("role", "user")
@@ -409,23 +442,21 @@ public class AiMemoryService {
     }
 
     private JSONArray buildMultimodalMessages(
-            String userText,
             @Nullable Uri imageUri,
-            boolean enhanced,
-            @Nullable String detailContext
+            AiPromptSpec promptSpec
     ) throws Exception {
         JSONArray messages = new JSONArray();
         messages.put(new JSONObject()
                 .put("role", "system")
-                .put("content", buildSystemPrompt(enhanced)));
+                .put("content", promptSpec.getSystemPrompt()));
 
         JSONArray userContent = new JSONArray();
         userContent.put(new JSONObject()
                 .put("type", "text")
-                .put("text", buildUserPrompt(userText, enhanced, detailContext)));
+                .put("text", promptSpec.getUserPrompt()));
         userContent.put(new JSONObject()
                 .put("type", "image_url")
-                .put("image_url", new JSONObject().put("url", requireImageDataUri(imageUri))));
+                .put("image_url", new JSONObject().put("url", requireImageDataUri(imageUri, promptSpec))));
 
         messages.put(new JSONObject()
                 .put("role", "user")
@@ -433,145 +464,8 @@ public class AiMemoryService {
         return messages;
     }
 
-    private String buildSystemPrompt(boolean enhanced) {
-        if (isEconomyMode()) {
-            return buildEconomySystemPrompt(enhanced);
-        }
-        if (!enhanced) {
-            return SYSTEM_PROMPT;
-        }
-        return SYSTEM_PROMPT + "\n\n" +
-                "# Reanalysis Upgrade\n" +
-                "- Treat this request as a second-pass enhancement, not a first draft.\n" +
-                "- Correct OCR noise, restore structure, and preserve hard facts such as codes, dates, addresses and times.\n" +
-                "- Produce a richer analysis and a cleaner memory body than the existing version.\n" +
-                "- Prefer more precise titles and summaries when the evidence supports them.\n";
-    }
-
-    private String buildUserPrompt(
-            String userText,
-            boolean enhanced,
-            @Nullable String detailContext
-    ) {
-        if (isEconomyMode()) {
-            return buildEconomyUserPrompt(userText, enhanced, detailContext);
-        }
-        if (!enhanced) {
-            return "User text:\n" + (TextUtils.isEmpty(userText) ? "(none)" : userText) + "\n\n" +
-                    "If screenshot exists, include important visual cues. " +
-                    "Return a short title and a short summary suitable for a memory card.";
-        }
-
-        StringBuilder builder = new StringBuilder();
-        builder.append("Task: Reanalyze an existing memory entry and improve it.\n\n");
-        builder.append("Raw user text:\n")
-                .append(TextUtils.isEmpty(userText) ? "(none)" : userText)
-                .append("\n\n");
-        if (!TextUtils.isEmpty(detailContext)) {
-            builder.append("Existing memory context:\n")
-                    .append(detailContext)
-                    .append("\n\n");
-        }
-        builder.append("Requirements:\n")
-                .append("1. Keep all confirmed facts, codes, pickup numbers, addresses, names, times and dates.\n")
-                .append("2. Fix OCR noise conservatively and infer missing structure only when confidence is high.\n")
-                .append("3. Make title more focused, summary more readable, analysis more insightful, and memory body more complete.\n")
-                .append("4. If screenshot exists, use visual cues to补充 missing details without inventing facts.\n");
-        return builder.toString();
-    }
-    private String buildImageOnlyPrompt(
-            boolean enhanced,
-            @Nullable String detailContext
-    ) {
-        if (isEconomyMode()) {
-            return buildEconomyImagePrompt(enhanced, detailContext);
-        }
-        if (!enhanced) {
-            return "Analyze the screenshot only. Extract visible text, codes, dates, times, addresses, pickup numbers and other hard facts. Return a short title and a short summary suitable for a memory card.";
-        }
-
-        StringBuilder builder = new StringBuilder();
-        builder.append("Task: Reanalyze an existing memory entry using the screenshot only.\n\n");
-        if (!TextUtils.isEmpty(detailContext)) {
-            builder.append("Existing memory context:\n")
-                    .append(detailContext)
-                    .append("\n\n");
-        }
-        builder.append("Requirements:\n")
-                .append("1. Extract visible text and preserve all hard facts such as codes, dates, times and addresses.\n")
-                .append("2. Fix OCR noise conservatively and infer structure only when confidence is high.\n")
-                .append("3. Produce a better title, summary, analysis and memory body than the existing version.\n");
-        return builder.toString();
-    }
-
-    private String buildEconomySystemPrompt(boolean enhanced) {
-        StringBuilder builder = new StringBuilder();
-        builder.append("Return JSON only with keys title, summary, analysis, memory, suggestedCategoryCode.\n");
-        builder.append("Use concise Chinese and keep codes, dates, times, names and addresses exact.\n");
-        builder.append("suggestedCategoryCode must be one of WORK_SCHEDULE, WORK_TODO, LIFE_PICKUP, LIFE_DELIVERY, LIFE_CARD, LIFE_TICKET, QUICK_NOTE.\n");
-        builder.append("Keep title and summary short, analysis in one sentence, and memory concise.\n");
-        if (enhanced) {
-            builder.append("Improve the existing memory conservatively without inventing facts.\n");
-        }
-        return builder.toString();
-    }
-
-    private String buildEconomyUserPrompt(
-            String userText,
-            boolean enhanced,
-            @Nullable String detailContext
-    ) {
-        String compactText = limitPromptText(userText, enhanced ? 260 : 320);
-        String compactContext = limitPromptText(detailContext, 220);
-        StringBuilder builder = new StringBuilder();
-        builder.append(enhanced ? "Reanalyze and improve this memory.\n" : "Analyze this memory input.\n");
-        builder.append("Text:\n")
-                .append(TextUtils.isEmpty(compactText) ? "(none)" : compactText)
-                .append("\n");
-        if (!TextUtils.isEmpty(compactContext)) {
-            builder.append("Context:\n")
-                    .append(compactContext)
-                    .append("\n");
-        }
-        builder.append("Prefer confirmed facts and concise output.");
-        return builder.toString();
-    }
-
-    private String buildEconomyImagePrompt(
-            boolean enhanced,
-            @Nullable String detailContext
-    ) {
-        String compactContext = limitPromptText(detailContext, 220);
-        StringBuilder builder = new StringBuilder();
-        builder.append(enhanced
-                ? "Reanalyze this screenshot-based memory.\n"
-                : "Analyze this screenshot.\n");
-        if (!TextUtils.isEmpty(compactContext)) {
-            builder.append("Context:\n")
-                    .append(compactContext)
-                    .append("\n");
-        }
-        builder.append("Extract visible hard facts and keep output concise.");
-        return builder.toString();
-    }
-
-    private String limitPromptText(@Nullable String value, int maxLength) {
-        if (TextUtils.isEmpty(value)) {
-            return "";
-        }
-        String normalized = value
-                .replace('\r', ' ')
-                .replace('\n', ' ')
-                .replaceAll("\\s+", " ")
-                .trim();
-        if (normalized.length() <= maxLength) {
-            return normalized;
-        }
-        return normalized.substring(0, maxLength).trim();
-    }
-
-    private String requireImageDataUri(@Nullable Uri uri) {
-        String dataUri = uri == null ? null : buildImageDataUri(uri);
+    private String requireImageDataUri(@Nullable Uri uri, AiPromptSpec promptSpec) {
+        String dataUri = uri == null ? null : buildImageDataUri(uri, promptSpec);
         if (TextUtils.isEmpty(dataUri)) {
             throw new IllegalStateException("Image content is unavailable for the selected AI route.");
         }
@@ -579,18 +473,18 @@ public class AiMemoryService {
     }
 
     @Nullable
-    private String buildImageDataUri(Uri uri) {
+    private String buildImageDataUri(Uri uri, AiPromptSpec promptSpec) {
         try {
             ContentResolver resolver = context.getContentResolver();
             Bitmap bitmap = readBitmap(resolver, uri);
             if (bitmap == null) {
                 return null;
             }
-            Bitmap scaled = scaleBitmap(bitmap, isEconomyMode() ? ECONOMY_IMAGE_MAX_SIZE : IMAGE_MAX_SIZE);
+            Bitmap scaled = scaleBitmap(bitmap, promptSpec.getImageMaxSize());
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             scaled.compress(
                     Bitmap.CompressFormat.JPEG,
-                    isEconomyMode() ? ECONOMY_IMAGE_JPEG_QUALITY : IMAGE_JPEG_QUALITY,
+                    promptSpec.getImageQuality(),
                     baos
             );
             byte[] bytes = baos.toByteArray();
@@ -647,6 +541,36 @@ public class AiMemoryService {
             cleaned = cleaned.substring(objectStart, objectEnd + 1).trim();
         }
         return new JSONObject(cleaned);
+    }
+
+    private JSONObject parseAndValidateResultJson(String content) throws Exception {
+        return parseStrictJson(content);
+    }
+
+    private JSONObject buildRepairPayload(JSONObject originalPayload, String rawModelOutput) throws Exception {
+        JSONObject repairPayload = new JSONObject();
+        repairPayload.put("model", originalPayload.optString("model", settingsStore.resolvedTextModel()));
+        repairPayload.put("temperature", 0);
+        int originalMaxTokens = originalPayload.optInt("max_tokens", 0);
+        if (originalMaxTokens > 0) {
+            repairPayload.put("max_tokens", Math.max(originalMaxTokens, 360));
+        } else if (isEconomyMode()) {
+            repairPayload.put("max_tokens", 420);
+        }
+        if (originalPayload.has("response_format")) {
+            repairPayload.put("response_format", new JSONObject().put("type", "json_object"));
+        }
+        repairPayload.put(
+                "messages",
+                new JSONArray()
+                        .put(new JSONObject()
+                                .put("role", "system")
+                                .put("content", AiPromptBuilder.repairSystemPrompt()))
+                        .put(new JSONObject()
+                                .put("role", "user")
+                                .put("content", AiPromptBuilder.repairUserPrompt(rawModelOutput)))
+        );
+        return repairPayload;
     }
 
     private String extractMessageContent(JSONObject responseJson) throws Exception {
@@ -723,7 +647,17 @@ public class AiMemoryService {
             memory = timeText + " 创建了一条空白记忆草稿。";
         }
 
-        return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "local");
+        String structuredFactsJson = reconcileSafely(
+                userText,
+                "",
+                title,
+                summary,
+                analysis,
+                memory,
+                suggestedCategoryCode
+        );
+        summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
+        return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "local", structuredFactsJson);
     }
 
     private GenerationResult generateByRulesEnhanced(
@@ -742,13 +676,101 @@ public class AiMemoryService {
         if (!TextUtils.isEmpty(detailContext)) {
             memory = memory + " 这次结果已参考旧版本信息并尽量补足上下文。";
         }
-        return new GenerationResult(
+        String structuredFactsJson = reconcileSafely(
+                userText,
+                base.getStructuredFactsJson(),
                 base.getTitle(),
                 base.getSummary(),
                 analysis,
                 memory,
+                base.getSuggestedCategoryCode()
+        );
+        String summary = stableSummarySafely(
                 base.getSuggestedCategoryCode(),
-                base.getEngine()
+                base.getSummary(),
+                structuredFactsJson
+        );
+        return new GenerationResult(
+                base.getTitle(),
+                summary,
+                analysis,
+                memory,
+                base.getSuggestedCategoryCode(),
+                base.getEngine(),
+                structuredFactsJson
+        );
+    }
+
+    private String reconcileSafely(
+            String userText,
+            @Nullable String aiStructuredFactsJson,
+            @Nullable String title,
+            @Nullable String summary,
+            @Nullable String analysis,
+            @Nullable String memory,
+            @Nullable String categoryCode
+    ) {
+        try {
+            return MemoryFactReconciler.reconcileToJson(
+                    userText,
+                    aiStructuredFactsJson,
+                    title,
+                    summary,
+                    analysis,
+                    memory,
+                    categoryCode
+            );
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private String stableSummarySafely(
+            @Nullable String categoryCode,
+            @Nullable String fallbackSummary,
+            @Nullable String structuredFactsJson
+    ) {
+        try {
+            return MemoryFactReconciler.stableSummary(categoryCode, fallbackSummary, structuredFactsJson);
+        } catch (Exception ignored) {
+            return fallbackSummary == null ? "" : fallbackSummary;
+        }
+    }
+
+    private GenerationResult buildEmergencyLocalResult(
+            String userText,
+            @Nullable Uri imageUri,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) {
+        String suggestedCategoryCode = classifyCategoryCode(userText, imageUri != null);
+        String memory = fallbackMemory(userText, imageUri);
+        String title = cropSingleLine(memory, 18);
+        String summary = cropSingleLine(TextUtils.isEmpty(userText) ? memory : userText, 40);
+        String analysis = enhanced
+                ? "已完成本地兜底重整"
+                : "已完成本地兜底分析";
+        if (enhanced && !TextUtils.isEmpty(detailContext)) {
+            analysis = analysis + "，并已参考现有内容。";
+        }
+        String structuredFactsJson = reconcileSafely(
+                userText,
+                "",
+                title,
+                summary,
+                analysis,
+                memory,
+                suggestedCategoryCode
+        );
+        summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
+        return new GenerationResult(
+                title,
+                summary,
+                analysis,
+                memory,
+                suggestedCategoryCode,
+                "local",
+                structuredFactsJson
         );
     }
 
@@ -760,10 +782,10 @@ public class AiMemoryService {
         if (containsAny(source, "会议", "日程", "calendar", "预约", "时间")) {
             return CategoryCatalog.CODE_WORK_SCHEDULE;
         }
-        if (containsAny(source, "快递", "包裹", "取件")) {
+        if (containsAny(source, "快递", "包裹", "取件", "取件码", "提货码", "取货码", "自提码", "驿站", "菜鸟", "丰巢", "快递柜")) {
             return CategoryCatalog.CODE_LIFE_DELIVERY;
         }
-        if (containsAny(source, "取餐", "外卖", "奶茶", "餐", "饭")) {
+        if (containsAny(source, "取餐", "取餐码", "外卖", "奶茶", "咖啡", "餐", "饭", "门店自取", "核销码")) {
             return CategoryCatalog.CODE_LIFE_PICKUP;
         }
         if (containsAny(source, "卡", "证", "身份证", "门禁", "驾照")) {
@@ -824,6 +846,7 @@ public class AiMemoryService {
         private final String memory;
         private final String suggestedCategoryCode;
         private final String engine;
+        private final String structuredFactsJson;
 
         public GenerationResult(
                 String title,
@@ -833,12 +856,25 @@ public class AiMemoryService {
                 String suggestedCategoryCode,
                 String engine
         ) {
+            this(title, summary, analysis, memory, suggestedCategoryCode, engine, "");
+        }
+
+        public GenerationResult(
+                String title,
+                String summary,
+                String analysis,
+                String memory,
+                String suggestedCategoryCode,
+                String engine,
+                String structuredFactsJson
+        ) {
             this.title = title;
             this.summary = summary;
             this.analysis = analysis;
             this.memory = memory;
             this.suggestedCategoryCode = suggestedCategoryCode;
             this.engine = engine;
+            this.structuredFactsJson = structuredFactsJson == null ? "" : structuredFactsJson;
         }
 
         public String getTitle() {
@@ -863,6 +899,10 @@ public class AiMemoryService {
 
         public String getEngine() {
             return engine;
+        }
+
+        public String getStructuredFactsJson() {
+            return structuredFactsJson;
         }
     }
 }

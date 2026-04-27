@@ -1503,12 +1503,23 @@ private fun saveRecord(
     if (!(aiMode && aiEnabled)) {
         val finalCategory = if (aiEnabled) category else quickNoteCategory
         val memoryText = if (input.isBlank()) "已保存图片记忆" else input
+        val title = compactTitle(input, finalCategory.categoryName)
+        val summary = compactSummary(input, memoryText)
+        val structuredFactsJson = MemoryFactReconciler.reconcileToJson(
+            input,
+            "",
+            title,
+            summary,
+            "",
+            memoryText,
+            finalCategory.categoryCode
+        )
         memoryStore.prependRecord(
             MemoryRecord(
                 System.currentTimeMillis(),
                 MemoryRecord.MODE_NORMAL,
-                compactTitle(input, finalCategory.categoryName),
-                compactSummary(input, memoryText),
+                title,
+                MemoryFactReconciler.stableSummary(finalCategory.categoryCode, summary, structuredFactsJson),
                 input,
                 input,
                 imageUriText,
@@ -1520,7 +1531,8 @@ private fun saveRecord(
                 finalCategory.categoryName,
                 finalReminderAt,
                 false,
-                false
+                false,
+                structuredFactsJson
             )
         )
         Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
@@ -1573,16 +1585,28 @@ private fun saveRecord(
                 resolvedCategory.categoryName,
                 finalReminderAt,
                 false,
-                false
+                false,
+                result.structuredFactsJson
             )
         } catch (_: Exception) {
             val fallbackMemory = if (input.isBlank()) "已保存图片记忆" else input
+            val fallbackTitle = compactTitle(input, aiCategory.categoryName)
+            val fallbackSummary = compactSummary(input, fallbackMemory)
+            val fallbackFactsJson = MemoryFactReconciler.reconcileToJson(
+                input,
+                "",
+                fallbackTitle,
+                fallbackSummary,
+                context.getString(R.string.memory_fallback_analysis),
+                fallbackMemory,
+                aiCategory.categoryCode
+            )
             MemoryRecord(
                 placeholder.recordId,
                 createdAt,
                 MemoryRecord.MODE_AI,
-                compactTitle(input, aiCategory.categoryName),
-                compactSummary(input, fallbackMemory),
+                fallbackTitle,
+                MemoryFactReconciler.stableSummary(aiCategory.categoryCode, fallbackSummary, fallbackFactsJson),
                 input,
                 input,
                 imageUriText,
@@ -1594,7 +1618,8 @@ private fun saveRecord(
                 aiCategory.categoryName,
                 finalReminderAt,
                 false,
-                false
+                false,
+                fallbackFactsJson
             )
         }
         if (!memoryStore.updateRecord(resolved)) {

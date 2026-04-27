@@ -12,6 +12,7 @@ import android.os.SystemClock
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -374,6 +375,19 @@ class MemoryDetailActivity : BaseComposeActivity() {
     ): Boolean {
         val trimmedDetail = summary.trim()
         val structuredOverride = buildStructuredOverrideText(category, currentRecord, structuredFields)
+        val updatedStructuredFactsJson = if (structuredOverride != null) {
+            MemoryFactReconciler.reconcileToJson(
+                structuredOverride,
+                currentRecord.structuredFactsJson,
+                title,
+                trimmedDetail,
+                currentRecord.analysis,
+                currentRecord.memory,
+                category.categoryCode
+            )
+        } else {
+            currentRecord.structuredFactsJson
+        }
         val updated = MemoryRecord(
             currentRecord.recordId,
             currentRecord.createdAt,
@@ -391,7 +405,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             category.categoryName,
             currentRecord.reminderAt,
             currentRecord.isReminderDone,
-            currentRecord.isArchived
+            currentRecord.isArchived,
+            updatedStructuredFactsJson
         )
         val saved = memoryStore.updateRecord(updated)
         if (saved) {
@@ -422,7 +437,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             currentRecord.categoryName,
             normalizedReminderAt,
             false,
-            currentRecord.isArchived
+            currentRecord.isArchived,
+            currentRecord.structuredFactsJson
         )
         val saved = memoryStore.updateRecord(updated)
         if (saved) {
@@ -445,70 +461,67 @@ class MemoryDetailActivity : BaseComposeActivity() {
             delay(ReanalyzeStateRevealDelayMs)
             try {
                 val updated = withContext(Dispatchers.IO) {
-                    try {
-                        val service = AiMemoryService(appContext)
-                        val input = buildAiInput(previousRecord)
-                        val imageUri = previousRecord.imageUri
-                            ?.takeIf { it.isNotBlank() }
-                            ?.let(Uri::parse)
-                        val result = service.generateEnhancedMemoryStrict(
-                            input,
-                            imageUri,
-                            buildEnhancedAiContext(previousRecord)
-                        ) { attempt, _ ->
+                    val service = AiMemoryService(appContext)
+                    val input = buildAiInput(previousRecord)
+                    val imageUri = previousRecord.imageUri
+                        ?.takeIf { it.isNotBlank() }
+                        ?.let(Uri::parse)
+                    val detailContext = buildEnhancedAiContext(previousRecord)
+                    val progressListener =
+                        AiMemoryService.AttemptListener { attempt, _ ->
                             runOnUiThread {
                                 AiProcessingStateRegistry.markProcessing(recordId, attempt)
                             }
                         }
-                        val resolvedTitle = result.title
-                            .trim()
-                            .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
-                            ?: deriveTitle(previousRecord)
-                        val resolvedSummary = result.summary
-                            .trim()
-                            .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                    val result = service.generateEnhancedMemoryStrict(
+                        input,
+                        imageUri,
+                        detailContext,
+                        progressListener
+                    )
+                    val resolvedTitle = result.title
+                        .trim()
+                        .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                        ?: deriveTitle(previousRecord)
+                    val resolvedSummary = result.summary
+                        .trim()
+                        .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                        ?: deriveSummary(previousRecord)
+                    val resolvedAnalysis = result.analysis
+                        .trim()
+                        .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                        ?: previousRecord.analysis
+                            ?.trim()
+                            ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
                             ?: deriveSummary(previousRecord)
-                        val resolvedAnalysis = result.analysis
-                            .trim()
-                            .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
-                            ?: previousRecord.analysis
-                                ?.trim()
-                                ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
-                                ?: deriveSummary(previousRecord)
-                        val resolvedEngine = result.engine
-                            .trim()
-                            .takeIf { it.isNotEmpty() && !it.equals("pending", ignoreCase = true) }
-                            ?: "local"
-                        MemoryRecord(
-                            previousRecord.recordId,
-                            previousRecord.createdAt,
-                            previousRecord.mode,
-                            resolvedTitle,
-                            resolvedSummary,
-                            previousRecord.sourceText,
-                            previousRecord.note,
-                            previousRecord.imageUri,
-                            resolvedAnalysis,
-                            result.memory.takeIf { it.isNotBlank() } ?: previousRecord.memory,
-                            resolvedEngine,
-                            previousRecord.categoryGroupCode,
-                            previousRecord.categoryCode,
-                            previousRecord.categoryName,
-                            previousRecord.reminderAt,
-                            previousRecord.isReminderDone,
-                            previousRecord.isArchived
-                        )
-                    } catch (_: Exception) {
-                        null
-                    }
-                }
-                if (updated == null) {
-                    waitForMinimumReanalyzeFeedback(startedAt)
-                    withContext(Dispatchers.Main) {
-                        reanalyzing = false
-                        Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
-                    }
-                    return@launch
+                    val resolvedEngine = result.engine
+                        .trim()
+                        .takeIf { it.isNotEmpty() && !it.equals("pending", ignoreCase = true) }
+                        ?: "cloud"
+                    val resolvedFactsJson = result.structuredFactsJson
+                        .trim()
+                        .takeIf { it.isNotEmpty() }
+                        ?: previousRecord.structuredFactsJson
+                    MemoryRecord(
+                        previousRecord.recordId,
+                        previousRecord.createdAt,
+                        previousRecord.mode,
+                        resolvedTitle,
+                        resolvedSummary,
+                        previousRecord.sourceText,
+                        previousRecord.note,
+                        previousRecord.imageUri,
+                        resolvedAnalysis,
+                        result.memory.takeIf { it.isNotBlank() } ?: previousRecord.memory,
+                        resolvedEngine,
+                        previousRecord.categoryGroupCode,
+                        previousRecord.categoryCode,
+                        previousRecord.categoryName,
+                        previousRecord.reminderAt,
+                        previousRecord.isReminderDone,
+                        previousRecord.isArchived,
+                        resolvedFactsJson
+                    )
                 }
                 val updateSuccess = withContext(Dispatchers.IO) {
                     memoryStore.updateRecord(updated)
@@ -529,6 +542,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         loadRecordOrFinish()
                     }
                 }
+            } catch (exception: Exception) {
+                Log.e("MemoryDetailActivity", "Reanalyze failed for recordId=$recordId", exception)
+                waitForMinimumReanalyzeFeedback(startedAt)
+                withContext(Dispatchers.Main) {
+                    reanalyzing = false
+                    Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                }
+                return@launch
             } finally {
                 withContext(Dispatchers.Main.immediate) {
                     reanalyzing = false
@@ -591,7 +612,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             record.categoryName,
             record.reminderAt,
             record.isReminderDone,
-            record.isArchived
+            record.isArchived,
+            record.structuredFactsJson
         )
     }
 
@@ -636,6 +658,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
             record.summary?.trim()?.takeIf { it.isNotEmpty() }?.let {
                 add("现有摘要: ${compactAiField(it, if (economyMode) 42 else 140)}")
+            }
+            record.structuredFactsJson?.trim()?.takeIf { it.isNotEmpty() }?.let {
+                add("现有结构化事实: ${compactAiField(it, if (economyMode) 120 else 600)}")
             }
             if (economyMode) {
                 record.analysis?.trim()?.takeIf { it.isNotEmpty() }?.let {
@@ -842,7 +867,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             currentRecord.analysis,
                             currentRecord.memory,
                             currentRecord.sourceText,
-                            currentRecord.note
+                            currentRecord.note,
+                            currentRecord.structuredFactsJson
                         ) {
                             MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
                         }

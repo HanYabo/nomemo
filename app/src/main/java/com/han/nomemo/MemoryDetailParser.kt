@@ -78,6 +78,11 @@ object MemoryDetailParser {
     )
 
     fun parseStructuredPickupInfo(record: MemoryRecord): StructuredPickupInfo? {
+        MemoryFactReconciler.structuredPickupInfo(
+            record.categoryCode,
+            record.structuredFactsJson
+        )?.let { return it }
+
         val isDelivery = record.categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY
         val isPickup = record.categoryCode == CategoryCatalog.CODE_LIFE_PICKUP
         if (!isDelivery && !isPickup) {

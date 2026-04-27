@@ -116,4 +116,14 @@
     <string name="delete_selected_batch_message">确定删除已选中的 %1$d 条记忆吗？</string>
     <string name="delete_selected_success">已删除 %1$d 条记忆</string>
     <string name="selected_count_format">已选择 %1$d 项</string>
+    <string name="ai_notification_title">AI摘要已生成</string>
+    <string name="ai_notification_summary">点按查看 AI 整理后的完整内容</string>
+    <string name="ai_notification_big_text">AI 已完成当前记忆的内容整理。</string>
+    <string name="ai_notification_style_summary">AI 记忆已更新</string>
+    <string name="ai_notification_front_title">AI 摘要</string>
+    <string name="ai_local_notification_title">本地兜底摘要已生成</string>
+    <string name="ai_local_notification_summary">本次使用本地兜底完成整理，可稍后重试 AI 分析</string>
+    <string name="ai_local_notification_big_text">当前结果来自本地兜底整理，可稍后再次尝试 AI 分析。</string>
+    <string name="ai_local_notification_style_summary">本地兜底记忆已更新</string>
+    <string name="ai_local_notification_front_title">本地兜底</string>
 </resources>

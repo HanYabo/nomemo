@@ -442,7 +442,6 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                         adaptive = adaptive,
                                         allowImageLoading = true,
                                         showShadow = false,
-                                        darkCardBackgroundOverride = Color(0xFF1A1A1C),
                                         onClick = {
                                             when {
                                                 selectionModeActive && selected -> {
@@ -831,10 +830,6 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                         selected = selected,
                                         allowImageLoading = true,
                                         showShadow = false,
-                                        darkCardBackgroundOverride = noMemoCardSurfaceColor(
-                                            true,
-                                            palette.glassFill.copy(alpha = 0.92f)
-                                        ),
                                         onClick = { onToggleRecord(record.recordId) },
                                         onLongPress = { onToggleRecord(record.recordId) }
                                     )

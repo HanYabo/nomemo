@@ -82,7 +82,8 @@ public class MemoryStore {
                         r.getCategoryName(),
                         r.getReminderAt(),
                         r.isReminderDone(),
-                        r.isArchived()
+                        r.isArchived(),
+                        r.getStructuredFactsJson()
                 );
                 normalized.add(updated);
                 updatedAny = true;
@@ -248,7 +249,8 @@ public class MemoryStore {
                         record.getCategoryName(),
                         record.getReminderAt(),
                         record.isReminderDone(),
-                        record.isArchived()
+                        record.isArchived(),
+                        record.getStructuredFactsJson()
                 ));
                 changed = true;
                 break;

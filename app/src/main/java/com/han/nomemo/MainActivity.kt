@@ -77,6 +77,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -788,215 +789,219 @@ class MainActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
-                        if (selectionModeActive) {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(spec.topActionButtonSize),
-                            ) {
-                                GlassIconCircleButton(
-                                    iconRes = R.drawable.ic_sheet_close,
-                                    contentDescription = stringResource(R.string.cancel),
-                                    onClick = {
-                                        selectionModeActive = false
-                                        selectedRecordIds = emptySet()
-                                        showDeleteConfirm = false
-                                    },
-                                    modifier = Modifier.align(Alignment.CenterStart),
-                                    size = spec.topActionButtonSize
-                                )
-                                Text(
-                                    text = getString(R.string.selected_count_format, selectedRecords.size),
-                                    color = palette.textPrimary,
-                                    fontSize = if (spec.isNarrow) 20.sp else 22.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    modifier = Modifier.align(Alignment.Center)
-                                )
-                                GlassIconCircleButton(
-                                    iconRes = if (allVisibleRecordsSelected) {
-                                        R.drawable.ic_sheet_deselect_all
-                                    } else {
-                                        R.drawable.ic_sheet_select_all
-                                    },
-                                    contentDescription = if (allVisibleRecordsSelected) {
-                                        "取消全选"
-                                    } else {
-                                        "全选"
-                                    },
-                                    onClick = {
-                                        selectedRecordIds = if (allVisibleRecordsSelected) {
-                                            emptySet()
-                                        } else {
-                                            filteredRecords.map { it.recordId }.toSet()
-                                        }
-                                        showDeleteConfirm = false
-                                    },
-                                    modifier = Modifier.align(Alignment.CenterEnd),
-                                    size = spec.topActionButtonSize
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(12.dp))
-                        } else {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(spec.topActionButtonSize)
-                            ) {
-                                NoMemoTopActionButtons(
-                                    spec = spec,
-                                    onSearchClick = onOpenSearch,
-                                    onMoreClick = { moreMenuExpanded = !moreMenuExpanded },
-                                    onMoreButtonBoundsChanged = { moreMenuAnchorBounds = it },
-                                    modifier = Modifier.align(Alignment.TopStart)
-                                )
-                                Text(
-                                    text = stringResource(R.string.page_title),
-                                    color = palette.textPrimary,
-                                    fontSize = if (spec.isNarrow) 18.sp else 19.sp,
-                                    fontWeight = FontWeight.SemiBold,
+                        Column(
+                            modifier = Modifier.zIndex(1f)
+                        ) {
+                            if (selectionModeActive) {
+                                Box(
                                     modifier = Modifier
-                                        .align(Alignment.Center)
-                                        .graphicsLayer {
-                                            alpha = collapsedTitleAlpha
-                                        }
-                                )
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(expandedTitleHeight)
-                                    .padding(top = 2.dp)
-                                    .graphicsLayer {
-                                        alpha = expandedTitleAlpha
-                                        translationY = expandedTitleTranslateY
-                                    }
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.page_title),
-                                    color = palette.textPrimary,
-                                    fontSize = spec.titleSize,
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
-
-                            Column(
-                                modifier = Modifier
-                                    .padding(top = chipsTopPadding, bottom = chipBottomPadding)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .horizontalScroll(rememberScrollState())
+                                        .fillMaxWidth()
+                                        .height(spec.topActionButtonSize),
                                 ) {
-                                    FilterChip(
-                                        spec = spec,
-                                        text = buildFilterChipText(stringResource(R.string.filter_all), filterChipCounts.all),
-                                        selected = selectedFilter == FILTER_ALL
-                                    ) {
-                                        expandedPrimaryFilter = null
-                                        onFilterSelect(FILTER_ALL)
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    FilterChip(
-                                        spec = spec,
-                                        text = buildFilterChipText(stringResource(R.string.filter_quick), filterChipCounts.quick),
-                                        selected = selectedFilter == FILTER_QUICK
-                                    ) {
-                                        expandedPrimaryFilter = null
-                                        onFilterSelect(FILTER_QUICK)
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    PrimaryFilterChip(
-                                        spec = spec,
-                                        text = buildFilterChipText(stringResource(R.string.filter_life), filterChipCounts.life),
-                                        selected = selectedFilter == FILTER_LIFE,
-                                        showExpandIndicator = selectedFilter == FILTER_LIFE,
-                                        expanded = selectedFilter == FILTER_LIFE && expandedPrimaryFilter == FILTER_LIFE
-                                    ) {
-                                        val wasSelected = selectedFilter == FILTER_LIFE
-                                        val wasExpanded = expandedPrimaryFilter == FILTER_LIFE
-                                        if (selectedSecondaryByPrimary[FILTER_LIFE] == null) {
-                                            val lifeDefault = CategoryCatalog.getLifeCategories()
-                                                .firstOrNull()
-                                                ?.categoryCode
-                                            if (lifeDefault != null) {
-                                                selectedSecondaryByPrimary =
-                                                    selectedSecondaryByPrimary + (FILTER_LIFE to lifeDefault)
+                                    GlassIconCircleButton(
+                                        iconRes = R.drawable.ic_sheet_close,
+                                        contentDescription = stringResource(R.string.cancel),
+                                        onClick = {
+                                            selectionModeActive = false
+                                            selectedRecordIds = emptySet()
+                                            showDeleteConfirm = false
+                                        },
+                                        modifier = Modifier.align(Alignment.CenterStart),
+                                        size = spec.topActionButtonSize
+                                    )
+                                    Text(
+                                        text = getString(R.string.selected_count_format, selectedRecords.size),
+                                        color = palette.textPrimary,
+                                        fontSize = if (spec.isNarrow) 20.sp else 22.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.align(Alignment.Center)
+                                    )
+                                    GlassIconCircleButton(
+                                        iconRes = if (allVisibleRecordsSelected) {
+                                            R.drawable.ic_sheet_deselect_all
+                                        } else {
+                                            R.drawable.ic_sheet_select_all
+                                        },
+                                        contentDescription = if (allVisibleRecordsSelected) {
+                                            "取消全选"
+                                        } else {
+                                            "全选"
+                                        },
+                                        onClick = {
+                                            selectedRecordIds = if (allVisibleRecordsSelected) {
+                                                emptySet()
+                                            } else {
+                                                filteredRecords.map { it.recordId }.toSet()
                                             }
-                                        }
-                                        expandedPrimaryFilter = if (wasSelected && wasExpanded) null else FILTER_LIFE
-                                        onFilterSelect(FILTER_LIFE)
-                                    }
-                                    Spacer(modifier = Modifier.width(10.dp))
-                                    PrimaryFilterChip(
+                                            showDeleteConfirm = false
+                                        },
+                                        modifier = Modifier.align(Alignment.CenterEnd),
+                                        size = spec.topActionButtonSize
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                            } else {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(spec.topActionButtonSize)
+                                ) {
+                                    NoMemoTopActionButtons(
                                         spec = spec,
-                                        text = buildFilterChipText(stringResource(R.string.filter_work), filterChipCounts.work),
-                                        selected = selectedFilter == FILTER_WORK,
-                                        showExpandIndicator = selectedFilter == FILTER_WORK,
-                                        expanded = selectedFilter == FILTER_WORK && expandedPrimaryFilter == FILTER_WORK
-                                    ) {
-                                        val wasSelected = selectedFilter == FILTER_WORK
-                                        val wasExpanded = expandedPrimaryFilter == FILTER_WORK
-                                        if (selectedSecondaryByPrimary[FILTER_WORK] == null) {
-                                            val workDefault = CategoryCatalog.getWorkCategories()
-                                                .firstOrNull()
-                                                ?.categoryCode
-                                            if (workDefault != null) {
-                                                selectedSecondaryByPrimary =
-                                                    selectedSecondaryByPrimary + (FILTER_WORK to workDefault)
+                                        onSearchClick = onOpenSearch,
+                                        onMoreClick = { moreMenuExpanded = !moreMenuExpanded },
+                                        onMoreButtonBoundsChanged = { moreMenuAnchorBounds = it },
+                                        modifier = Modifier.align(Alignment.TopStart)
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.page_title),
+                                        color = palette.textPrimary,
+                                        fontSize = if (spec.isNarrow) 18.sp else 19.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        modifier = Modifier
+                                            .align(Alignment.Center)
+                                            .graphicsLayer {
+                                                alpha = collapsedTitleAlpha
                                             }
-                                        }
-                                        expandedPrimaryFilter = if (wasSelected && wasExpanded) null else FILTER_WORK
-                                        onFilterSelect(FILTER_WORK)
-                                    }
+                                    )
                                 }
 
-                                AnimatedVisibility(
-                                    visible = showSecondaryCategoryChips,
-                                    enter = expandVertically(
-                                        expandFrom = Alignment.Top,
-                                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                                    ) + fadeIn(
-                                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
-                                    ),
-                                    exit = shrinkVertically(
-                                        shrinkTowards = Alignment.Top,
-                                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
-                                    ) + fadeOut(
-                                        animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
-                                    )
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(expandedTitleHeight)
+                                        .padding(top = 2.dp)
+                                        .graphicsLayer {
+                                            alpha = expandedTitleAlpha
+                                            translationY = expandedTitleTranslateY
+                                        }
                                 ) {
-                                    Crossfade(
-                                        targetState = selectedFilter,
-                                        animationSpec = tween(
-                                            durationMillis = 180,
-                                            easing = FastOutSlowInEasing
-                                        ),
-                                        label = "secondaryCategoryCrossfade"
-                                    ) { currentPrimary ->
-                                        val currentSecondaryCategories = getSecondaryCategoriesForPrimary(currentPrimary)
-                                        Row(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(top = 10.dp)
-                                                .horizontalScroll(rememberScrollState())
+                                    Text(
+                                        text = stringResource(R.string.page_title),
+                                        color = palette.textPrimary,
+                                        fontSize = spec.titleSize,
+                                        fontWeight = FontWeight.Bold
+                                    )
+                                }
+
+                                Column(
+                                    modifier = Modifier
+                                        .padding(top = chipsTopPadding, bottom = chipBottomPadding)
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .horizontalScroll(rememberScrollState())
+                                    ) {
+                                        FilterChip(
+                                            spec = spec,
+                                            text = buildFilterChipText(stringResource(R.string.filter_all), filterChipCounts.all),
+                                            selected = selectedFilter == FILTER_ALL
                                         ) {
-                                            currentSecondaryCategories.forEachIndexed { index, option ->
-                                                SecondaryFilterChip(
-                                                    spec = spec,
-                                                    categoryCode = option.categoryCode,
-                                                    text = buildSecondaryFilterChipText(
-                                                        option.categoryName,
-                                                        categoryCountMap[option.categoryCode] ?: 0
-                                                    ),
-                                                    selected = selectedSecondaryCode == option.categoryCode,
-                                                    onClick = {
-                                                        selectedSecondaryByPrimary =
-                                                            selectedSecondaryByPrimary + (selectedFilter to option.categoryCode)
+                                            expandedPrimaryFilter = null
+                                            onFilterSelect(FILTER_ALL)
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        FilterChip(
+                                            spec = spec,
+                                            text = buildFilterChipText(stringResource(R.string.filter_quick), filterChipCounts.quick),
+                                            selected = selectedFilter == FILTER_QUICK
+                                        ) {
+                                            expandedPrimaryFilter = null
+                                            onFilterSelect(FILTER_QUICK)
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        PrimaryFilterChip(
+                                            spec = spec,
+                                            text = buildFilterChipText(stringResource(R.string.filter_life), filterChipCounts.life),
+                                            selected = selectedFilter == FILTER_LIFE,
+                                            showExpandIndicator = selectedFilter == FILTER_LIFE,
+                                            expanded = selectedFilter == FILTER_LIFE && expandedPrimaryFilter == FILTER_LIFE
+                                        ) {
+                                            val wasSelected = selectedFilter == FILTER_LIFE
+                                            val wasExpanded = expandedPrimaryFilter == FILTER_LIFE
+                                            if (selectedSecondaryByPrimary[FILTER_LIFE] == null) {
+                                                val lifeDefault = CategoryCatalog.getLifeCategories()
+                                                    .firstOrNull()
+                                                    ?.categoryCode
+                                                if (lifeDefault != null) {
+                                                    selectedSecondaryByPrimary =
+                                                        selectedSecondaryByPrimary + (FILTER_LIFE to lifeDefault)
+                                                }
+                                            }
+                                            expandedPrimaryFilter = if (wasSelected && wasExpanded) null else FILTER_LIFE
+                                            onFilterSelect(FILTER_LIFE)
+                                        }
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        PrimaryFilterChip(
+                                            spec = spec,
+                                            text = buildFilterChipText(stringResource(R.string.filter_work), filterChipCounts.work),
+                                            selected = selectedFilter == FILTER_WORK,
+                                            showExpandIndicator = selectedFilter == FILTER_WORK,
+                                            expanded = selectedFilter == FILTER_WORK && expandedPrimaryFilter == FILTER_WORK
+                                        ) {
+                                            val wasSelected = selectedFilter == FILTER_WORK
+                                            val wasExpanded = expandedPrimaryFilter == FILTER_WORK
+                                            if (selectedSecondaryByPrimary[FILTER_WORK] == null) {
+                                                val workDefault = CategoryCatalog.getWorkCategories()
+                                                    .firstOrNull()
+                                                    ?.categoryCode
+                                                if (workDefault != null) {
+                                                    selectedSecondaryByPrimary =
+                                                        selectedSecondaryByPrimary + (FILTER_WORK to workDefault)
+                                                }
+                                            }
+                                            expandedPrimaryFilter = if (wasSelected && wasExpanded) null else FILTER_WORK
+                                            onFilterSelect(FILTER_WORK)
+                                        }
+                                    }
+
+                                    AnimatedVisibility(
+                                        visible = showSecondaryCategoryChips,
+                                        enter = expandVertically(
+                                            expandFrom = Alignment.Top,
+                                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                                        ) + fadeIn(
+                                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                                        ),
+                                        exit = shrinkVertically(
+                                            shrinkTowards = Alignment.Top,
+                                            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                                        ) + fadeOut(
+                                            animationSpec = tween(durationMillis = 200, easing = FastOutSlowInEasing)
+                                        )
+                                    ) {
+                                        Crossfade(
+                                            targetState = selectedFilter,
+                                            animationSpec = tween(
+                                                durationMillis = 180,
+                                                easing = FastOutSlowInEasing
+                                            ),
+                                            label = "secondaryCategoryCrossfade"
+                                        ) { currentPrimary ->
+                                            val currentSecondaryCategories = getSecondaryCategoriesForPrimary(currentPrimary)
+                                            Row(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(top = 10.dp)
+                                                    .horizontalScroll(rememberScrollState())
+                                            ) {
+                                                currentSecondaryCategories.forEachIndexed { index, option ->
+                                                    SecondaryFilterChip(
+                                                        spec = spec,
+                                                        categoryCode = option.categoryCode,
+                                                        text = buildSecondaryFilterChipText(
+                                                            option.categoryName,
+                                                            categoryCountMap[option.categoryCode] ?: 0
+                                                        ),
+                                                        selected = selectedSecondaryCode == option.categoryCode,
+                                                        onClick = {
+                                                            selectedSecondaryByPrimary =
+                                                                selectedSecondaryByPrimary + (selectedFilter to option.categoryCode)
+                                                        }
+                                                    )
+                                                    if (index < currentSecondaryCategories.lastIndex) {
+                                                        Spacer(modifier = Modifier.width(8.dp))
                                                     }
-                                                )
-                                                if (index < currentSecondaryCategories.lastIndex) {
-                                                    Spacer(modifier = Modifier.width(8.dp))
                                                 }
                                             }
                                         }
@@ -1011,6 +1016,8 @@ class MainActivity : BaseComposeActivity() {
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
+                                    .zIndex(0f)
+                                    .clipToBounds()
                             ) {
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),

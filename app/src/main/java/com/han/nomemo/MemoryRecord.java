@@ -26,6 +26,7 @@ public class MemoryRecord {
     private final long reminderAt;
     private final boolean reminderDone;
     private final boolean archived;
+    private final String structuredFactsJson;
 
     public MemoryRecord(
             long createdAt,
@@ -62,7 +63,49 @@ public class MemoryRecord {
                 categoryName,
                 reminderAt,
                 reminderDone,
-                archived
+                archived,
+                ""
+        );
+    }
+
+    public MemoryRecord(
+            long createdAt,
+            String mode,
+            String title,
+            String summary,
+            String sourceText,
+            String note,
+            String imageUri,
+            String analysis,
+            String memory,
+            String engine,
+            String categoryGroupCode,
+            String categoryCode,
+            String categoryName,
+            long reminderAt,
+            boolean reminderDone,
+            boolean archived,
+            String structuredFactsJson
+    ) {
+        this(
+                UUID.randomUUID().toString(),
+                createdAt,
+                mode,
+                title,
+                summary,
+                sourceText,
+                note,
+                imageUri,
+                analysis,
+                memory,
+                engine,
+                categoryGroupCode,
+                categoryCode,
+                categoryName,
+                reminderAt,
+                reminderDone,
+                archived,
+                structuredFactsJson
         );
     }
 
@@ -85,6 +128,48 @@ public class MemoryRecord {
             boolean reminderDone,
             boolean archived
     ) {
+        this(
+                recordId,
+                createdAt,
+                mode,
+                title,
+                summary,
+                sourceText,
+                note,
+                imageUri,
+                analysis,
+                memory,
+                engine,
+                categoryGroupCode,
+                categoryCode,
+                categoryName,
+                reminderAt,
+                reminderDone,
+                archived,
+                ""
+        );
+    }
+
+    public MemoryRecord(
+            String recordId,
+            long createdAt,
+            String mode,
+            String title,
+            String summary,
+            String sourceText,
+            String note,
+            String imageUri,
+            String analysis,
+            String memory,
+            String engine,
+            String categoryGroupCode,
+            String categoryCode,
+            String categoryName,
+            long reminderAt,
+            boolean reminderDone,
+            boolean archived,
+            String structuredFactsJson
+    ) {
         this.recordId = recordId;
         this.createdAt = createdAt;
         this.mode = mode;
@@ -102,6 +187,7 @@ public class MemoryRecord {
         this.reminderAt = reminderAt;
         this.reminderDone = reminderDone;
         this.archived = archived;
+        this.structuredFactsJson = structuredFactsJson == null ? "" : structuredFactsJson;
     }
 
     public String getRecordId() {
@@ -172,6 +258,10 @@ public class MemoryRecord {
         return archived;
     }
 
+    public String getStructuredFactsJson() {
+        return structuredFactsJson;
+    }
+
     public MemoryRecord withReminderDone(boolean done) {
         return new MemoryRecord(
                 recordId,
@@ -190,7 +280,8 @@ public class MemoryRecord {
                 categoryName,
                 reminderAt,
                 done,
-                archived
+                archived,
+                structuredFactsJson
         );
     }
 
@@ -212,7 +303,8 @@ public class MemoryRecord {
                 categoryName,
                 reminderAt,
                 reminderDone,
-                archivedValue
+                archivedValue,
+                structuredFactsJson
         );
     }
 
@@ -235,6 +327,7 @@ public class MemoryRecord {
         json.put("reminderAt", reminderAt);
         json.put("reminderDone", reminderDone);
         json.put("archived", archived);
+        json.put("structuredFactsJson", structuredFactsJson);
         return json;
     }
 
@@ -276,7 +369,8 @@ public class MemoryRecord {
                 categoryName,
                 json.optLong("reminderAt", 0L),
                 json.optBoolean("reminderDone", false),
-                json.optBoolean("archived", false)
+                json.optBoolean("archived", false),
+                json.optString("structuredFactsJson", "")
         );
     }
 

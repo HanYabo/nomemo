@@ -30,7 +30,7 @@ import java.lang.reflect.Method;
 public final class AiSummaryNotifier {
     private static final String CHANNEL_ID = "nomemo_ai_summary";
     private static final String CHANNEL_NAME = "AI摘要通知";
-    private static final String CHANNEL_DESCRIPTION = "AI记忆完成整理后生成摘要通知";
+    private static final String CHANNEL_DESCRIPTION = "AI或本地兜底完成记忆整理后发送通知";
 
     private static final String MIUI_FOCUS_PARAM_KEY = "miui.focus.param";
     private static final String MIUI_FOCUS_PICS_KEY = "miui.focus.pics";
@@ -74,19 +74,36 @@ public final class AiSummaryNotifier {
             return;
         }
 
-        String title = firstNonBlank(record.getTitle(), "AI 已生成记忆摘要");
-        String summary = firstNonBlank(
-                record.getSummary(),
-                record.getAnalysis(),
-                record.getMemory(),
-                "点按查看 AI 整理后的完整内容"
-        );
-        String bigText = firstNonBlank(
-                record.getSummary(),
-                record.getAnalysis(),
-                record.getMemory(),
-                "AI 已完成当前记忆的内容整理。"
-        );
+        boolean localFallback = "local".equalsIgnoreCase(record.getEngine());
+        String displayTitle = context.getString(localFallback
+                ? R.string.ai_local_notification_title
+                : R.string.ai_notification_title);
+        String displaySummary = localFallback
+                ? context.getString(R.string.ai_local_notification_summary)
+                : firstNonBlank(
+                        record.getSummary(),
+                        record.getAnalysis(),
+                        record.getMemory(),
+                        context.getString(R.string.ai_notification_summary)
+                );
+        String displayBigText = localFallback
+                ? firstNonBlank(
+                        record.getAnalysis(),
+                        record.getMemory(),
+                        context.getString(R.string.ai_local_notification_big_text)
+                )
+                : firstNonBlank(
+                        record.getSummary(),
+                        record.getAnalysis(),
+                        record.getMemory(),
+                        context.getString(R.string.ai_notification_big_text)
+                );
+        String displayFrontTitle = context.getString(localFallback
+                ? R.string.ai_local_notification_front_title
+                : R.string.ai_notification_front_title);
+        String displayStyleSummary = context.getString(localFallback
+                ? R.string.ai_local_notification_style_summary
+                : R.string.ai_notification_style_summary);
 
         Intent detailIntent = MemoryDetailActivity.createIntent(context, record.getRecordId())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -101,8 +118,8 @@ public final class AiSummaryNotifier {
 
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
                 .setSmallIcon(R.drawable.ic_nm_memory)
-                .setContentTitle(title)
-                .setContentText(summary)
+                .setContentTitle(displayTitle)
+                .setContentText(displaySummary)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setCategory(NotificationCompat.CATEGORY_MESSAGE)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
@@ -116,17 +133,17 @@ public final class AiSummaryNotifier {
             builder.setStyle(new NotificationCompat.BigPictureStyle()
                     .bigPicture(previewBitmap)
                     .bigLargeIcon((Bitmap) null)
-                    .setBigContentTitle(title)
-                    .setSummaryText(summary));
+                    .setBigContentTitle(displayTitle)
+                    .setSummaryText(displaySummary));
             builder.setLargeIcon(previewBitmap);
         } else {
             builder.setStyle(new NotificationCompat.BigTextStyle()
-                    .setBigContentTitle(title)
-                    .bigText(bigText)
-                    .setSummaryText("AI 记忆已更新"));
+                    .setBigContentTitle(displayTitle)
+                    .bigText(displayBigText)
+                    .setSummaryText(displayStyleSummary));
         }
 
-        applyMiuiIslandExtras(context, builder, title, summary, bigText);
+        applyMiuiIslandExtras(context, builder, displayFrontTitle, displayTitle, displaySummary, displayBigText);
         NotificationManagerCompat.from(context)
                 .notify(record.getRecordId().hashCode(), builder.build());
     }
@@ -134,6 +151,7 @@ public final class AiSummaryNotifier {
     private static void applyMiuiIslandExtras(
             Context context,
             NotificationCompat.Builder builder,
+            String frontTitle,
             String title,
             String summary,
             String bigText
@@ -192,7 +210,7 @@ public final class AiSummaryNotifier {
             imageTextInfoLeft.put("picInfo", leftPicInfo);
 
             JSONObject leftTextInfo = new JSONObject();
-            leftTextInfo.put("frontTitle", "AI 摘要");
+            leftTextInfo.put("frontTitle", frontTitle);
             leftTextInfo.put("title", title);
             leftTextInfo.put("content", summary);
             leftTextInfo.put("useHighLight", false);
@@ -228,7 +246,7 @@ public final class AiSummaryNotifier {
 
             JSONObject hintInfo = new JSONObject();
             hintInfo.put("type", 1);
-            hintInfo.put("title", "AI 摘要已生成");
+            hintInfo.put("title", frontTitle);
             JSONObject actionInfo = new JSONObject();
             actionInfo.put("action", MIUI_FOCUS_ACTION_OPEN);
             hintInfo.put("actionInfo", actionInfo);
@@ -270,7 +288,7 @@ public final class AiSummaryNotifier {
             Bundle extras = new Bundle();
             extras.putString("package", context.getPackageName());
             Bundle result = context.getContentResolver().call(
-                    android.net.Uri.parse(MIUI_FOCUS_PERMISSION_URI),
+                    Uri.parse(MIUI_FOCUS_PERMISSION_URI),
                     "canShowFocus",
                     null,
                     extras

@@ -84,6 +84,7 @@ dependencies {
     implementation("androidx.core:core:1.17.0")
     implementation("com.google.android.material:material:1.13.0")
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
 }
