@@ -28,6 +28,13 @@ object AiInitialAnalysisWorkScheduler {
     }
 
     @JvmStatic
+    fun cancel(context: Context, recordId: String) {
+        if (recordId.isBlank()) return
+        WorkManager.getInstance(context.applicationContext)
+            .cancelUniqueWork(AI_INITIAL_ANALYSIS_WORK_NAME_PREFIX + recordId)
+    }
+
+    @JvmStatic
     fun recoverPendingRecords(context: Context) {
         val appContext = context.applicationContext
         val memoryStore = MemoryStore(appContext)
@@ -141,8 +148,14 @@ class AiInitialAnalysisWorker(
         try {
             AiProcessingStateRegistry.markProcessing(recordId, initialAttempt, initialAttemptLimit)
             updatePendingState(memoryStore, currentRecord, policy, initialAttempt, initialAttemptLimit)
+            if (!isCurrentInitialAnalysisStillActive(memoryStore, recordId)) {
+                return Result.success()
+            }
             val outcome = try {
                 orchestrator.runInitialAnalysis(input, imageUri) { attempt, limit ->
+                    if (isStopped || !isCurrentInitialAnalysisStillActive(memoryStore, recordId)) {
+                        return@runInitialAnalysis
+                    }
                     val latest = memoryStore.findRecordById(recordId) ?: currentRecord
                     updatePendingState(memoryStore, latest, policy, attempt, limit)
                 }
@@ -153,6 +166,9 @@ class AiInitialAnalysisWorker(
                     exception
                 )
                 null
+            }
+            if (isStopped || !isCurrentInitialAnalysisStillActive(memoryStore, recordId)) {
+                return Result.success()
             }
             val latestRecord = memoryStore.findRecordById(recordId) ?: currentRecord
             if (outcome != null && !outcome.isSuccess) {
@@ -168,6 +184,9 @@ class AiInitialAnalysisWorker(
             } else {
                 buildLocalFallbackRecord(appContext, latestRecord)
             }
+            if (isStopped || !isCurrentInitialAnalysisStillActive(memoryStore, recordId)) {
+                return Result.success()
+            }
             val updated = memoryStore.updateRecord(resolved)
             if (!updated) {
                 memoryStore.prependRecord(resolved)
@@ -179,6 +198,18 @@ class AiInitialAnalysisWorker(
         }
     }
 
+    private fun isCurrentInitialAnalysisStillActive(
+        memoryStore: MemoryStore,
+        recordId: String
+    ): Boolean {
+        if (isStopped) {
+            return false
+        }
+        val latest = memoryStore.findRecordById(recordId) ?: return false
+        val state = AiAnalysisStateJson.parse(latest.aiAnalysisStateJson) ?: return false
+        return state.isActive && state.operationKind == AiOperationKind.INITIAL_ANALYSIS
+    }
+
     private fun updatePendingState(
         memoryStore: MemoryStore,
         record: MemoryRecord,
@@ -186,6 +217,9 @@ class AiInitialAnalysisWorker(
         attempt: Int,
         attemptLimit: Int
     ) {
+        if (isStopped || !isCurrentInitialAnalysisStillActive(memoryStore, record.recordId)) {
+            return
+        }
         val updated = MemoryRecord(
             record.recordId,
             record.createdAt,

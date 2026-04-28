@@ -109,7 +109,9 @@ object MemoryDetailParser {
                 primaryValue = fallbackStructuredValue(company),
                 secondaryLabel = "取件地址",
                 secondaryValue = fallbackStructuredValue(extractDeliveryAddress(sourceParts, source, lines)),
-                locationText = extractDeliveryAddress(sourceParts, source, lines)
+                locationText = extractDeliveryAddress(sourceParts, source, lines),
+                navigationLatitude = null,
+                navigationLongitude = null
             )
         } else {
             StructuredPickupInfo(
@@ -119,7 +121,9 @@ object MemoryDetailParser {
                 primaryValue = fallbackStructuredValue(company),
                 secondaryLabel = "商品",
                 secondaryValue = fallbackStructuredValue(extractPickupItem(sourceParts, source, lines, company)),
-                locationText = extractPickupLocation(sourceParts, source, lines, company)
+                locationText = extractPickupLocation(sourceParts, source, lines, company),
+                navigationLatitude = null,
+                navigationLongitude = null
             )
         }
     }

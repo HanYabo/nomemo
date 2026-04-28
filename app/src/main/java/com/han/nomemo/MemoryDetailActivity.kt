@@ -18,60 +18,40 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Transition
 import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentHeight
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -80,21 +60,16 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -103,10 +78,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.PlatformTextStyle
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
@@ -116,6 +88,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import coil3.SingletonImageLoader
@@ -132,7 +105,6 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.InputStream
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
@@ -141,10 +113,8 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import kotlin.math.abs
 import kotlin.math.roundToInt
 
 private object MemoryDetailReanalyzeScope {
@@ -204,7 +174,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 onToggleArchive = { currentRecord -> toggleArchive(currentRecord) },
                 onDelete = { currentRecord -> deleteRecord(currentRecord) },
                 onReanalyze = { currentRecord -> reanalyzeRecord(currentRecord) },
-                onCancelReanalyze = { cancelReanalyze() }
+                onCancelReanalyze = { cancelActiveAiAnalysis() }
             )
         }
     }
@@ -300,6 +270,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val sectionTitle: String,
         val primaryLabel: String,
         val secondaryLabel: String
+    )
+
+    private data class ImageGpsInfo(
+        val latitude: Double,
+        val longitude: Double
     )
 
     private fun structuredPresentation(categoryCode: String): StructuredCategoryPresentation? {
@@ -711,6 +686,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }
     }
 
+    private fun cancelActiveAiAnalysis() {
+        val currentRecord = record ?: return
+        when {
+            reanalyzing -> cancelReanalyze()
+            isInitialAiAnalysisCancelable(currentRecord) -> cancelInitialAnalysis(currentRecord)
+        }
+    }
+
     private fun cancelReanalyze() {
         val baseRecord = reanalyzeBaseRecord ?: return
         val sessionId = activeReanalyzeSessionId
@@ -722,6 +705,16 @@ class MemoryDetailActivity : BaseComposeActivity() {
         AiProcessingStateRegistry.clearProcessing(baseRecord.recordId)
         lifecycleScope.launch(Dispatchers.IO) {
             memoryStore.updateRecord(baseRecord)
+        }
+    }
+
+    private fun cancelInitialAnalysis(currentRecord: MemoryRecord) {
+        val canceledRecord = buildCanceledInitialAnalysisRecord(currentRecord)
+        AiInitialAnalysisWorkScheduler.cancel(applicationContext, currentRecord.recordId)
+        AiProcessingStateRegistry.clearProcessing(currentRecord.recordId)
+        record = canceledRecord
+        lifecycleScope.launch(Dispatchers.IO) {
+            memoryStore.updateRecord(canceledRecord)
         }
     }
 
@@ -829,6 +822,72 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun showUiFailureHintDismissed(updatedRecord: MemoryRecord) {
         record = updatedRecord
+    }
+
+    private fun isInitialAiAnalysisCancelable(record: MemoryRecord): Boolean {
+        val state = AiAnalysisStateJson.parse(record.aiAnalysisStateJson) ?: return false
+        return state.isActive && state.operationKind == AiOperationKind.INITIAL_ANALYSIS
+    }
+
+    private fun buildCanceledInitialAnalysisRecord(baseRecord: MemoryRecord): MemoryRecord {
+        val rawSourceText = baseRecord.sourceText?.trim().orEmpty()
+        val memoryText = rawSourceText.ifBlank {
+            baseRecord.memory?.trim().orEmpty().takeIf { it.isNotBlank() && !isAiPlaceholderText(it) }
+                ?: "已保存图片记忆"
+        }
+        val fallbackCategory = resolveCategoryOption(baseRecord)
+        val title = rawSourceText
+            .takeIf { it.isNotBlank() }
+            ?.let { compactPendingTitle(it, fallbackCategory.categoryName) }
+            ?: baseRecord.title
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                ?: if (baseRecord.imageUri.isNullOrBlank()) fallbackCategory.categoryName else "图片记忆"
+        val summary = rawSourceText
+            .takeIf { it.isNotBlank() }
+            ?.let { compactPendingSummary(it, memoryText) }
+            ?: baseRecord.summary
+                ?.trim()
+                ?.takeIf { it.isNotEmpty() && !it.contains("AI 正在生成摘要") && !it.contains("AI 完成后会自动更新") }
+                ?: memoryText
+        val analysis = baseRecord.analysis
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+            ?: summary
+        return MemoryRecord(
+            baseRecord.recordId,
+            baseRecord.createdAt,
+            baseRecord.mode,
+            title,
+            summary,
+            baseRecord.sourceText,
+            baseRecord.note,
+            baseRecord.imageUri,
+            analysis,
+            memoryText,
+            "manual",
+            baseRecord.categoryGroupCode,
+            baseRecord.categoryCode,
+            baseRecord.categoryName,
+            baseRecord.reminderAt,
+            baseRecord.isReminderDone,
+            baseRecord.isArchived,
+            baseRecord.structuredFactsJson,
+            "",
+            ""
+        )
+    }
+
+    private fun compactPendingTitle(text: String, fallback: String): String {
+        val value = if (text.isBlank()) fallback else text
+        val single = value.replace('\n', ' ').trim()
+        return if (single.length <= 18) single else single.substring(0, 18) + "..."
+    }
+
+    private fun compactPendingSummary(text: String, fallback: String): String {
+        val value = if (text.isBlank()) fallback else text
+        val single = value.replace('\n', ' ').trim()
+        return if (single.length <= 42) single else single.substring(0, 42) + "..."
     }
 
     private fun copyRecordWithAiState(
@@ -1209,23 +1268,42 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         var categoryMenuExpanded by remember(currentRecord.recordId) {
                             mutableStateOf(false)
                         }
+                        var detailImageGpsInfo by remember(currentRecord.recordId, currentRecord.imageUri) {
+                            mutableStateOf<ImageGpsInfo?>(null)
+                        }
+                        val displayPickupInfo = remember(pickupInfo, detailImageGpsInfo, editing) {
+                            if (editing) {
+                                pickupInfo
+                            } else {
+                                enrichPickupInfoWithGps(pickupInfo, detailImageGpsInfo)
+                            }
+                        }
+                        val displayLocationInfo = remember(displayPickupInfo, detailImageGpsInfo, editing) {
+                            val gpsInfo = detailImageGpsInfo
+                            when {
+                                editing -> displayPickupInfo
+                                displayPickupInfo?.hasNavigableLocation == true -> displayPickupInfo
+                                gpsInfo != null -> buildGpsLocationOnlyInfo(gpsInfo)
+                                else -> null
+                            }
+                        }
                         val initialStructuredFields = remember(
                             currentRecord.recordId,
                             currentRecord.categoryCode,
-                            pickupInfo?.code,
-                            pickupInfo?.primaryValue,
-                            pickupInfo?.secondaryValue,
-                            pickupInfo?.locationText
+                            displayPickupInfo?.code,
+                            displayPickupInfo?.primaryValue,
+                            displayPickupInfo?.secondaryValue,
+                            displayPickupInfo?.locationText
                         ) {
-                            buildEditableStructuredFields(currentRecord.categoryCode, pickupInfo)
+                            buildEditableStructuredFields(currentRecord.categoryCode, displayPickupInfo)
                         }
                         var draftStructuredFields by remember(
                             currentRecord.recordId,
                             currentRecord.categoryCode,
-                            pickupInfo?.code,
-                            pickupInfo?.primaryValue,
-                            pickupInfo?.secondaryValue,
-                            pickupInfo?.locationText
+                            displayPickupInfo?.code,
+                            displayPickupInfo?.primaryValue,
+                            displayPickupInfo?.secondaryValue,
+                            displayPickupInfo?.locationText
                         ) {
                             mutableStateOf(initialStructuredFields)
                         }
@@ -1264,6 +1342,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         LaunchedEffect(displayImageUri) {
                             detailImageAspectRatio = withContext(Dispatchers.IO) {
                                 resolveImageAspectRatio(displayImageUri)
+                            }
+                            detailImageGpsInfo = withContext(Dispatchers.IO) {
+                                resolveImageGpsInfo(displayImageUri)
                             }
                         }
                         val detailImageWidthFraction = remember(detailImageAspectRatio) {
@@ -1432,7 +1513,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     },
                                 shape = noMemoG2RoundedShape(28.dp),
                                 colors = CardDefaults.cardColors(containerColor = noMemoCardSurfaceColor(isSystemInDarkTheme(), palette.glassFill)),
-                                border = BorderStroke(1.dp, palette.glassStroke)
+                                border = noMemoMemoryImageBorder(palette)
                             ) {
                                 AsyncImage(
                                     model = remember(displayImageUri) {
@@ -1595,7 +1676,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 }
                             )
                         } else if (!editing) {
-                            pickupInfo?.let { info ->
+                            displayPickupInfo?.let { info ->
                                 Text(
                                     text = info.sectionTitle,
                                     color = palette.textPrimary,
@@ -1611,24 +1692,30 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         top = sectionCardTopSpacing
                                     )
                                 )
-                                if (!info.locationText.isNullOrBlank()) {
-                                    Text(
-                                        text = "地点",
-                                        color = palette.textPrimary,
-                                        fontSize = 17.sp,
-                                        fontWeight = FontWeight.SemiBold,
+                            }
+                            displayLocationInfo?.takeIf { it.hasNavigableLocation }?.let { info ->
+                                Text(
+                                    text = "地点",
+                                    color = palette.textPrimary,
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.SemiBold,
                                     modifier = Modifier.padding(start = sectionTitleStartPadding, top = sectionTitleTopSpacing)
-                                    )
-                                    NoMemoPickupLocationCard(
-                                        info = info,
-                                        modifier = Modifier.padding(
-                                            start = detailTextStartPadding,
-                                            end = detailTextStartPadding,
-                                            top = sectionCardTopSpacing
-                                        ),
-                                        onNavigate = { query -> openNavigation(query) }
-                                    )
-                                }
+                                )
+                                NoMemoPickupLocationCard(
+                                    info = info,
+                                    modifier = Modifier.padding(
+                                        start = detailTextStartPadding,
+                                        end = detailTextStartPadding,
+                                        top = sectionCardTopSpacing
+                                    ),
+                                    onNavigate = { navigationInfo ->
+                                        openNavigation(
+                                            query = navigationInfo.locationText,
+                                            latitude = navigationInfo.navigationLatitude,
+                                            longitude = navigationInfo.navigationLongitude
+                                        )
+                                    }
+                                )
                             }
                         }
 
@@ -1659,6 +1746,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         } else if (aiEnabled) {
                             val aiVisualState = rememberAiVisualState(currentRecord)
                             val buttonProcessing = reanalyzing || aiVisualState.isProcessing
+                            val cancelableAnalysis = reanalyzing || isInitialAiAnalysisCancelable(currentRecord)
                             NoMemoDetailReanalyzeButton(
                                 text = when {
                                     aiVisualState.isProcessing -> aiVisualState.displayText
@@ -1666,7 +1754,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     else -> "AI分析"
                                 },
                                 processing = buttonProcessing,
-                                cancelable = reanalyzing,
+                                cancelable = cancelableAnalysis,
                                 modifier = Modifier.padding(
                                     start = detailTextStartPadding,
                                     end = detailTextStartPadding,
@@ -1814,6 +1902,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     message = "取消后将停止本次分析，并保留当前记忆内容。",
                     confirmText = "取消分析",
                     dismissText = "继续分析",
+                    destructive = true,
                     onConfirm = {
                         showCancelReanalyzeConfirm = false
                         onCancelReanalyze()
@@ -1937,6 +2026,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         }
         val previewZoomableVisible = transition.currentState && transition.targetState
         val previewZoomGestures = EnabledZoomGestures.ZoomAndPan
+        val previewZoomFraction = previewZoomableImageState.zoomableState.zoomFraction ?: 0f
+        val previewButtonsHidden = previewZoomableVisible && previewZoomFraction > 0.01f
         val previewBaseAlpha = if (previewZoomableVisible) 0f else 1f
         val previewZoomableAlpha = if (previewZoomableVisible) 1f else 0f
         val animatedRect = Rect(
@@ -1949,6 +2040,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val renderedCornerRadiusDp = animatedCornerRadius
         val renderedBackdropAlpha = previewAlpha.coerceIn(0f, 1f)
         val renderedButtonAlpha = buttonAlpha.coerceIn(0f, 1f)
+
+        LaunchedEffect(previewButtonsHidden, showPreviewActionMenu) {
+            if (previewButtonsHidden && showPreviewActionMenu) {
+                onPreviewActionMenuDismiss()
+            }
+        }
 
         Box(
             modifier = Modifier
@@ -2009,49 +2106,51 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 )
             }
 
-            MemoryDetailPreviewIconButton(
-                iconRes = R.drawable.ic_nm_more,
-                contentDescription = "更多操作",
-                onClick = onTogglePreviewActionMenu,
-                size = previewButtonSize,
-                onBoundsChanged = onPreviewActionMenuAnchorBoundsChanged,
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = statusBarHeightDp)
-                    .alpha(renderedButtonAlpha)
-                    .padding(
-                        top = (adaptive.pageTopPadding - 2.dp).coerceAtLeast(0.dp),
-                        end = adaptive.pageHorizontalPadding
-                    )
-            )
-            NoMemoAnchoredMenu(
-                expanded = showPreviewActionMenu,
-                onDismissRequest = onPreviewActionMenuDismiss,
-                anchorBounds = previewActionMenuAnchorBounds,
-                actions = listOf(
-                    NoMemoMenuActionItem(
-                        iconRes = R.drawable.ic_nm_download,
-                        label = "保存图片",
-                        onClick = onSavePreviewImage
-                    ),
-                    NoMemoMenuActionItem(
-                        iconRes = R.drawable.ic_nm_share,
-                        label = "分享图片",
-                        onClick = onSharePreviewImage
+            if (!previewButtonsHidden) {
+                MemoryDetailPreviewIconButton(
+                    iconRes = R.drawable.ic_nm_more,
+                    contentDescription = "更多操作",
+                    onClick = onTogglePreviewActionMenu,
+                    size = previewButtonSize,
+                    onBoundsChanged = onPreviewActionMenuAnchorBoundsChanged,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = statusBarHeightDp)
+                        .alpha(renderedButtonAlpha)
+                        .padding(
+                            top = (adaptive.pageTopPadding - 2.dp).coerceAtLeast(0.dp),
+                            end = adaptive.pageHorizontalPadding
+                        )
+                )
+                NoMemoAnchoredMenu(
+                    expanded = showPreviewActionMenu,
+                    onDismissRequest = onPreviewActionMenuDismiss,
+                    anchorBounds = previewActionMenuAnchorBounds,
+                    actions = listOf(
+                        NoMemoMenuActionItem(
+                            iconRes = R.drawable.ic_nm_download,
+                            label = "保存图片",
+                            onClick = onSavePreviewImage
+                        ),
+                        NoMemoMenuActionItem(
+                            iconRes = R.drawable.ic_nm_share,
+                            label = "分享图片",
+                            onClick = onSharePreviewImage
+                        )
                     )
                 )
-            )
-            MemoryDetailPreviewCloseButton(
-                iconRes = R.drawable.ic_sheet_close,
-                contentDescription = getString(R.string.cancel),
-                onClick = onDismiss,
-                size = previewCloseButtonSize,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .navigationBarsPadding()
-                    .alpha(renderedButtonAlpha)
-                    .padding(bottom = 18.dp)
-            )
+                MemoryDetailPreviewCloseButton(
+                    iconRes = R.drawable.ic_sheet_close,
+                    contentDescription = getString(R.string.cancel),
+                    onClick = onDismiss,
+                    size = previewCloseButtonSize,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .alpha(renderedButtonAlpha)
+                        .padding(bottom = 18.dp)
+                )
+            }
         }
     }
 
@@ -2083,15 +2182,26 @@ class MemoryDetailActivity : BaseComposeActivity() {
     }
 
 
-    private fun openNavigation(query: String) {
-        if (query.isBlank()) {
+    private fun openNavigation(
+        query: String?,
+        latitude: Double? = null,
+        longitude: Double? = null
+    ) {
+        val intents = mutableListOf<Intent>()
+        if (latitude != null && longitude != null) {
+            val latLng = String.format(Locale.US, "%.6f,%.6f", latitude, longitude)
+            intents += Intent(Intent.ACTION_VIEW, Uri.parse("geo:$latLng?q=$latLng"))
+            intents += Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=$latLng"))
+        }
+        val normalizedQuery = query?.trim().orEmpty()
+        if (normalizedQuery.isNotBlank()) {
+            val encoded = Uri.encode(normalizedQuery)
+            intents += Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encoded"))
+            intents += Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=$encoded"))
+        }
+        if (intents.isEmpty()) {
             return
         }
-        val encoded = Uri.encode(query)
-        val intents = listOf(
-            Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=$encoded")),
-            Intent(Intent.ACTION_VIEW, Uri.parse("https://maps.google.com/?q=$encoded"))
-        )
         for (intent in intents) {
             try {
                 startActivity(intent)
@@ -2100,6 +2210,46 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
         }
         Toast.makeText(this, "未找到可用地图应用", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun enrichPickupInfoWithGps(
+        info: StructuredPickupInfo?,
+        gpsInfo: ImageGpsInfo?
+    ): StructuredPickupInfo? {
+        info ?: return null
+        gpsInfo ?: return info
+        val locationText = info.locationText?.trim().orEmpty().ifBlank {
+            String.format(
+                Locale.getDefault(),
+                "图片定位 %.6f, %.6f",
+                gpsInfo.latitude,
+                gpsInfo.longitude
+            )
+        }
+        return info.copy(
+            locationText = locationText,
+            navigationLatitude = gpsInfo.latitude,
+            navigationLongitude = gpsInfo.longitude
+        )
+    }
+
+    private fun buildGpsLocationOnlyInfo(gpsInfo: ImageGpsInfo): StructuredPickupInfo {
+        return StructuredPickupInfo(
+            sectionTitle = "",
+            code = "",
+            primaryLabel = "",
+            primaryValue = "",
+            secondaryLabel = "",
+            secondaryValue = "",
+            locationText = String.format(
+                Locale.getDefault(),
+                "图片定位 %.6f, %.6f",
+                gpsInfo.latitude,
+                gpsInfo.longitude
+            ),
+            navigationLatitude = gpsInfo.latitude,
+            navigationLongitude = gpsInfo.longitude
+        )
     }
 
     private fun isAspectRatioCloseToScreen(imageAspectRatio: Float, screenAspectRatio: Float): Boolean {
@@ -2156,6 +2306,25 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 options.outWidth.toFloat() / options.outHeight.toFloat()
             } else {
                 null
+            }
+        }.getOrNull()
+    }
+
+    private fun resolveImageGpsInfo(uriString: String?): ImageGpsInfo? {
+        if (uriString.isNullOrBlank()) {
+            return null
+        }
+        return runCatching {
+            openImageInputStream(uriString)?.use { input ->
+                val exif = ExifInterface(input)
+                val latLong = exif.latLong ?: return@use null
+                if (latLong.size < 2) {
+                    return@use null
+                }
+                ImageGpsInfo(
+                    latitude = latLong[0],
+                    longitude = latLong[1]
+                )
             }
         }.getOrNull()
     }

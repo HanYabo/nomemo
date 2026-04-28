@@ -589,7 +589,9 @@ object MemoryFactReconciler {
                 primaryValue = fallbackStructuredValue(facts.merchantOrCompany),
                 secondaryLabel = "取件地址",
                 secondaryValue = fallbackStructuredValue(facts.location),
-                locationText = facts.location?.trim()?.takeIf { it.isNotEmpty() }
+                locationText = facts.location?.trim()?.takeIf { it.isNotEmpty() },
+                navigationLatitude = null,
+                navigationLongitude = null
             )
         } else {
             StructuredPickupInfo(
@@ -599,7 +601,9 @@ object MemoryFactReconciler {
                 primaryValue = fallbackStructuredValue(facts.merchantOrCompany),
                 secondaryLabel = "商品",
                 secondaryValue = fallbackStructuredValue(facts.itemName),
-                locationText = facts.location?.trim()?.takeIf { it.isNotEmpty() }
+                locationText = facts.location?.trim()?.takeIf { it.isNotEmpty() },
+                navigationLatitude = null,
+                navigationLongitude = null
             )
         }
     }

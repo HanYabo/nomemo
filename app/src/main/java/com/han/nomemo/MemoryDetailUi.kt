@@ -61,10 +61,16 @@ data class StructuredPickupInfo(
     val primaryValue: String,
     val secondaryLabel: String,
     val secondaryValue: String,
-    val locationText: String? = null
+    val locationText: String? = null,
+    val navigationLatitude: Double? = null,
+    val navigationLongitude: Double? = null
 ) {
     val navigationQuery: String
         get() = locationText.orEmpty()
+
+    val hasNavigableLocation: Boolean
+        get() = locationText.orEmpty().isNotBlank() ||
+            (navigationLatitude != null && navigationLongitude != null)
 }
 
 private val memoryDetailPanelShape = noMemoG2RoundedShape(24.dp)
@@ -134,7 +140,7 @@ fun NoMemoDetailReanalyzeButton(
                     .fillMaxWidth()
                     .clip(containerShape)
                     .background(actionSurface)
-                    .padding(start = 20.dp, end = 10.dp, top = 17.dp, bottom = 17.dp),
+                    .padding(horizontal = 20.dp, vertical = 17.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 FlowingProcessingText(
@@ -146,16 +152,8 @@ fun NoMemoDetailReanalyzeButton(
                 Spacer(modifier = Modifier.width(12.dp))
                 Box(
                     modifier = Modifier
-                        .width(1.dp)
-                        .height(20.dp)
-                        .background(actionColor.copy(alpha = if (isDark) 0.16f else 0.12f))
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Box(
-                    modifier = Modifier
-                        .clip(NoMemoG2CapsuleShape)
                         .clickable(onClick = onCancelClick)
-                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                        .padding(vertical = 2.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
@@ -533,11 +531,25 @@ fun NoMemoEditablePickupCodeCard(
 fun NoMemoPickupLocationCard(
     info: StructuredPickupInfo,
     modifier: Modifier = Modifier,
-    onNavigate: (String) -> Unit
+    onNavigate: (StructuredPickupInfo) -> Unit
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-    val locationText = info.locationText?.trim().orEmpty()
+    val locationText = remember(info.locationText, info.navigationLatitude, info.navigationLongitude) {
+        val explicit = info.locationText?.trim().orEmpty()
+        if (explicit.isNotBlank()) {
+            explicit
+        } else if (info.navigationLatitude != null && info.navigationLongitude != null) {
+            String.format(
+                java.util.Locale.getDefault(),
+                "图片定位 %.6f, %.6f",
+                info.navigationLatitude,
+                info.navigationLongitude
+            )
+        } else {
+            ""
+        }
+    }
     if (locationText.isBlank()) return
     Card(
         modifier = modifier.fillMaxWidth(),
@@ -563,11 +575,11 @@ fun NoMemoPickupLocationCard(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
-            if (locationText.isNotBlank()) {
+            if (info.hasNavigableLocation) {
                 Spacer(modifier = Modifier.size(12.dp))
                 NoMemoLocationNavigateButton(
                     text = "导航",
-                    onClick = { onNavigate(locationText) }
+                    onClick = { onNavigate(info) }
                 )
             }
         }

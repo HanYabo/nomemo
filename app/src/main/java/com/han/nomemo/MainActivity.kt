@@ -169,6 +169,7 @@ class MainActivity : BaseComposeActivity() {
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
     private var hasHandledInitialResume = false
+    private var awaitingSettingsResult = false
     private var currentPrimaryTab by mutableStateOf(NoMemoDockTab.MEMORY)
     private var primaryDockVisible by mutableStateOf(false)
     private var primaryDockAddAction by mutableStateOf<(() -> Unit)?>(null)
@@ -182,11 +183,8 @@ class MainActivity : BaseComposeActivity() {
 
     private val settingsLauncher =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == RESULT_OK) {
-                recreate()
-            } else {
-                refreshRecords()
-            }
+            awaitingSettingsResult = false
+            refreshRecords()
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -211,6 +209,9 @@ class MainActivity : BaseComposeActivity() {
         super.onResume()
         if (!hasHandledInitialResume) {
             hasHandledInitialResume = true
+            return
+        }
+        if (awaitingSettingsResult) {
             return
         }
         refreshRecords()
@@ -502,6 +503,7 @@ class MainActivity : BaseComposeActivity() {
     }
 
     private fun openSettingsPage() {
+        awaitingSettingsResult = true
         settingsLauncher.launch(Intent(this, SettingsActivity::class.java))
     }
 

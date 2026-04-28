@@ -2825,7 +2825,6 @@ fun RecordCard(
         Color(0xFF98A1AE)
     }
     val thumbnailBackground = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF1F4F8)
-    val thumbnailBorder = if (isDark) Color.Transparent else Color.Transparent
     var pressHighlightVisible by remember(record.recordId) { mutableStateOf(false) }
     val pressHighlightAlpha by animateFloatAsState(
         targetValue = if (pressHighlightVisible) 1f else 0f,
@@ -2944,8 +2943,7 @@ fun RecordCard(
                             cornerRadius = previewCornerRadius,
                             modifier = Modifier
                                 .border(
-                                    width = 1.dp,
-                                    color = thumbnailBorder,
+                                    border = noMemoMemoryImageBorder(palette),
                                     shape = noMemoG2RoundedShape(previewCornerRadius)
                                 )
                         )
@@ -2956,8 +2954,7 @@ fun RecordCard(
                                 .clip(noMemoG2RoundedShape(previewCornerRadius))
                                 .background(thumbnailBackground)
                                 .border(
-                                    width = 1.dp,
-                                    color = thumbnailBorder,
+                                    border = noMemoMemoryImageBorder(palette),
                                     shape = noMemoG2RoundedShape(previewCornerRadius)
                                 )
                         )
@@ -3313,6 +3310,10 @@ fun RecordMetaLine(
             )
         }
     }
+}
+
+internal fun noMemoMemoryImageBorder(palette: NoMemoPalette): BorderStroke {
+    return BorderStroke(1.dp, palette.glassStroke)
 }
 
 private fun recordCategoryMetaIcon(categoryCode: String): ImageVector {
