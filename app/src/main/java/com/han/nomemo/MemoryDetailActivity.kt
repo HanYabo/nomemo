@@ -314,11 +314,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
     }
 
     private fun resolveCategoryOption(record: MemoryRecord): CategoryCatalog.CategoryOption {
-        return CategoryCatalog.getAllCategories().firstOrNull { it.categoryCode == record.categoryCode }
+        val normalizedCategoryCode = MemoryFactReconciler.normalizeCategoryCode(
+            record.categoryCode,
+            record.structuredFactsJson
+        )
+        return CategoryCatalog.getAllCategories().firstOrNull { it.categoryCode == normalizedCategoryCode }
             ?: CategoryCatalog.CategoryOption(
-                CategoryCatalog.getGroupByCategoryCode(record.categoryCode),
-                record.categoryCode,
-                record.categoryName ?: CategoryCatalog.getCategoryName(record.categoryCode)
+                CategoryCatalog.getGroupByCategoryCode(normalizedCategoryCode),
+                normalizedCategoryCode,
+                CategoryCatalog.getCategoryName(normalizedCategoryCode)
             )
     }
 
@@ -451,6 +455,17 @@ class MemoryDetailActivity : BaseComposeActivity() {
         return saved
     }
 
+    private fun acknowledgeAiFailure(currentRecord: MemoryRecord) {
+        if (!isAiAnalysisFailedRecord(currentRecord)) {
+            return
+        }
+        val acknowledged = markAiFailureDismissed(currentRecord)
+        showUiFailureHintDismissed(acknowledged)
+        lifecycleScope.launch(Dispatchers.IO) {
+            memoryStore.updateRecord(acknowledged)
+        }
+    }
+
     private fun reanalyzeRecord(currentRecord: MemoryRecord) {
         val recordId = currentRecord.recordId
         if (
@@ -543,6 +558,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         .trim()
                         .takeIf { it.isNotEmpty() }
                         ?: previousRecord.structuredFactsJson
+                    val resolvedCategoryCode = MemoryFactReconciler.normalizeCategoryCode(
+                        result.suggestedCategoryCode
+                            .trim()
+                            .takeIf { it.isNotEmpty() }
+                            ?: previousRecord.categoryCode,
+                        resolvedFactsJson
+                    )
+                    val resolvedCategoryGroup = CategoryCatalog.getGroupByCategoryCode(resolvedCategoryCode)
+                    val resolvedCategoryName = CategoryCatalog.getCategoryName(resolvedCategoryCode)
                     MemoryRecord(
                         previousRecord.recordId,
                         previousRecord.createdAt,
@@ -555,9 +579,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         resolvedAnalysis,
                         result.memory.takeIf { it.isNotBlank() } ?: previousRecord.memory,
                         resolvedEngine,
-                        previousRecord.categoryGroupCode,
-                        previousRecord.categoryCode,
-                        previousRecord.categoryName,
+                        resolvedCategoryGroup,
+                        resolvedCategoryCode,
+                        resolvedCategoryName,
                         previousRecord.reminderAt,
                         previousRecord.isReminderDone,
                         previousRecord.isArchived,
@@ -567,7 +591,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     )
                 }
                 if (updated == null) {
-                    val clearedRecord = clearAiProgressState(previousRecord)
+                    val clearedRecord = markAiReanalyzeFailed(
+                        baseRecord = previousRecord,
+                        costMode = reanalyzePolicy.costMode,
+                        attemptCount = 1,
+                        attemptLimit = initialAttemptLimit
+                    )
                     withContext(Dispatchers.IO) {
                         memoryStore.updateRecord(clearedRecord)
                     }
@@ -585,7 +614,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     memoryStore.updateRecord(updated)
                 }
                 if (!updateSuccess) {
-                    val clearedRecord = clearAiProgressState(previousRecord)
+                    val clearedRecord = markAiReanalyzeFailed(
+                        baseRecord = previousRecord,
+                        costMode = reanalyzePolicy.costMode,
+                        attemptCount = 1,
+                        attemptLimit = initialAttemptLimit
+                    )
                     withContext(Dispatchers.IO) {
                         memoryStore.updateRecord(clearedRecord)
                     }
@@ -612,7 +646,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
             } catch (exception: Exception) {
                 Log.e("MemoryDetailActivity", "Reanalyze failed for recordId=$recordId", exception)
-                val clearedRecord = clearAiProgressState(previousRecord)
+                val clearedRecord = markAiReanalyzeFailed(
+                    baseRecord = previousRecord,
+                    costMode = reanalyzePolicy.costMode,
+                    attemptCount = 1,
+                    attemptLimit = initialAttemptLimit
+                )
                 withContext(Dispatchers.IO) {
                     memoryStore.updateRecord(clearedRecord)
                 }
@@ -676,12 +715,44 @@ class MemoryDetailActivity : BaseComposeActivity() {
         )
     }
 
-    private fun clearAiProgressState(baseRecord: MemoryRecord): MemoryRecord {
+    private fun markAiReanalyzeFailed(
+        baseRecord: MemoryRecord,
+        costMode: AiCostMode,
+        attemptCount: Int,
+        attemptLimit: Int
+    ): MemoryRecord {
         return copyRecordWithAiState(
             baseRecord = baseRecord,
-            aiAnalysisStateJson = "",
+            aiAnalysisStateJson = AiAnalysisStateJson.failed(
+                AiOperationKind.REANALYZE,
+                costMode,
+                attemptCount = attemptCount.coerceAtLeast(1),
+                attemptLimit = attemptLimit.coerceAtLeast(1)
+            ),
             aiVisualStateJson = ""
         )
+    }
+
+    private fun markAiFailureDismissed(baseRecord: MemoryRecord): MemoryRecord {
+        val persisted = AiAnalysisStateJson.parse(baseRecord.aiAnalysisStateJson)
+        val operationKind = persisted?.operationKind ?: AiOperationKind.INITIAL_ANALYSIS
+        val costMode = persisted?.costMode ?: AiCostMode.STANDARD
+        val attemptCount = persisted?.attemptCount ?: 1
+        val attemptLimit = persisted?.attemptLimit ?: 1
+        return copyRecordWithAiState(
+            baseRecord = baseRecord,
+            aiAnalysisStateJson = AiAnalysisStateJson.dismissed(
+                operationKind,
+                costMode,
+                attemptCount = attemptCount.coerceAtLeast(1),
+                attemptLimit = attemptLimit.coerceAtLeast(1)
+            ),
+            aiVisualStateJson = ""
+        )
+    }
+
+    private fun showUiFailureHintDismissed(updatedRecord: MemoryRecord) {
+        record = updatedRecord
     }
 
     private fun copyRecordWithAiState(
@@ -870,6 +941,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         var moreMenuAnchorBounds by remember { mutableStateOf<IntRect?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var showEditExitConfirm by remember { mutableStateOf(false) }
+        var showAiFailureHint by remember(record?.recordId) { mutableStateOf(false) }
         var deleteTargetTitle by remember { mutableStateOf("") }
         var resetEditDraftsRef by remember { mutableStateOf<(() -> Unit)?>(null) }
         var hasPendingEditChanges by remember(record?.recordId) { mutableStateOf(false) }
@@ -999,6 +1071,18 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 modifier = Modifier.align(Alignment.Center)
                             )
                             return@Box
+                        }
+                        val aiAnalysisFailed = remember(
+                            currentRecord.recordId,
+                            currentRecord.mode,
+                            currentRecord.engine,
+                            currentRecord.analysis,
+                            currentRecord.aiAnalysisStateJson
+                        ) {
+                            isAiAnalysisFailedRecord(currentRecord)
+                        }
+                        LaunchedEffect(currentRecord.recordId, aiAnalysisFailed) {
+                            showAiFailureHint = aiAnalysisFailed
                         }
 
                         val titleText = deriveTitle(currentRecord)
@@ -1351,8 +1435,16 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             }
                             RecordMetaLine(
                                 timeText = createdAtText,
-                                categoryCode = if (editing) draftCategory.categoryCode else currentRecord.categoryCode,
-                                categoryText = if (editing) draftCategory.categoryName else currentRecord.categoryName ?: "小记",
+                                categoryCode = if (editing) {
+                                    draftCategory.categoryCode
+                                } else {
+                                    resolveCategoryOption(currentRecord).categoryCode
+                                },
+                                categoryText = if (editing) {
+                                    draftCategory.categoryName
+                                } else {
+                                    resolveCategoryOption(currentRecord).categoryName
+                                },
                                 metaColor = metaColor
                             )
                         }
@@ -1631,6 +1723,18 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         editing = false
                     },
                     onDismiss = { showEditExitConfirm = false }
+                )
+            }
+
+            if (showAiFailureHint) {
+                NoMemoMessageDialog(
+                    title = "AI 分析失败",
+                    message = "AI分析失败，点击AI分析按钮可进行重试",
+                    confirmText = "确定",
+                    onDismiss = {
+                        showAiFailureHint = false
+                        record?.let(::acknowledgeAiFailure)
+                    }
                 )
             }
         }

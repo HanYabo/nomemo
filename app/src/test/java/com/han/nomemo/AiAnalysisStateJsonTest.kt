@@ -1,6 +1,7 @@
 package com.han.nomemo
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -37,5 +38,40 @@ class AiAnalysisStateJsonTest {
         assertEquals("retrying", parsed?.status)
         assertEquals(3, parsed?.attemptCount)
         assertEquals(7, parsed?.attemptLimit)
+    }
+
+    @Test
+    fun `failed state is not active and can be queried`() {
+        val raw = AiAnalysisStateJson.failed(
+            AiOperationKind.REANALYZE,
+            AiCostMode.ECONOMY,
+            attemptCount = 2,
+            attemptLimit = 3
+        )
+
+        val parsed = AiAnalysisStateJson.parse(raw)
+
+        assertEquals("failed", parsed?.status)
+        assertEquals(2, parsed?.attemptCount)
+        assertEquals(3, parsed?.attemptLimit)
+        assertFalse(parsed?.isActive == true)
+        assertTrue(AiAnalysisStateJson.isFailed(raw))
+    }
+
+    @Test
+    fun `dismissed state is not failed`() {
+        val raw = AiAnalysisStateJson.dismissed(
+            AiOperationKind.REANALYZE,
+            AiCostMode.STANDARD,
+            attemptCount = 1,
+            attemptLimit = 1
+        )
+
+        val parsed = AiAnalysisStateJson.parse(raw)
+
+        assertEquals("dismissed", parsed?.status)
+        assertFalse(parsed?.isActive == true)
+        assertFalse(AiAnalysisStateJson.isFailed(raw))
+        assertTrue(AiAnalysisStateJson.isDismissed(raw))
     }
 }

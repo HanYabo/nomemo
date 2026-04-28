@@ -1805,7 +1805,7 @@ fun NoMemoMenuList(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val panelShape = noMemoG2RoundedShape(28.dp)
+    val panelShape = noMemoG2RoundedShape(32.dp)
     val themed = noMemoPaletteHasThemeTint(palette, isDark)
     val panelBase = noMemoThemeSyncedMenuSurface(palette, isDark)
     val panelStroke = if (isDark) {
@@ -1823,7 +1823,8 @@ fun NoMemoMenuList(
     } else {
         Color.White.copy(alpha = 0.7f)
     }
-    val contentInset = 6.dp
+    val contentInset = 8.dp
+    val rowGap = 4.dp
 
     Box(
         modifier = modifier
@@ -1851,7 +1852,7 @@ fun NoMemoMenuList(
                 horizontal = contentInset,
                 vertical = contentInset
             ),
-            verticalArrangement = Arrangement.spacedBy(contentInset)
+            verticalArrangement = Arrangement.spacedBy(rowGap)
         ) {
             actions.forEach { item ->
                 NoMemoAnchoredMenuRow(
@@ -1992,7 +1993,7 @@ private fun NoMemoAnchoredMenuRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .height(46.dp)
+            .height(48.dp)
             .clip(rowShape)
             .background(if (pressed) pressedBackground else Color.Transparent)
             .clickable(
@@ -2025,7 +2026,7 @@ private fun NoMemoAnchoredMenuRow(
 
 private fun noMemoAnchoredMenuRowShape(
 ): Shape {
-    return noMemoG2RoundedShape(18.dp)
+    return noMemoG2RoundedShape(20.dp)
 }
 
 data class NoMemoMenuActionItem(
@@ -2774,8 +2775,15 @@ fun RecordCard(
             else -> ""
         }
     }
-    val categoryText = remember(record.categoryName, context) {
-        record.categoryName ?: context.getString(R.string.tag_quick)
+    val resolvedCategoryCode = remember(record.categoryCode, record.structuredFactsJson) {
+        MemoryFactReconciler.normalizeCategoryCode(record.categoryCode, record.structuredFactsJson)
+    }
+    val categoryText = remember(record.categoryName, record.structuredFactsJson, context) {
+        val normalizedCategoryName = CategoryCatalog.getCategoryName(resolvedCategoryCode)
+        record.categoryName
+            ?.takeIf { it.isNotBlank() && it != context.getString(R.string.tag_quick) }
+            ?.takeIf { it == normalizedCategoryName || record.structuredFactsJson.isNullOrBlank() }
+            ?: normalizedCategoryName
     }
     val timeText = remember(record.createdAt) {
         timeFormat.format(Date(record.createdAt))
@@ -2907,11 +2915,21 @@ fun RecordCard(
                         )
                     }
                     Spacer(modifier = Modifier.height(10.dp))
+                    val aiAnalysisFailed = remember(
+                        record.recordId,
+                        record.mode,
+                        record.engine,
+                        record.analysis,
+                        record.aiAnalysisStateJson
+                    ) {
+                        isAiAnalysisFailedRecord(record)
+                    }
                     RecordMetaLine(
                         timeText = timeText,
-                        categoryCode = record.categoryCode,
+                        categoryCode = resolvedCategoryCode,
                         categoryText = categoryText,
-                        metaColor = metaColor
+                        metaColor = metaColor,
+                        failureText = if (aiAnalysisFailed) "分析失败" else null
                     )
                 }
 
@@ -3261,7 +3279,8 @@ fun RecordMetaLine(
     timeText: String,
     categoryCode: String,
     categoryText: String,
-    metaColor: Color
+    metaColor: Color,
+    failureText: String? = null
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -3284,6 +3303,15 @@ fun RecordMetaLine(
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
+        failureText?.takeIf { it.isNotBlank() }?.let { text ->
+            Spacer(modifier = Modifier.width(10.dp))
+            Text(
+                text = text,
+                color = Color(0xFFFF4A43),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
     }
 }
 

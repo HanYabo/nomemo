@@ -137,6 +137,12 @@ object MemoryFactExtractor {
         "配送中", "制作中", "门店已接单", "请及时", "请尽快", "请于", "请在",
         "前往", "出示"
     )
+    private val pickupDomainKeywords = listOf(
+        "取餐", "外卖", "奶茶", "咖啡", "饮品", "饮料", "餐品", "菜品", "门店", "到店", "喜茶", "瑞幸"
+    )
+    private val deliveryDomainKeywords = listOf(
+        "取件", "快递", "包裹", "驿站", "菜鸟", "丰巢", "自提点", "快递柜", "物流", "运单"
+    )
 
     @JvmStatic
     fun extractLocalFacts(
@@ -153,7 +159,7 @@ object MemoryFactExtractor {
             .distinct()
         val source = sources.joinToString("\n")
         val lines = source.lines().map { it.trim() }.filter { it.isNotBlank() }
-        val code = extractPickupCode(lines, categoryCode)
+        val code = extractPickupCode(lines, source, categoryCode)
         val location = extractLocation(lines)
         val domain = inferDomain(source, categoryCode, code?.evidence)
         val merchant = extractMerchantOrCompany(lines, source, domain)
@@ -182,7 +188,7 @@ object MemoryFactExtractor {
         )
     }
 
-    private fun extractPickupCode(lines: List<String>, categoryCode: String?): Candidate? {
+    private fun extractPickupCode(lines: List<String>, source: String, categoryCode: String?): Candidate? {
         val candidates = mutableListOf<Candidate>()
         lines.forEachIndexed { index, line ->
             codeLabelRegex.findAll(line).forEach { match ->
@@ -214,15 +220,22 @@ object MemoryFactExtractor {
             }
 
             genericShortCodeRegex.findAll(line).forEach { match ->
+                if (isEmbeddedInHyphenatedCode(line, match.range)) return@forEach
                 val code = sanitizeCodeValue(match.groupValues[1]) ?: return@forEach
                 if (!isValidPickupCode(code, line, hasExplicitPickupLabel = false)) return@forEach
+                val window = contextualWindow(lines, index)
                 var score = 35
                 if (line.containsAny("取件", "取餐", "提货", "取货", "自提", "核销", "领取")) score += 38
                 if (line.containsAny("快递", "包裹", "驿站", "菜鸟", "丰巢", "外卖", "门店", "餐")) score += 16
                 if (line.containsAny("订单", "运单", "单号", "电话", "手机号", "金额", "应付", "实付")) score -= 55
                 if (line.length <= 18) score += 6
+                if (index <= 4) score += 4
+                if (code.length in 4..6) score += 6
+                if (line.matches(Regex("""[A-Za-z]?\d{3,6}"""))) score += 10
+                score += contextualPickupCodeBoost(window, source, categoryCode)
+                if (window.containsAny("订单号", "运单号", "物流单号", "快递单号", "手机号")) score -= 16
                 if (score >= 55) {
-                    candidates += Candidate(code, codeTypeForContext(line, categoryCode), score, line)
+                    candidates += Candidate(code, codeTypeForContext(window, categoryCode), score, window)
                 }
             }
         }
@@ -290,18 +303,59 @@ object MemoryFactExtractor {
     }
 
     private fun inferDomain(source: String, categoryCode: String?, codeEvidence: String?): String {
-        if (categoryCode == CategoryCatalog.CODE_LIFE_PICKUP) return DOMAIN_PICKUP
-        if (categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY) return DOMAIN_DELIVERY
         val evidence = listOf(source, codeEvidence.orEmpty()).joinToString(" ")
+        val pickupScore = pickupDomainScore(evidence, categoryCode)
+        val deliveryScore = deliveryDomainScore(evidence, categoryCode)
+        if (pickupScore >= 34 || deliveryScore >= 34) {
+            if (pickupScore >= deliveryScore + 6) return DOMAIN_PICKUP
+            if (deliveryScore >= pickupScore + 6) return DOMAIN_DELIVERY
+        }
         return when {
-            evidence.containsAny("取餐", "外卖", "餐品", "菜品", "奶茶", "咖啡", "门店已接单") -> DOMAIN_PICKUP
-            evidence.containsAny("取件", "快递", "包裹", "驿站", "菜鸟", "丰巢", "自提点", "快递柜") -> DOMAIN_DELIVERY
             evidence.containsAny("票", "券", "车次", "航班", "座位") -> DOMAIN_TICKET
             evidence.containsAny("会议", "日程", "预约", "时间") -> DOMAIN_SCHEDULE
             evidence.containsAny("待办", "完成", "处理", "跟进", "提交") -> DOMAIN_TODO
             evidence.containsAny("身份证", "银行卡", "会员卡", "门禁卡", "证件") -> DOMAIN_CARD
+            pickupScore >= deliveryScore && pickupScore >= 24 -> DOMAIN_PICKUP
+            deliveryScore > pickupScore && deliveryScore >= 24 -> DOMAIN_DELIVERY
             else -> DOMAIN_NOTE
         }
+    }
+
+    private fun contextualWindow(lines: List<String>, index: Int): String {
+        val start = (index - 2).coerceAtLeast(0)
+        val end = (index + 2).coerceAtMost(lines.lastIndex)
+        return (start..end).joinToString(" ") { lines[it] }
+    }
+
+    private fun contextualPickupCodeBoost(window: String, source: String, categoryCode: String?): Int {
+        var score = 0
+        if (window.containsAny(*pickupDomainKeywords.toTypedArray())) score += 18
+        if (window.containsAny(*deliveryDomainKeywords.toTypedArray())) score += 18
+        if (merchantNames.any { window.contains(it) }) score += 16
+        if (courierNames.any { window.contains(it) }) score += 16
+        if (source.containsAny("订单详情", "感谢光顾", "门店已接单", "待取餐", "待取件")) score += 6
+        if (categoryCode == CategoryCatalog.CODE_LIFE_PICKUP) score += 4
+        if (categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY) score += 4
+        return score
+    }
+
+    private fun pickupDomainScore(evidence: String, categoryCode: String?): Int {
+        var score = 0
+        if (evidence.containsAny("取餐", "待取餐", "餐品", "菜品", "奶茶", "咖啡", "饮品", "饮料", "门店已接单")) score += 28
+        if (evidence.containsAny("外卖", "门店", "到店", "订单详情")) score += 12
+        if (merchantNames.any { evidence.contains(it) }) score += 18
+        if (evidence.containsAny("热", "冷", "少甜", "去冰", "拿铁", "果茶", "奶盖", "碎银子")) score += 10
+        if (categoryCode == CategoryCatalog.CODE_LIFE_PICKUP) score += 6
+        return score
+    }
+
+    private fun deliveryDomainScore(evidence: String, categoryCode: String?): Int {
+        var score = 0
+        if (evidence.containsAny("取件", "待取件", "快递", "包裹", "驿站", "菜鸟", "丰巢", "自提点", "快递柜")) score += 28
+        if (evidence.containsAny("物流", "运单", "派送", "签收", "快递站")) score += 14
+        if (courierNames.any { evidence.contains(it) }) score += 18
+        if (categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY) score += 6
+        return score
     }
 
     private fun codeTypeForLabel(label: String, categoryCode: String?): String {
@@ -321,12 +375,20 @@ object MemoryFactExtractor {
 
     private fun codeTypeForContext(line: String, categoryCode: String?): String {
         return when {
-            line.containsAny("取餐", "外卖", "餐", "门店") -> "meal"
+            line.containsAny("取餐", "外卖", "餐", "门店", "奶茶", "咖啡", "饮品", "饮料") -> "meal"
+            merchantNames.any { line.contains(it) } -> "meal"
             line.containsAny("取件", "快递", "包裹", "驿站", "丰巢", "菜鸟") -> "package"
+            courierNames.any { line.contains(it) } -> "package"
             categoryCode == CategoryCatalog.CODE_LIFE_PICKUP -> "meal"
             categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY -> "package"
             else -> "pickup"
         }
+    }
+
+    private fun isEmbeddedInHyphenatedCode(line: String, range: IntRange): Boolean {
+        val before = line.getOrNull(range.first - 1)
+        val after = line.getOrNull(range.last + 1)
+        return before == '-' || after == '-'
     }
 
     private fun String.isStrongCodeLabel(): Boolean {
@@ -459,6 +521,22 @@ object MemoryFactReconciler {
         }
     }
 
+    @JvmStatic
+    fun normalizeCategoryCode(categoryCode: String?, structuredFactsJson: String?): String {
+        val facts = MemoryStructuredFactsJson.parse(structuredFactsJson)
+        val domain = facts?.domain
+        val hasReliableCode = (facts?.pickupCodeConfidence ?: 0.0) >= 0.55 && !facts?.pickupCode.isNullOrBlank()
+        val hasReliablePickupContext = !facts?.merchantOrCompany.isNullOrBlank() || !facts?.itemName.isNullOrBlank()
+        val hasReliableDeliveryContext = (facts?.locationConfidence ?: 0.0) >= 0.48 || !facts?.location.isNullOrBlank()
+        return when {
+            domain == DOMAIN_PICKUP && (hasReliableCode || hasReliablePickupContext) ->
+                CategoryCatalog.CODE_LIFE_PICKUP
+            domain == DOMAIN_DELIVERY && (hasReliableCode || hasReliableDeliveryContext) ->
+                CategoryCatalog.CODE_LIFE_DELIVERY
+            else -> categoryCode ?: CategoryCatalog.CODE_QUICK_NOTE
+        }
+    }
+
     fun structuredPickupInfo(categoryCode: String?, structuredFactsJson: String?): StructuredPickupInfo? {
         val facts = MemoryStructuredFactsJson.parse(structuredFactsJson) ?: return null
         val displayDomain = displayDomain(categoryCode, facts.domain)
@@ -583,9 +661,9 @@ object MemoryFactReconciler {
 
     private fun displayDomain(categoryCode: String?, domain: String?): String {
         return when {
+            domain == DOMAIN_PICKUP || domain == DOMAIN_DELIVERY -> domain
             categoryCode == CategoryCatalog.CODE_LIFE_PICKUP -> DOMAIN_PICKUP
             categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY -> DOMAIN_DELIVERY
-            domain == DOMAIN_PICKUP || domain == DOMAIN_DELIVERY -> domain
             else -> DOMAIN_NOTE
         }
     }

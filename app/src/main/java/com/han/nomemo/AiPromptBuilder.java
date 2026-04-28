@@ -8,8 +8,8 @@ public final class AiPromptBuilder {
 
     private static final int FULL_IMAGE_MAX_SIZE = 1024;
     private static final int FULL_IMAGE_QUALITY = 80;
-    private static final int ECONOMY_IMAGE_MAX_SIZE = 768;
-    private static final int ECONOMY_IMAGE_QUALITY = 68;
+    private static final int ECONOMY_IMAGE_MAX_SIZE = 960;
+    private static final int ECONOMY_IMAGE_QUALITY = 78;
 
     private AiPromptBuilder() {
     }
@@ -107,12 +107,12 @@ public final class AiPromptBuilder {
         }
         boolean enhanced = mode == AiPromptMode.REANALYZE_ECONOMY;
         if ("IMAGE".equals(requestMode)) {
-            return enhanced ? 420 : 340;
+            return enhanced ? 1000 : 850;
         }
         if ("MULTIMODAL".equals(requestMode)) {
-            return enhanced ? 460 : 380;
+            return enhanced ? 1100 : 900;
         }
-        return enhanced ? 380 : 300;
+        return enhanced ? 750 : 600;
     }
 
     private static String fullSystemPrompt(AiPromptMode mode) {
@@ -153,7 +153,10 @@ public final class AiPromptBuilder {
                 .append(", schemaVersion=").append(SCHEMA_VERSION).append(".\n");
         builder.append("Use localCandidatesJson first: choose supported facts from candidates; only add facts directly visible in input/OCR.\n");
         builder.append("Never treat order/tracking/waybill/phone/amount/date/time as pickupCode. Unsupported facts must be null/0.0.\n");
-        builder.append("summary is display-only; structuredFacts drives detail cards. Required schema:\n");
+        builder.append("summary is display-only; structuredFacts drives detail cards.\n");
+        builder.append("pickupCodeEvidence and locationEvidence must be short evidence snippets from visible input/OCR.\n");
+        builder.append("Do not invent facts, and do not output Markdown or explanatory prose.\n");
+        builder.append("Required schema:\n");
         builder.append(schemaBlock());
         if (mode == AiPromptMode.REANALYZE_ECONOMY) {
             builder.append("\nReanalyze conservatively; current raw evidence wins over old context.");
@@ -178,7 +181,7 @@ public final class AiPromptBuilder {
 
         if (!isBlank(localCandidatesJson)) {
             builder.append("localCandidatesJson:\n")
-                    .append(compact(localCandidatesJson, economy ? 700 : 1200))
+                    .append(compact(localCandidatesJson, economy ? 1000 : 1200))
                     .append("\n\n");
         } else if (economy) {
             builder.append("localCandidatesJson: {}\n\n");
@@ -186,7 +189,7 @@ public final class AiPromptBuilder {
 
         if (!isBlank(userText)) {
             builder.append(economy ? "compactText:\n" : "rawUserText:\n")
-                    .append(compact(userText, economy ? 360 : 1800))
+                    .append(compact(userText, economy ? 900 : 1800))
                     .append("\n\n");
         } else {
             builder.append("rawUserText: (none)\n\n");
@@ -194,7 +197,7 @@ public final class AiPromptBuilder {
 
         if (!isBlank(detailContext)) {
             builder.append(economy ? "compactExistingContext:\n" : "existingMemoryContext:\n")
-                    .append(compact(detailContext, economy ? 320 : 1600))
+                    .append(compact(detailContext, economy ? 900 : 1600))
                     .append("\n\n");
         }
 

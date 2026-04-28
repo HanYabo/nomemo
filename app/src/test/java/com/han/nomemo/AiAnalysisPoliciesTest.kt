@@ -22,7 +22,7 @@ class AiAnalysisPoliciesTest {
     }
 
     @Test
-    fun `initial economy policy stays economical`() {
+    fun `initial economy policy adds one full prompt rescue while keeping local fallback`() {
         val policy = AiAnalysisPolicies.resolve(
             true,
             true,
@@ -31,9 +31,9 @@ class AiAnalysisPoliciesTest {
 
         assertEquals(AiCostMode.ECONOMY, policy.costMode)
         assertEquals(2, policy.cloudAttemptLimit)
-        assertEquals(2, policy.totalAttemptLimit)
+        assertEquals(3, policy.totalAttemptLimit)
         assertTrue(policy.isAllowLocalFallback)
-        assertFalse(policy.isAllowFullPromptRescue)
+        assertTrue(policy.isAllowFullPromptRescue)
     }
 
     @Test
@@ -64,5 +64,19 @@ class AiAnalysisPoliciesTest {
         assertEquals(1, policy.totalAttemptLimit)
         assertFalse(policy.isAllowLocalFallback)
         assertFalse(policy.isAllowFullPromptRescue)
+    }
+
+    @Test
+    fun `restore reconstructs initial economy rescue budget from persisted total attempts`() {
+        val policy = AiAnalysisPolicies.restore(
+            AiOperationKind.INITIAL_ANALYSIS,
+            AiCostMode.ECONOMY,
+            3
+        )
+
+        assertEquals(2, policy.cloudAttemptLimit)
+        assertEquals(3, policy.totalAttemptLimit)
+        assertTrue(policy.isAllowFullPromptRescue)
+        assertTrue(policy.isAllowLocalFallback)
     }
 }

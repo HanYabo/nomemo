@@ -125,12 +125,10 @@ class AiInitialAnalysisWorker(
         val orchestrator = AiAnalysisOrchestrator(appContext)
         val persistedState = AiAnalysisStateJson.parse(currentRecord.aiAnalysisStateJson)
         val policy = persistedState?.let {
-            AiExecutionPolicy(
+            AiAnalysisPolicies.restore(
                 AiOperationKind.INITIAL_ANALYSIS,
                 it.costMode,
-                it.attemptLimit.coerceAtLeast(1),
-                false,
-                true
+                it.attemptLimit.coerceAtLeast(1)
             )
         } ?: orchestrator.initialPolicy()
         val input = currentRecord.sourceText?.takeIf { it.isNotBlank() }
@@ -157,6 +155,14 @@ class AiInitialAnalysisWorker(
                 null
             }
             val latestRecord = memoryStore.findRecordById(recordId) ?: currentRecord
+            if (outcome != null && !outcome.isSuccess) {
+                Log.e(
+                    "AiInitialAnalysisWorker",
+                    "Initial analysis failed recordId=$recordId operationKind=${policy.operationKind} " +
+                        "costMode=${policy.costMode} attempts=${outcome.attemptCount}/${outcome.attemptLimit} " +
+                        "failureStage=${outcome.failureStage} message=${outcome.failureMessage}"
+                )
+            }
             val resolved = if (outcome != null && outcome.isSuccess && outcome.generationResult != null) {
                 buildResolvedRecord(latestRecord, outcome.generationResult!!)
             } else {
@@ -275,6 +281,13 @@ class AiInitialAnalysisWorker(
             fallbackMemory,
             fallbackCategory.categoryCode
         )
+        val persistedState = AiAnalysisStateJson.parse(placeholder.aiAnalysisStateJson)
+        val failedState = AiAnalysisStateJson.failed(
+            operationKind = persistedState?.operationKind ?: AiOperationKind.INITIAL_ANALYSIS,
+            costMode = persistedState?.costMode ?: AiCostMode.STANDARD,
+            attemptCount = persistedState?.attemptCount ?: 1,
+            attemptLimit = persistedState?.attemptLimit ?: 1
+        )
         return MemoryRecord(
             placeholder.recordId,
             placeholder.createdAt,
@@ -294,7 +307,7 @@ class AiInitialAnalysisWorker(
             placeholder.isReminderDone,
             placeholder.isArchived,
             fallbackFactsJson,
-            "",
+            failedState,
             AiVisualProcessingStateJson.completionWindow(
                 rawVisualState = placeholder.aiVisualStateJson,
                 rawAnalysisState = placeholder.aiAnalysisStateJson,

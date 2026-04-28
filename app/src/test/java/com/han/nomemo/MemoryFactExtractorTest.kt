@@ -42,6 +42,29 @@ class MemoryFactExtractorTest {
     }
 
     @Test
+    fun standaloneMealCode_isExtractedFromMerchantContext() {
+        val facts = MemoryFactExtractor.extractLocalFacts(
+            userText = """
+                订单详情
+                8258
+                订单已完成，感谢光顾
+                喜茶郑州新田360广场店
+                热碎银子糯糯
+            """.trimIndent(),
+            aiRawVisibleText = null,
+            memory = null,
+            analysis = null,
+            summary = null,
+            title = null,
+            categoryCode = CategoryCatalog.CODE_QUICK_NOTE
+        )
+
+        assertEquals("8258", facts.pickupCode)
+        assertEquals("pickup", facts.domain)
+        assertEquals("meal", facts.pickupCodeType)
+    }
+
+    @Test
     fun reconciler_rejectsUnsupportedAiPickupCodeAndFallsBackLocal() {
         val aiFacts = """
             {
@@ -136,6 +159,36 @@ class MemoryFactExtractorTest {
                 "瑞幸咖啡待取餐",
                 factsJson
             )
+        )
+    }
+
+    @Test
+    fun deliveryDomain_canOverrideWrongPickupCategory() {
+        val factsJson = MemoryFactReconciler.reconcileToJson(
+            userText = """
+                菜鸟驿站
+                取件码：6124
+                包裹已到站，请及时领取
+            """.trimIndent(),
+            aiStructuredFactsJson = "",
+            title = null,
+            summary = null,
+            analysis = null,
+            memory = null,
+            categoryCode = CategoryCatalog.CODE_LIFE_PICKUP
+        )
+
+        val facts = MemoryStructuredFactsJson.parse(factsJson)
+
+        assertNotNull(facts)
+        assertEquals("delivery", facts!!.domain)
+        assertEquals(
+            CategoryCatalog.CODE_LIFE_DELIVERY,
+            MemoryFactReconciler.normalizeCategoryCode(CategoryCatalog.CODE_LIFE_PICKUP, factsJson)
+        )
+        assertEquals(
+            "取件码 6124｜菜鸟",
+            MemoryFactReconciler.stableSummary(CategoryCatalog.CODE_LIFE_PICKUP, "", factsJson)
         )
     }
 }

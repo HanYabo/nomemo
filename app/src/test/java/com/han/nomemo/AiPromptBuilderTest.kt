@@ -82,10 +82,22 @@ class AiPromptBuilderTest {
         )
 
         assertEquals(AiPromptMode.REANALYZE_ECONOMY, spec.mode)
-        assertEquals(768, spec.imageMaxSize)
-        assertEquals(68, spec.imageQuality)
+        assertEquals(960, spec.imageMaxSize)
+        assertEquals(78, spec.imageQuality)
+        assertEquals(1100, spec.maxTokens)
         assertTrue(spec.systemPrompt.contains("current raw evidence wins"))
         assertTrue(spec.userPrompt.contains("compactExistingContext"))
+    }
+
+    @Test
+    fun economyPrompt_keepsSaferTokenBudgetForJsonOutput() {
+        val textSpec = AiPromptBuilder.build("TEXT", false, true, "测试文本", null, "{}")
+        val imageSpec = AiPromptBuilder.build("IMAGE", false, true, null, null, "{}")
+        val multimodalSpec = AiPromptBuilder.build("MULTIMODAL", false, true, "测试文本", "上下文", "{}")
+
+        assertEquals(600, textSpec.maxTokens)
+        assertEquals(850, imageSpec.maxTokens)
+        assertEquals(900, multimodalSpec.maxTokens)
     }
 
     @Test

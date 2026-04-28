@@ -5,6 +5,8 @@ import org.json.JSONObject
 private const val AI_STATE_PENDING = "pending"
 private const val AI_STATE_RUNNING = "running"
 private const val AI_STATE_RETRYING = "retrying"
+private const val AI_STATE_FAILED = "failed"
+private const val AI_STATE_DISMISSED = "dismissed"
 
 data class AiAnalysisState(
     val status: String,
@@ -82,12 +84,47 @@ object AiAnalysisStateJson {
     }
 
     @JvmStatic
+    fun failed(operationKind: AiOperationKind, costMode: AiCostMode, attemptCount: Int, attemptLimit: Int): String {
+        return toJson(
+            AiAnalysisState(
+                status = AI_STATE_FAILED,
+                operationKind = operationKind,
+                costMode = costMode,
+                attemptCount = attemptCount.coerceAtLeast(1),
+                attemptLimit = attemptLimit.coerceAtLeast(1)
+            )
+        )
+    }
+
+    @JvmStatic
+    fun dismissed(operationKind: AiOperationKind, costMode: AiCostMode, attemptCount: Int, attemptLimit: Int): String {
+        return toJson(
+            AiAnalysisState(
+                status = AI_STATE_DISMISSED,
+                operationKind = operationKind,
+                costMode = costMode,
+                attemptCount = attemptCount.coerceAtLeast(1),
+                attemptLimit = attemptLimit.coerceAtLeast(1)
+            )
+        )
+    }
+
+    @JvmStatic
     fun isActive(raw: String?): Boolean = parse(raw)?.isActive == true
+
+    @JvmStatic
+    fun isFailed(raw: String?): Boolean = parse(raw)?.status == AI_STATE_FAILED
+
+    @JvmStatic
+    fun isDismissed(raw: String?): Boolean = parse(raw)?.status == AI_STATE_DISMISSED
 
     private fun normalizeStatus(raw: String?): String {
         return when (raw?.trim()?.lowercase()) {
+            AI_STATE_PENDING -> AI_STATE_PENDING
             AI_STATE_RUNNING -> AI_STATE_RUNNING
             AI_STATE_RETRYING -> AI_STATE_RETRYING
+            AI_STATE_FAILED -> AI_STATE_FAILED
+            AI_STATE_DISMISSED -> AI_STATE_DISMISSED
             else -> AI_STATE_PENDING
         }
     }

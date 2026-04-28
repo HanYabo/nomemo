@@ -6,19 +6,27 @@ import org.junit.Test
 
 class AiMemoryServiceTest {
     @Test
-    fun generateMemory_nonStrictAllowsLocalFallback() {
-        assertTrue(AiMemoryService.shouldAllowLocalFallback(false))
+    fun `finish reason length is treated as token exhaustion`() {
+        assertTrue(AiMemoryService.shouldTreatAsTokenExhausted("length", "{\"title\":\"a\""))
     }
 
     @Test
-    fun generateEnhancedMemoryStrict_disablesLocalFallback() {
-        assertFalse(AiMemoryService.shouldAllowLocalFallback(true))
+    fun `truncated json is treated as token exhaustion even without finish reason`() {
+        assertTrue(
+            AiMemoryService.shouldTreatAsTokenExhausted(
+                null,
+                "{\"title\":\"测试\",\"summary\":\"摘要\",\"structuredFacts\":{"
+            )
+        )
     }
 
     @Test
-    fun economyEnhanced_requestsOneFullPromptRetryBeforeGivingUp() {
-        assertTrue(AiMemoryService.shouldRetryWithFullPromptProfile(true, true))
-        assertFalse(AiMemoryService.shouldRetryWithFullPromptProfile(false, true))
-        assertFalse(AiMemoryService.shouldRetryWithFullPromptProfile(true, false))
+    fun `complete json is not treated as token exhaustion`() {
+        assertFalse(
+            AiMemoryService.shouldTreatAsTokenExhausted(
+                "stop",
+                "{\"title\":\"测试\",\"summary\":\"摘要\",\"analysis\":\"分析\",\"memory\":\"记忆\",\"structuredFacts\":{}}"
+            )
+        )
     }
 }
