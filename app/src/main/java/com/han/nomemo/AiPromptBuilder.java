@@ -130,6 +130,7 @@ public final class AiPromptBuilder {
         builder.append("# Fact Extraction\n");
         builder.append("- summary is display-only; detail cards consume structuredFacts.\n");
         builder.append("- Extract pickupCode and location only when supported by visible evidence.\n");
+        builder.append("- On takeout or drink order-detail screenshots, an isolated 3-6 digit code near the top can be a pickupCode candidate when merchant/item/order-detail context supports it.\n");
         builder.append("- pickupCodeEvidence and locationEvidence must be short evidence snippets from input/OCR.\n");
         builder.append("- Other fields may be null without evidence when uncertain.\n\n");
         builder.append("# Forbidden\n");
@@ -152,6 +153,7 @@ public final class AiPromptBuilder {
         builder.append("Return JSON only. promptVersion=").append(PROMPT_VERSION)
                 .append(", schemaVersion=").append(SCHEMA_VERSION).append(".\n");
         builder.append("Use localCandidatesJson first: choose supported facts from candidates; only add facts directly visible in input/OCR.\n");
+        builder.append("For order-detail screenshots, a top isolated 3-6 digit code can be treated as a pickupCode candidate only when merchant or order-detail context supports it.\n");
         builder.append("Never treat order/tracking/waybill/phone/amount/date/time as pickupCode. Unsupported facts must be null/0.0.\n");
         builder.append("summary is display-only; structuredFacts drives detail cards.\n");
         builder.append("pickupCodeEvidence and locationEvidence must be short evidence snippets from visible input/OCR.\n");

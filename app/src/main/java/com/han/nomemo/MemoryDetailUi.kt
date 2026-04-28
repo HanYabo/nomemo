@@ -10,7 +10,7 @@ import android.widget.TextView
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +29,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -36,13 +37,16 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -108,32 +112,63 @@ private fun memoryDetailActionColor(isDark: Boolean): Color {
 fun NoMemoDetailReanalyzeButton(
     text: String,
     processing: Boolean,
+    cancelable: Boolean = false,
     modifier: Modifier = Modifier,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    onCancelClick: (() -> Unit)? = null
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
     val actionSurface = memoryDetailActionSurface(isDark, palette)
     val actionColor = memoryDetailActionColor(isDark)
-    val transition = rememberInfiniteTransition(label = "detailAiProcessing")
-    val dotScale by transition.animateFloat(
-        initialValue = 0.84f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "detailAiProcessingDotScale"
-    )
-    val dotAlpha by transition.animateFloat(
-        initialValue = 0.68f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = 900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "detailAiProcessingDotAlpha"
-    )
+    val cancelTextColor = Color(0xFFFF5A52)
+    val processingLabel = rememberDetailProcessingLabel(text, processing)
+    val containerShape = noMemoG2RoundedShape(20.dp)
+    if (processing && cancelable && onCancelClick != null) {
+        Box(
+            modifier = modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(containerShape)
+                    .background(actionSurface)
+                    .padding(start = 20.dp, end = 10.dp, top = 17.dp, bottom = 17.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                FlowingProcessingText(
+                    text = processingLabel,
+                    color = actionColor,
+                    modifier = Modifier.weight(1f),
+                    textAlign = TextAlign.Start
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .height(20.dp)
+                        .background(actionColor.copy(alpha = if (isDark) 0.16f else 0.12f))
+                )
+                Spacer(modifier = Modifier.width(12.dp))
+                Box(
+                    modifier = Modifier
+                        .clip(NoMemoG2CapsuleShape)
+                        .clickable(onClick = onCancelClick)
+                        .padding(horizontal = 12.dp, vertical = 2.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "取消",
+                        color = cancelTextColor,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+        return
+    }
     PressScaleBox(
         onClick = {
             if (!processing) {
@@ -150,28 +185,18 @@ fun NoMemoDetailReanalyzeButton(
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(noMemoG2RoundedShape(20.dp))
+                    .clip(containerShape)
                     .background(actionSurface)
                     .padding(horizontal = 20.dp, vertical = 17.dp),
                 contentAlignment = Alignment.Center
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
-                ) {
-                    if (processing) {
-                        Box(
-                            modifier = Modifier
-                                .graphicsLayer {
-                                    scaleX = dotScale
-                                    scaleY = dotScale
-                                    alpha = dotAlpha
-                                }
-                                .size(8.dp)
-                                .background(actionColor, CircleShape)
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                    }
+                if (processing) {
+                    FlowingProcessingText(
+                        text = processingLabel,
+                        color = actionColor,
+                        textAlign = TextAlign.Center
+                    )
+                } else {
                     Text(
                         text = text,
                         color = actionColor,
@@ -182,6 +207,63 @@ fun NoMemoDetailReanalyzeButton(
             }
         }
     }
+}
+
+@Composable
+private fun rememberDetailProcessingLabel(text: String, processing: Boolean): String {
+    if (!processing) {
+        return text
+    }
+    return remember(text) {
+        val normalized = text.replace("...", "").trim()
+        when {
+            normalized.contains("重试") -> "AI重试中..."
+            else -> "AI分析中..."
+        }
+    }
+}
+
+@Composable
+private fun FlowingProcessingText(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    textAlign: TextAlign
+) {
+    val transition = rememberInfiniteTransition(label = "detailProcessingTextFlow")
+    val flowOffset by transition.animateFloat(
+        initialValue = -220f,
+        targetValue = 420f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1650, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "detailProcessingTextFlowOffset"
+    )
+    val brush = remember(color, flowOffset) {
+        Brush.linearGradient(
+            colors = listOf(
+                color.copy(alpha = 0.72f),
+                color.copy(alpha = 0.96f),
+                Color.White.copy(alpha = 0.96f),
+                color.copy(alpha = 0.96f),
+                color.copy(alpha = 0.72f)
+            ),
+            start = Offset(flowOffset - 220f, 0f),
+            end = Offset(flowOffset + 220f, 0f)
+        )
+    }
+    Text(
+        text = text,
+        modifier = modifier,
+        style = TextStyle(
+            brush = brush,
+            fontSize = 17.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = textAlign
+        ),
+        textAlign = textAlign
+    )
 }
 
 

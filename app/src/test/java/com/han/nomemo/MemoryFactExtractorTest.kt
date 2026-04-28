@@ -65,6 +65,77 @@ class MemoryFactExtractorTest {
     }
 
     @Test
+    fun spacedOcrMealCode_isCollapsedAndExtractedFromImageText() {
+        val facts = MemoryFactExtractor.extractLocalFacts(
+            userText = null,
+            aiRawVisibleText = """
+                订单详情
+                8 2 5 8
+                订单已完成，感谢光顾喜茶，期待您下次光临
+                郑州新田360广场店
+                订单编号 H1209521040502824961605
+                热碎银子糯糯
+            """.trimIndent(),
+            memory = null,
+            analysis = null,
+            summary = null,
+            title = null,
+            categoryCode = CategoryCatalog.CODE_QUICK_NOTE
+        )
+
+        assertEquals("8258", facts.pickupCode)
+        assertEquals("pickup", facts.domain)
+        assertEquals("meal", facts.pickupCodeType)
+        assertEquals("H1209521040502824961605", facts.orderNumber)
+    }
+
+    @Test
+    fun isolatedThreeDigitMealCode_isExtractedOnlyWithStrongTopContext() {
+        val facts = MemoryFactExtractor.extractLocalFacts(
+            userText = """
+                订单详情
+                360
+                订单已完成，感谢光顾喜茶
+                郑州新田广场店
+                订单编号 H1209521040502824961605
+                热碎银子糯糯
+                合计 20.24 元
+            """.trimIndent(),
+            aiRawVisibleText = null,
+            memory = null,
+            analysis = null,
+            summary = null,
+            title = null,
+            categoryCode = CategoryCatalog.CODE_QUICK_NOTE
+        )
+
+        assertEquals("360", facts.pickupCode)
+        assertEquals("pickup", facts.domain)
+        assertEquals("meal", facts.pickupCodeType)
+    }
+
+    @Test
+    fun merchantNumber_withoutIsolatedTopCode_isNotMistakenForPickupCode() {
+        val facts = MemoryFactExtractor.extractLocalFacts(
+            userText = """
+                订单详情
+                郑州新田360广场店
+                订单已完成，感谢光顾喜茶
+                订单编号 H1209521040502824961605
+                热碎银子糯糯
+            """.trimIndent(),
+            aiRawVisibleText = null,
+            memory = null,
+            analysis = null,
+            summary = null,
+            title = null,
+            categoryCode = CategoryCatalog.CODE_QUICK_NOTE
+        )
+
+        assertNull(facts.pickupCode)
+    }
+
+    @Test
     fun reconciler_rejectsUnsupportedAiPickupCodeAndFallsBackLocal() {
         val aiFacts = """
             {

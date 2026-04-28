@@ -136,6 +136,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -170,6 +171,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
     private var aiEnabled by mutableStateOf(false)
     private var record by mutableStateOf<MemoryRecord?>(null)
     private var reanalyzing by mutableStateOf(false)
+    private var reanalyzeJob: Job? = null
+    private var reanalyzeBaseRecord: MemoryRecord? = null
+    @Volatile
+    private var activeReanalyzeSessionId: Long = 0L
+    private var nextReanalyzeSessionId: Long = 1L
     private var memoryChangeRegistered = false
     private var loadJob: Job? = null
 
@@ -197,7 +203,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 onBack = { finish() },
                 onToggleArchive = { currentRecord -> toggleArchive(currentRecord) },
                 onDelete = { currentRecord -> deleteRecord(currentRecord) },
-                onReanalyze = { currentRecord -> reanalyzeRecord(currentRecord) }
+                onReanalyze = { currentRecord -> reanalyzeRecord(currentRecord) },
+                onCancelReanalyze = { cancelReanalyze() }
             )
         }
     }
@@ -477,6 +484,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             return
         }
         val previousRecord = normalizeStableAiRecord(currentRecord)
+        val sessionId = beginReanalyzeSession(previousRecord)
         val appContext = applicationContext
         val reanalyzePolicy = AiAnalysisPolicies.resolve(settingsStore, AiOperationKind.REANALYZE)
         val initialAttemptLimit = reanalyzePolicy.totalAttemptLimit
@@ -488,10 +496,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
         record = pendingRecord
         AiProcessingStateRegistry.markProcessing(recordId, attempt = 1, attemptLimit = initialAttemptLimit)
         reanalyzing = true
-        MemoryDetailReanalyzeScope.scope.launch {
+        reanalyzeJob?.cancel()
+        reanalyzeJob = MemoryDetailReanalyzeScope.scope.launch {
             val startedAt = SystemClock.elapsedRealtime()
             delay(ReanalyzeStateRevealDelayMs)
             try {
+                ensureActiveReanalyzeSession(sessionId)
                 withContext(Dispatchers.IO) {
                     memoryStore.updateRecord(pendingRecord)
                 }
@@ -504,6 +514,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val detailContext = buildEnhancedAiContext(previousRecord)
                     val progressListener =
                         AiMemoryService.AttemptListener { attempt, attemptLimit ->
+                            if (!isReanalyzeSessionActive(sessionId)) {
+                                return@AttemptListener
+                            }
                             val latest = memoryStore.findRecordById(recordId) ?: previousRecord
                             val progressRecord = buildReanalyzeRunningRecord(
                                 baseRecord = latest,
@@ -513,10 +526,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             )
                             memoryStore.updateRecord(progressRecord)
                             runOnUiThread {
-                                if (record?.recordId == recordId) {
+                                if (isReanalyzeSessionActive(sessionId) && record?.recordId == recordId) {
                                     record = progressRecord
                                 }
-                                AiProcessingStateRegistry.markProcessing(recordId, attempt, attemptLimit)
+                                if (isReanalyzeSessionActive(sessionId)) {
+                                    AiProcessingStateRegistry.markProcessing(recordId, attempt, attemptLimit)
+                                }
                             }
                         }
                     val outcome = orchestrator.runReanalysis(
@@ -525,6 +540,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         detailContext,
                         progressListener
                     )
+                    if (!isReanalyzeSessionActive(sessionId)) {
+                        return@withContext null
+                    }
                     if (!outcome.isSuccess || outcome.generationResult == null) {
                         Log.e(
                             "MemoryDetailActivity",
@@ -590,6 +608,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         ""
                     )
                 }
+                ensureActiveReanalyzeSession(sessionId)
                 if (updated == null) {
                     val clearedRecord = markAiReanalyzeFailed(
                         baseRecord = previousRecord,
@@ -602,17 +621,21 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
                     waitForMinimumReanalyzeFeedback(startedAt)
                     withContext(Dispatchers.Main) {
-                        if (record?.recordId == recordId) {
+                        if (isReanalyzeSessionActive(sessionId) && record?.recordId == recordId) {
                             record = clearedRecord
                         }
-                        reanalyzing = false
-                        Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                        if (isReanalyzeSessionActive(sessionId)) {
+                            reanalyzing = false
+                            Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     return@launch
                 }
+                ensureActiveReanalyzeSession(sessionId)
                 val updateSuccess = withContext(Dispatchers.IO) {
                     memoryStore.updateRecord(updated)
                 }
+                ensureActiveReanalyzeSession(sessionId)
                 if (!updateSuccess) {
                     val clearedRecord = markAiReanalyzeFailed(
                         baseRecord = previousRecord,
@@ -625,11 +648,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
                     waitForMinimumReanalyzeFeedback(startedAt)
                     withContext(Dispatchers.Main) {
-                        if (record?.recordId == recordId) {
+                        if (isReanalyzeSessionActive(sessionId) && record?.recordId == recordId) {
                             record = clearedRecord
                         }
-                        reanalyzing = false
-                        Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                        if (isReanalyzeSessionActive(sessionId)) {
+                            reanalyzing = false
+                            Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                        }
                     }
                     return@launch
                 }
@@ -638,13 +663,20 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
                 waitForMinimumReanalyzeFeedback(startedAt)
                 withContext(Dispatchers.Main) {
-                    if (record?.recordId == recordId) {
+                    if (isReanalyzeSessionActive(sessionId) && record?.recordId == recordId) {
                         record = updated
                     }
-                    reanalyzing = false
-                    Toast.makeText(appContext, "已重新分析", Toast.LENGTH_SHORT).show()
+                    if (isReanalyzeSessionActive(sessionId)) {
+                        reanalyzing = false
+                        Toast.makeText(appContext, "已重新分析", Toast.LENGTH_SHORT).show()
+                    }
                 }
+            } catch (_: CancellationException) {
+                return@launch
             } catch (exception: Exception) {
+                if (!isReanalyzeSessionActive(sessionId)) {
+                    return@launch
+                }
                 Log.e("MemoryDetailActivity", "Reanalyze failed for recordId=$recordId", exception)
                 val clearedRecord = markAiReanalyzeFailed(
                     baseRecord = previousRecord,
@@ -657,19 +689,63 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
                 waitForMinimumReanalyzeFeedback(startedAt)
                 withContext(Dispatchers.Main) {
-                    if (record?.recordId == recordId) {
+                    if (isReanalyzeSessionActive(sessionId) && record?.recordId == recordId) {
                         record = clearedRecord
                     }
-                    reanalyzing = false
-                    Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                    if (isReanalyzeSessionActive(sessionId)) {
+                        reanalyzing = false
+                        Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                    }
                 }
                 return@launch
             } finally {
                 withContext(Dispatchers.Main.immediate) {
-                    reanalyzing = false
+                    if (isReanalyzeSessionActive(sessionId)) {
+                        reanalyzing = false
+                        clearReanalyzeSession(sessionId)
+                        reanalyzeJob = null
+                    }
                     AiProcessingStateRegistry.clearProcessing(recordId)
                 }
             }
+        }
+    }
+
+    private fun cancelReanalyze() {
+        val baseRecord = reanalyzeBaseRecord ?: return
+        val sessionId = activeReanalyzeSessionId
+        clearReanalyzeSession(sessionId)
+        reanalyzeJob?.cancel(CancellationException("User canceled reanalysis"))
+        reanalyzeJob = null
+        reanalyzing = false
+        record = baseRecord
+        AiProcessingStateRegistry.clearProcessing(baseRecord.recordId)
+        lifecycleScope.launch(Dispatchers.IO) {
+            memoryStore.updateRecord(baseRecord)
+        }
+    }
+
+    private fun beginReanalyzeSession(baseRecord: MemoryRecord): Long {
+        reanalyzeBaseRecord = baseRecord
+        val sessionId = nextReanalyzeSessionId++
+        activeReanalyzeSessionId = sessionId
+        return sessionId
+    }
+
+    private fun clearReanalyzeSession(sessionId: Long) {
+        if (activeReanalyzeSessionId == sessionId) {
+            activeReanalyzeSessionId = 0L
+            reanalyzeBaseRecord = null
+        }
+    }
+
+    private fun isReanalyzeSessionActive(sessionId: Long): Boolean {
+        return activeReanalyzeSessionId == sessionId
+    }
+
+    private fun ensureActiveReanalyzeSession(sessionId: Long) {
+        if (!isReanalyzeSessionActive(sessionId)) {
+            throw CancellationException("Reanalyze session $sessionId is no longer active")
         }
     }
 
@@ -927,7 +1003,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         onBack: () -> Unit,
         onToggleArchive: (MemoryRecord) -> Unit,
         onDelete: (MemoryRecord) -> Unit,
-        onReanalyze: (MemoryRecord) -> Unit
+        onReanalyze: (MemoryRecord) -> Unit,
+        onCancelReanalyze: () -> Unit
     ) {
         val adaptive = rememberNoMemoAdaptiveSpec()
         val palette = rememberNoMemoPalette()
@@ -941,6 +1018,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         var moreMenuAnchorBounds by remember { mutableStateOf<IntRect?>(null) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var showEditExitConfirm by remember { mutableStateOf(false) }
+        var showCancelReanalyzeConfirm by remember { mutableStateOf(false) }
         var showAiFailureHint by remember(record?.recordId) { mutableStateOf(false) }
         var deleteTargetTitle by remember { mutableStateOf("") }
         var resetEditDraftsRef by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -1029,12 +1107,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
         }
 
-        BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showEditExitConfirm || showReminderSetupSheet || showImagePreview || editing || showPreviewActionMenu) {
+        BackHandler(enabled = moreMenuExpanded || showDeleteConfirm || showEditExitConfirm || showCancelReanalyzeConfirm || showReminderSetupSheet || showImagePreview || editing || showPreviewActionMenu) {
             when {
                 showPreviewActionMenu -> showPreviewActionMenu = false
                 showImagePreview -> showImagePreview = false
                 showDeleteConfirm -> showDeleteConfirm = false
                 showEditExitConfirm -> showEditExitConfirm = false
+                showCancelReanalyzeConfirm -> showCancelReanalyzeConfirm = false
                 showReminderSetupSheet -> showReminderSetupSheet = false
                 moreMenuExpanded -> moreMenuExpanded = false
                 editing -> if (hasPendingEditChanges) showEditExitConfirm = true else editing = false
@@ -1587,12 +1666,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     else -> "AI分析"
                                 },
                                 processing = buttonProcessing,
+                                cancelable = reanalyzing,
                                 modifier = Modifier.padding(
                                     start = detailTextStartPadding,
                                     end = detailTextStartPadding,
                                     top = 28.dp,
                                 ),
-                                onClick = { onReanalyze(currentRecord) }
+                                onClick = { onReanalyze(currentRecord) },
+                                onCancelClick = { showCancelReanalyzeConfirm = true }
                             )
                         }
                         Spacer(modifier = Modifier.height(28.dp))
@@ -1603,6 +1684,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             expanded = moreMenuExpanded,
                             onDismissRequest = { moreMenuExpanded = false },
                             anchorBounds = moreMenuAnchorBounds,
+                            menuWidth = 200.dp,
                             actions = listOf(
                                 NoMemoMenuActionItem(
                                     iconRes = R.drawable.ic_nm_edit,
@@ -1723,6 +1805,20 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         editing = false
                     },
                     onDismiss = { showEditExitConfirm = false }
+                )
+            }
+
+            if (showCancelReanalyzeConfirm) {
+                NoMemoConfirmDialog(
+                    title = "取消AI分析？",
+                    message = "取消后将停止本次分析，并保留当前记忆内容。",
+                    confirmText = "取消分析",
+                    dismissText = "继续分析",
+                    onConfirm = {
+                        showCancelReanalyzeConfirm = false
+                        onCancelReanalyze()
+                    },
+                    onDismiss = { showCancelReanalyzeConfirm = false }
                 )
             }
 

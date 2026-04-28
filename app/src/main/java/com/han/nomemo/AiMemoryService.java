@@ -101,6 +101,7 @@ public class AiMemoryService {
         String safeText = userText == null ? "" : userText.trim();
         String safeContext = detailContext == null ? "" : detailContext.trim();
         CloudRequestMode requestMode = resolveRequestMode(safeText, imageUri);
+        LocalEvidenceBundle localEvidence = buildLocalEvidence(safeText, imageUri);
         Exception lastCloudError = null;
         AiFailureStage lastFailureStage = null;
         boolean repairUsed = false;
@@ -121,7 +122,8 @@ public class AiMemoryService {
                             safeContext,
                             policy,
                             requestMode,
-                            policy.getCostMode() == AiCostMode.ECONOMY
+                            policy.getCostMode() == AiCostMode.ECONOMY,
+                            localEvidence
                     );
                     repairUsed = repairUsed || cloudResult.isRepairUsed();
                     logAttemptSuccess(policy, attempt, totalAttemptLimit, cloudResult);
@@ -159,7 +161,8 @@ public class AiMemoryService {
                             safeContext,
                             policy,
                             requestMode,
-                            false
+                            false,
+                            localEvidence
                     );
                     repairUsed = repairUsed || cloudResult.isRepairUsed();
                     logAttemptSuccess(policy, totalAttemptLimit, totalAttemptLimit, cloudResult);
@@ -288,9 +291,10 @@ public class AiMemoryService {
             @Nullable String detailContext,
             AiExecutionPolicy policy,
             CloudRequestMode requestMode,
-            boolean economyMode
+            boolean economyMode,
+            LocalEvidenceBundle localEvidence
     ) throws Exception {
-        String localCandidatesJson = buildLocalCandidatesJson(userText);
+        String localCandidatesJson = localEvidence.getLocalCandidatesJson();
         AiPromptSpec promptSpec = AiPromptBuilder.build(
                 requestMode.name(),
                 enhanced,
@@ -306,7 +310,7 @@ public class AiMemoryService {
                 AiModelCapabilityRegistry.resolve(preparedRequest.getModel());
         if (capabilities.supportsResponseFormatJson()) {
             try {
-                return requestCloudGeneration(preparedRequest, userText, imageUri, policy, true);
+                return requestCloudGeneration(preparedRequest, userText, imageUri, policy, localEvidence, true);
             } catch (AiGenerationException exception) {
                 if (isResponseFormatUnsupported(exception)) {
                     AiModelCapabilityRegistry.markResponseFormatUnsupported(preparedRequest.getModel());
@@ -322,13 +326,13 @@ public class AiMemoryService {
         }
 
         try {
-            return requestCloudGeneration(preparedRequest, userText, imageUri, policy, false);
+            return requestCloudGeneration(preparedRequest, userText, imageUri, policy, localEvidence, false);
         } catch (AiGenerationException exception) {
             if (isSystemRoleUnsupported(exception)
                     && AiModelCapabilityRegistry.resolve(preparedRequest.getModel()).supportsSystemRole()) {
                 AiModelCapabilityRegistry.markSystemRoleUnsupported(preparedRequest.getModel());
                 AiPreparedRequest adjustedRequest = buildPreparedRequest(requestMode, imageUri, promptSpec);
-                return requestCloudGeneration(adjustedRequest, userText, imageUri, policy, false);
+                return requestCloudGeneration(adjustedRequest, userText, imageUri, policy, localEvidence, false);
             }
             if (firstError != null) {
                 exception.addSuppressed(firstError);
@@ -376,20 +380,24 @@ public class AiMemoryService {
         return new AiPreparedRequest(requestMode, model, promptSpec, payload, builtMessages.getImageBytes());
     }
 
-    private String buildLocalCandidatesJson(String userText) {
+    private LocalEvidenceBundle buildLocalEvidence(String userText, @Nullable Uri imageUri) {
+        String ocrVisibleText = extractLocalOcrVisibleText(imageUri);
         try {
             MemoryStructuredFacts facts = MemoryFactExtractor.extractLocalFacts(
                     userText,
-                    null,
+                    ocrVisibleText,
                     null,
                     null,
                     null,
                     null,
                     null
             );
-            return MemoryStructuredFactsJson.toJson(facts);
+            return new LocalEvidenceBundle(
+                    MemoryStructuredFactsJson.toJson(facts),
+                    ocrVisibleText
+            );
         } catch (Exception ignored) {
-            return "{}";
+            return new LocalEvidenceBundle("{}", ocrVisibleText);
         }
     }
 
@@ -398,6 +406,7 @@ public class AiMemoryService {
             String userText,
             @Nullable Uri imageUri,
             AiExecutionPolicy policy,
+            LocalEvidenceBundle localEvidence,
             boolean useResponseFormat
     ) throws Exception {
         JSONObject payload = new JSONObject(preparedRequest.getPayload().toString());
@@ -474,24 +483,26 @@ public class AiMemoryService {
         String suggestedCategoryCode = resultJson.optString("suggestedCategoryCode", "").trim();
         JSONObject structuredFactsObject = resultJson.optJSONObject("structuredFacts");
         String aiStructuredFactsJson = structuredFactsObject == null ? "" : structuredFactsObject.toString();
+        aiStructuredFactsJson = mergeRawVisibleText(aiStructuredFactsJson, localEvidence.getOcrVisibleText());
 
+        String effectiveText = mergePrimaryText(userText, localEvidence.getOcrVisibleText());
         if (TextUtils.isEmpty(memory)) {
-            memory = fallbackMemory(userText, imageUri);
+            memory = fallbackMemory(effectiveText, imageUri);
         }
         if (TextUtils.isEmpty(title)) {
             title = cropSingleLine(memory, 18);
         }
         if (TextUtils.isEmpty(summary)) {
-            summary = cropSingleLine(userText, 36);
+            summary = cropSingleLine(effectiveText, 36);
         }
         if (TextUtils.isEmpty(analysis)) {
             analysis = "AI 已完成内容整理";
         }
         if (TextUtils.isEmpty(suggestedCategoryCode)) {
-            suggestedCategoryCode = classifyCategoryCode(userText, imageUri != null);
+            suggestedCategoryCode = classifyCategoryCode(effectiveText, imageUri != null);
         }
         String structuredFactsJson = reconcileSafely(
-                userText,
+                effectiveText,
                 aiStructuredFactsJson,
                 title,
                 summary,
@@ -506,6 +517,42 @@ public class AiMemoryService {
                 repairUsed,
                 response
         );
+    }
+
+    @Nullable
+    private String extractLocalOcrVisibleText(@Nullable Uri imageUri) {
+        if (imageUri == null) {
+            return null;
+        }
+        try {
+            MemoryImageOcrResult result = MemoryImageOcrService.extractVisibleText(context, imageUri);
+            if (result == null) {
+                return null;
+            }
+            String mergedText = result.getMergedText();
+            return TextUtils.isEmpty(mergedText) ? null : mergedText;
+        } catch (Exception exception) {
+            Log.w(TAG, "Local OCR evidence extraction failed", exception);
+            return null;
+        }
+    }
+
+    private String mergeRawVisibleText(@Nullable String structuredFactsJson, @Nullable String ocrVisibleText) {
+        if (TextUtils.isEmpty(ocrVisibleText)) {
+            return structuredFactsJson == null ? "" : structuredFactsJson;
+        }
+        try {
+            JSONObject json = TextUtils.isEmpty(structuredFactsJson)
+                    ? new JSONObject()
+                    : new JSONObject(structuredFactsJson);
+            String existing = json.optString("rawVisibleText", "").trim();
+            if (TextUtils.isEmpty(existing)) {
+                json.put("rawVisibleText", ocrVisibleText);
+            }
+            return json.toString();
+        } catch (Exception ignored) {
+            return structuredFactsJson == null ? "" : structuredFactsJson;
+        }
     }
 
     private String fallbackMemory(String userText, @Nullable Uri imageUri) {
@@ -1082,16 +1129,33 @@ public class AiMemoryService {
         return value == null ? "" : value;
     }
 
+    private String mergePrimaryText(@Nullable String userText, @Nullable String ocrVisibleText) {
+        boolean hasUserText = !TextUtils.isEmpty(userText);
+        boolean hasOcrText = !TextUtils.isEmpty(ocrVisibleText);
+        if (hasUserText && hasOcrText) {
+            return userText.trim() + "\n" + ocrVisibleText.trim();
+        }
+        if (hasUserText) {
+            return userText.trim();
+        }
+        if (hasOcrText) {
+            return ocrVisibleText.trim();
+        }
+        return "";
+    }
+
     private GenerationResult generateByRules(String userText, @Nullable Uri imageUri) {
-        boolean hasText = !TextUtils.isEmpty(userText);
+        String ocrVisibleText = extractLocalOcrVisibleText(imageUri);
+        String effectiveText = mergePrimaryText(userText, ocrVisibleText);
+        boolean hasText = !TextUtils.isEmpty(effectiveText);
         boolean hasImage = imageUri != null;
-        String suggestedCategoryCode = classifyCategoryCode(userText, hasImage);
+        String suggestedCategoryCode = classifyCategoryCode(effectiveText, hasImage);
 
         String analysis;
         if (hasText && hasImage) {
             analysis = "已同时记录文字和截图，这是一条信息较完整的记忆。";
         } else if (hasText) {
-            analysis = "已提取文字要点，关键词：" + buildTags(userText);
+            analysis = "已提取文字要点，关键词：" + buildTags(effectiveText);
         } else if (hasImage) {
             analysis = "已保存截图，建议之后补一句说明，便于回看。";
         } else {
@@ -1101,8 +1165,8 @@ public class AiMemoryService {
         String title;
         String summary;
         if (hasText) {
-            title = cropSingleLine(userText, 18);
-            summary = cropSingleLine(userText, 40);
+            title = cropSingleLine(effectiveText, 18);
+            summary = cropSingleLine(effectiveText, 40);
         } else if (hasImage) {
             title = "截图记忆";
             summary = "保存了一张截图，可稍后补充说明。";
@@ -1115,7 +1179,7 @@ public class AiMemoryService {
                 .format(new Date());
         String memory;
         if (hasText) {
-            memory = timeText + " 记录了一条内容：" + cropSingleLine(userText, 56);
+            memory = timeText + " 记录了一条内容：" + cropSingleLine(effectiveText, 56);
         } else if (hasImage) {
             memory = timeText + " 保存了一张截图记忆。";
         } else {
@@ -1123,8 +1187,8 @@ public class AiMemoryService {
         }
 
         String structuredFactsJson = reconcileSafely(
-                userText,
-                "",
+                effectiveText,
+                mergeRawVisibleText("", ocrVisibleText),
                 title,
                 summary,
                 analysis,
@@ -1141,6 +1205,8 @@ public class AiMemoryService {
             @Nullable Uri imageUri,
             @Nullable String detailContext
     ) {
+        String ocrVisibleText = extractLocalOcrVisibleText(imageUri);
+        String effectiveText = mergePrimaryText(userText, ocrVisibleText);
         GenerationResult base = generateByRules(userText, imageUri);
         String analysis = base.getAnalysis();
         if (!TextUtils.isEmpty(detailContext)) {
@@ -1153,8 +1219,8 @@ public class AiMemoryService {
             memory = memory + " 这次结果已参考旧版本信息并尽量补足上下文。";
         }
         String structuredFactsJson = reconcileSafely(
-                userText,
-                base.getStructuredFactsJson(),
+                effectiveText,
+                mergeRawVisibleText(base.getStructuredFactsJson(), ocrVisibleText),
                 base.getTitle(),
                 base.getSummary(),
                 analysis,
@@ -1234,10 +1300,12 @@ public class AiMemoryService {
             boolean enhanced,
             @Nullable String detailContext
     ) {
-        String suggestedCategoryCode = classifyCategoryCode(userText, imageUri != null);
-        String memory = fallbackMemory(userText, imageUri);
+        String ocrVisibleText = extractLocalOcrVisibleText(imageUri);
+        String effectiveText = mergePrimaryText(userText, ocrVisibleText);
+        String suggestedCategoryCode = classifyCategoryCode(effectiveText, imageUri != null);
+        String memory = fallbackMemory(effectiveText, imageUri);
         String title = cropSingleLine(memory, 18);
-        String summary = cropSingleLine(TextUtils.isEmpty(userText) ? memory : userText, 40);
+        String summary = cropSingleLine(TextUtils.isEmpty(effectiveText) ? memory : effectiveText, 40);
         String analysis = enhanced
                 ? "已完成本地兜底重整"
                 : "已完成本地兜底分析";
@@ -1245,8 +1313,8 @@ public class AiMemoryService {
             analysis = analysis + "，并已参考现有内容。";
         }
         String structuredFactsJson = reconcileSafely(
-                userText,
-                "",
+                effectiveText,
+                mergeRawVisibleText("", ocrVisibleText),
                 title,
                 summary,
                 analysis,
@@ -1503,6 +1571,26 @@ public class AiMemoryService {
 
         private int getImageBytes() {
             return imageBytes;
+        }
+    }
+
+    private static final class LocalEvidenceBundle {
+        private final String localCandidatesJson;
+        @Nullable
+        private final String ocrVisibleText;
+
+        private LocalEvidenceBundle(String localCandidatesJson, @Nullable String ocrVisibleText) {
+            this.localCandidatesJson = TextUtils.isEmpty(localCandidatesJson) ? "{}" : localCandidatesJson;
+            this.ocrVisibleText = TextUtils.isEmpty(ocrVisibleText) ? null : ocrVisibleText;
+        }
+
+        private String getLocalCandidatesJson() {
+            return localCandidatesJson;
+        }
+
+        @Nullable
+        private String getOcrVisibleText() {
+            return ocrVisibleText;
         }
     }
 

@@ -107,7 +107,8 @@ object MemoryFactExtractor {
         """(?i)(取件码|取餐码|提货码|取货码|自提码|核销码|领取码|收货码|凭码|柜号|格口号|货架号|架位号|尾号|验证码)\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9\-_]{0,14})"""
     )
     private val stationCodeRegex = Regex("""(?<![A-Za-z0-9])([A-Za-z]?\d{1,2}-\d{1,2}-\d{2,5})(?![A-Za-z0-9])""")
-    private val genericShortCodeRegex = Regex("""(?<![A-Za-z0-9])([A-Za-z]\d{2,5}|\d{2,6})(?![A-Za-z0-9])""")
+    private val genericShortCodeRegex = Regex("""(?<![A-Za-z0-9])([A-Za-z]\d{2,5}|\d{4,6})(?![A-Za-z0-9])""")
+    private val isolatedThreeDigitRegex = Regex("""(?<![A-Za-z0-9])(\d{3})(?![A-Za-z0-9])""")
     private val orderRegex = Regex("""(?:订单号|订单编号|订单|单号)\s*[:：]?\s*([A-Za-z0-9\-_]{8,32})""")
     private val trackingRegex = Regex("""(?:运单号|快递单号|物流单号|物流编号)\s*[:：]?\s*([A-Za-z0-9\-_]{8,32})""")
     private val amountRegex = Regex("""(?:应付|实付|合计|总计|金额|付款|支付)\s*[:：]?\s*(¥?\s*\d+(?:\.\d{1,2})?\s*元?)""")
@@ -238,6 +239,22 @@ object MemoryFactExtractor {
                     candidates += Candidate(code, codeTypeForContext(window, categoryCode), score, window)
                 }
             }
+
+            isolatedThreeDigitRegex.findAll(line).forEach { match ->
+                val code = sanitizeCodeValue(match.groupValues[1]) ?: return@forEach
+                if (!line.matches(Regex("""\d{3}"""))) return@forEach
+                if (!isValidPickupCode(code, line, hasExplicitPickupLabel = false)) return@forEach
+                val window = contextualWindow(lines, index)
+                if (!isStrongIsolatedThreeDigitMealContext(line, index, window, source, categoryCode)) {
+                    return@forEach
+                }
+                var score = 62
+                if (index <= 2) score += 14
+                if (source.containsAny("订单详情", "感谢光顾", "门店已接单")) score += 8
+                if (orderRegex.containsMatchIn(source)) score += 6
+                score += contextualPickupCodeBoost(window, source, categoryCode)
+                candidates += Candidate(code, "meal", score, window)
+            }
         }
         return candidates
             .sortedWith(compareByDescending<Candidate> { it.score }.thenBy { it.value.length })
@@ -337,6 +354,26 @@ object MemoryFactExtractor {
         if (categoryCode == CategoryCatalog.CODE_LIFE_PICKUP) score += 4
         if (categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY) score += 4
         return score
+    }
+
+    private fun isStrongIsolatedThreeDigitMealContext(
+        line: String,
+        index: Int,
+        window: String,
+        source: String,
+        categoryCode: String?
+    ): Boolean {
+        if (!line.matches(Regex("""\d{3}"""))) return false
+        if (index > 2) return false
+        if (categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY) return false
+        if (!source.containsAny("订单详情", "感谢光顾", "门店已接单", "取餐", "门店")) return false
+        if (!source.containsAny(*pickupDomainKeywords.toTypedArray()) && merchantNames.none { source.contains(it) }) {
+            return false
+        }
+        if (!source.containsAny("商品", "餐", "饮", "实付", "合计") && !orderRegex.containsMatchIn(source)) {
+            return false
+        }
+        return true
     }
 
     private fun pickupDomainScore(evidence: String, categoryCode: String?): Int {
@@ -722,9 +759,16 @@ private fun normalizeVisibleText(value: String?): String {
         }
         builder.append(normalized)
     }
-    return builder.toString()
+    return collapseSpacedShortCodes(builder.toString())
         .replace(Regex("""[ \t]+"""), " ")
         .trim()
+}
+
+private fun collapseSpacedShortCodes(value: String): String {
+    return Regex("""(?<![A-Za-z0-9])([A-Za-z]?[ \t]*(?:\d[ \t]*){4,6})(?![A-Za-z0-9])""")
+        .replace(value) { match ->
+            match.groupValues[1].replace(Regex("""[ \t]+"""), "")
+        }
 }
 
 private fun sanitizeFactValue(value: String?): String? {
