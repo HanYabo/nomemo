@@ -903,7 +903,7 @@ class SettingsActivity : BaseComposeActivity() {
                                 subtitleColor = subtitleColor,
                                 accentColor = aiToggleColor,
                                 surface = softSurface,
-                                subtitle = "全局 AI 云端重试开关，开启后会增加请求尝试次数",
+                                subtitle = "可能会消耗较多词元",
                                 onCheckedChange = onAutoRetryChange
                             )
                             Box(
@@ -920,7 +920,7 @@ class SettingsActivity : BaseComposeActivity() {
                                 subtitleColor = subtitleColor,
                                 accentColor = aiToggleColor,
                                 surface = softSurface,
-                                subtitle = "减少重试预算与图像成本；首次分析不会自动升级到完整 prompt",
+                                subtitle = "降低识别的费用，识别精度可能会降低",
                                 onCheckedChange = onEconomyModeChange
                             )
                         }
