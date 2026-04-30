@@ -2219,12 +2219,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         info ?: return null
         gpsInfo ?: return info
         val locationText = info.locationText?.trim().orEmpty().ifBlank {
-            String.format(
-                Locale.getDefault(),
-                "图片定位 %.6f, %.6f",
-                gpsInfo.latitude,
-                gpsInfo.longitude
-            )
+            formatGpsDisplayText(gpsInfo.latitude, gpsInfo.longitude)
         }
         return info.copy(
             locationText = locationText,
@@ -2241,12 +2236,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             primaryValue = "",
             secondaryLabel = "",
             secondaryValue = "",
-            locationText = String.format(
-                Locale.getDefault(),
-                "图片定位 %.6f, %.6f",
-                gpsInfo.latitude,
-                gpsInfo.longitude
-            ),
+            locationText = formatGpsDisplayText(gpsInfo.latitude, gpsInfo.longitude),
             navigationLatitude = gpsInfo.latitude,
             navigationLongitude = gpsInfo.longitude
         )
@@ -2605,5 +2595,4 @@ class MemoryDetailActivity : BaseComposeActivity() {
             normalizeDetailDraftText(draft.secondaryValue) != normalizeDetailDraftText(initial.secondaryValue) ||
             normalizeDetailDraftText(draft.locationText) != normalizeDetailDraftText(initial.locationText)
     }
-
 }

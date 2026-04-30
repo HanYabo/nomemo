@@ -73,6 +73,30 @@ data class StructuredPickupInfo(
             (navigationLatitude != null && navigationLongitude != null)
 }
 
+internal fun formatGpsDisplayText(
+    latitude: Double,
+    longitude: Double
+): String {
+    return "${formatSingleGpsCoordinate(latitude, true)}，${formatSingleGpsCoordinate(longitude, false)}"
+}
+
+private fun formatSingleGpsCoordinate(
+    value: Double,
+    isLatitude: Boolean
+): String {
+    val absolute = kotlin.math.abs(value)
+    val degrees = absolute.toInt()
+    val minutes = (absolute - degrees) * 60.0
+    val signPrefix = if (value < 0.0) "-" else ""
+    return String.format(
+        java.util.Locale.getDefault(),
+        "%s%d°%.3f′",
+        signPrefix,
+        degrees,
+        minutes
+    )
+}
+
 private val memoryDetailPanelShape = noMemoG2RoundedShape(24.dp)
 private val memoryDetailContentPanelShape = noMemoG2RoundedShape(22.dp)
 private val memoryDetailContentHorizontalPadding = 18.dp
@@ -540,12 +564,7 @@ fun NoMemoPickupLocationCard(
         if (explicit.isNotBlank()) {
             explicit
         } else if (info.navigationLatitude != null && info.navigationLongitude != null) {
-            String.format(
-                java.util.Locale.getDefault(),
-                "图片定位 %.6f, %.6f",
-                info.navigationLatitude,
-                info.navigationLongitude
-            )
+            formatGpsDisplayText(info.navigationLatitude, info.navigationLongitude)
         } else {
             ""
         }
