@@ -14,13 +14,15 @@ class AiPromptBuilderTest {
             false,
             "取件码：6124，订单号：123456789012",
             null,
-            "{}"
+            "{}",
+            AiAnalysisStyleHint.TRANSACTIONAL
         )
         val prompt = spec.systemPrompt + "\n" + spec.userPrompt
 
         assertEquals(AiPromptMode.FULL, spec.mode)
         assertEquals(AiPromptBuilder.PROMPT_VERSION, spec.promptVersion)
         assertEquals(AiPromptBuilder.SCHEMA_VERSION, spec.schemaVersion)
+        assertEquals(AiAnalysisStyleHint.TRANSACTIONAL, spec.analysisStyleHint)
         assertNull(spec.maxTokens)
         assertTrue(prompt.contains("structuredFacts"))
         assertTrue(prompt.contains("promptVersion"))
@@ -48,7 +50,8 @@ class AiPromptBuilderTest {
             true,
             "取餐码：A088\n订单号：123456789012\n门店：瑞幸咖啡",
             null,
-            candidates
+            candidates,
+            AiAnalysisStyleHint.TRANSACTIONAL
         )
         val full = AiPromptBuilder.build(
             "TEXT",
@@ -56,7 +59,8 @@ class AiPromptBuilderTest {
             false,
             "取餐码：A088\n订单号：123456789012\n门店：瑞幸咖啡",
             null,
-            candidates
+            candidates,
+            AiAnalysisStyleHint.TRANSACTIONAL
         )
 
         assertEquals(AiPromptMode.ECONOMY, economy.mode)
@@ -78,7 +82,8 @@ class AiPromptBuilderTest {
             true,
             "旧文本",
             "现有结构化事实",
-            "{}"
+            "{}",
+            AiAnalysisStyleHint.TRANSACTIONAL
         )
 
         assertEquals(AiPromptMode.REANALYZE_ECONOMY, spec.mode)
@@ -91,13 +96,55 @@ class AiPromptBuilderTest {
 
     @Test
     fun economyPrompt_keepsSaferTokenBudgetForJsonOutput() {
-        val textSpec = AiPromptBuilder.build("TEXT", false, true, "测试文本", null, "{}")
-        val imageSpec = AiPromptBuilder.build("IMAGE", false, true, null, null, "{}")
-        val multimodalSpec = AiPromptBuilder.build("MULTIMODAL", false, true, "测试文本", "上下文", "{}")
+        val textSpec = AiPromptBuilder.build(
+            "TEXT",
+            false,
+            true,
+            "测试文本",
+            null,
+            "{}",
+            AiAnalysisStyleHint.TRANSACTIONAL
+        )
+        val imageSpec = AiPromptBuilder.build(
+            "IMAGE",
+            false,
+            true,
+            null,
+            null,
+            "{}",
+            AiAnalysisStyleHint.TRANSACTIONAL
+        )
+        val multimodalSpec = AiPromptBuilder.build(
+            "MULTIMODAL",
+            false,
+            true,
+            "测试文本",
+            "上下文",
+            "{}",
+            AiAnalysisStyleHint.TRANSACTIONAL
+        )
 
         assertEquals(600, textSpec.maxTokens)
         assertEquals(850, imageSpec.maxTokens)
         assertEquals(900, multimodalSpec.maxTokens)
+    }
+
+    @Test
+    fun documentRichPrompt_includesRichAnalysisContractAndStyleHint() {
+        val spec = AiPromptBuilder.build(
+            "TEXT",
+            false,
+            false,
+            "邮件标题：你已受邀参与 Xiaomi MiMo Orbit 计划\n这是一封活动介绍邮件，包含背景、权益和申请说明。",
+            null,
+            "{}",
+            AiAnalysisStyleHint.DOCUMENT_RICH
+        )
+
+        assertEquals(AiAnalysisStyleHint.DOCUMENT_RICH, spec.analysisStyleHint)
+        assertTrue(spec.systemPrompt.contains("analysisStyleHint=DOCUMENT_RICH"))
+        assertTrue(spec.systemPrompt.contains("2-4 themed blocks"))
+        assertTrue(spec.userPrompt.contains("analysisStyleHint: DOCUMENT_RICH"))
     }
 
     @Test

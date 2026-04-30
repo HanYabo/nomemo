@@ -4,6 +4,7 @@ import androidx.annotation.Nullable;
 
 public final class AiPromptSpec {
     private final AiPromptMode mode;
+    private final AiAnalysisStyleHint analysisStyleHint;
     private final String promptVersion;
     private final String schemaVersion;
     private final String systemPrompt;
@@ -15,6 +16,7 @@ public final class AiPromptSpec {
 
     public AiPromptSpec(
             AiPromptMode mode,
+            AiAnalysisStyleHint analysisStyleHint,
             String promptVersion,
             String schemaVersion,
             String systemPrompt,
@@ -25,6 +27,7 @@ public final class AiPromptSpec {
             int imageQuality
     ) {
         this.mode = mode;
+        this.analysisStyleHint = analysisStyleHint;
         this.promptVersion = promptVersion;
         this.schemaVersion = schemaVersion;
         this.systemPrompt = systemPrompt;
@@ -37,6 +40,10 @@ public final class AiPromptSpec {
 
     public AiPromptMode getMode() {
         return mode;
+    }
+
+    public AiAnalysisStyleHint getAnalysisStyleHint() {
+        return analysisStyleHint;
     }
 
     public String getPromptVersion() {

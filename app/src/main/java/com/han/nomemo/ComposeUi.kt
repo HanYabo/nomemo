@@ -1388,10 +1388,36 @@ fun NoMemoTernaryConfirmDialog(
     )
 }
 
+@Composable
+fun NoMemoPersistentMessageDialog(
+    title: String,
+    message: String,
+    confirmText: String = "确定",
+    confirmTextColor: Color = Color(0xFF1677FF),
+    onConfirm: () -> Unit,
+    onTemporaryDismiss: () -> Unit = {}
+) {
+    NoMemoDialogShell(
+        title = title,
+        message = message,
+        onDismissRequest = onTemporaryDismiss,
+        dismissible = true,
+        actions = listOf(
+            NoMemoDialogActionSpec(
+                text = confirmText,
+                primary = true,
+                textColorOverride = confirmTextColor,
+                onClick = onConfirm
+            )
+        )
+    )
+}
+
 private data class NoMemoDialogActionSpec(
     val text: String,
     val primary: Boolean,
     val destructive: Boolean = false,
+    val textColorOverride: Color? = null,
     val onClick: () -> Unit
 )
 
@@ -1400,6 +1426,7 @@ private fun NoMemoDialogShell(
     title: String,
     message: String,
     onDismissRequest: () -> Unit,
+    dismissible: Boolean = true,
     actions: List<NoMemoDialogActionSpec>
 ) {
     val context = LocalContext.current
@@ -1500,7 +1527,7 @@ private fun NoMemoDialogShell(
         }
     }
 
-    BackHandler(onBack = onDismissRequest)
+    BackHandler(enabled = dismissible, onBack = onDismissRequest)
     var animPlayed by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { animPlayed = true }
     val scrimAlpha by animateFloatAsState(
@@ -1528,7 +1555,11 @@ private fun NoMemoDialogShell(
                 .clickable(
                     interactionSource = outsideInteraction,
                     indication = null,
-                    onClick = onDismissRequest
+                    onClick = {
+                        if (dismissible) {
+                            onDismissRequest()
+                        }
+                    }
                 )
         ) {
             if (dialogPositionReady) {
@@ -1595,6 +1626,7 @@ private fun NoMemoDialogShell(
                                     text = action.text,
                                     primary = action.primary,
                                     destructive = action.destructive,
+                                    textColorOverride = action.textColorOverride,
                                     onClick = action.onClick
                                 )
                             }
@@ -1727,12 +1759,13 @@ private fun NoMemoDialogActionButton(
     text: String,
     primary: Boolean,
     destructive: Boolean = false,
+    textColorOverride: Color? = null,
     onClick: () -> Unit
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val destructiveBase = Color(0xFFFF4A43)
-    val textColor = when {
+    val textColor = textColorOverride ?: when {
         destructive -> destructiveBase
         primary -> if (isDark) Color(0xFF4A9DFF) else palette.accent
         else -> palette.textPrimary
@@ -2767,13 +2800,7 @@ fun RecordCard(
         record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
     }
     val summaryText = remember(record.recordId, record.analysis, record.summary, record.memory, record.sourceText) {
-        when {
-            !record.analysis.isNullOrBlank() -> record.analysis
-            !record.memory.isNullOrBlank() -> record.memory
-            !record.summary.isNullOrBlank() -> record.summary
-            !record.sourceText.isNullOrBlank() -> record.sourceText
-            else -> ""
-        }
+        preferredCardSummaryText(record)
     }
     val resolvedCategoryCode = remember(record.categoryCode, record.structuredFactsJson) {
         MemoryFactReconciler.normalizeCategoryCode(record.categoryCode, record.structuredFactsJson)

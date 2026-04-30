@@ -3,7 +3,7 @@ package com.han.nomemo;
 import androidx.annotation.Nullable;
 
 public final class AiPromptBuilder {
-    public static final String PROMPT_VERSION = "nomemo-prompt-v3";
+    public static final String PROMPT_VERSION = "nomemo-prompt-v4";
     public static final String SCHEMA_VERSION = "memory-facts-v1";
 
     private static final int FULL_IMAGE_MAX_SIZE = 1024;
@@ -20,7 +20,8 @@ public final class AiPromptBuilder {
             boolean economy,
             @Nullable String userText,
             @Nullable String detailContext,
-            @Nullable String localCandidatesJson
+            @Nullable String localCandidatesJson,
+            AiAnalysisStyleHint analysisStyleHint
     ) {
         AiPromptMode mode = resolvePromptMode(enhanced, economy);
         String systemPrompt = economy ? economySystemPrompt(mode) : fullSystemPrompt(mode);
@@ -30,10 +31,12 @@ public final class AiPromptBuilder {
                 economy,
                 userText,
                 detailContext,
-                localCandidatesJson
+                localCandidatesJson,
+                analysisStyleHint
         );
         return new AiPromptSpec(
                 mode,
+                analysisStyleHint,
                 PROMPT_VERSION,
                 SCHEMA_VERSION,
                 systemPrompt,
@@ -133,6 +136,11 @@ public final class AiPromptBuilder {
         builder.append("- On takeout or drink order-detail screenshots, an isolated 3-6 digit code near the top can be a pickupCode candidate when merchant/item/order-detail context supports it.\n");
         builder.append("- pickupCodeEvidence and locationEvidence must be short evidence snippets from input/OCR.\n");
         builder.append("- Other fields may be null without evidence when uncertain.\n\n");
+        builder.append("# Analysis Writing Style\n");
+        builder.append("- If analysisStyleHint=TRANSACTIONAL, keep analysis concise and factual in 1-3 short Chinese sentences. Do not use themed section blocks.\n");
+        builder.append("- If analysisStyleHint=DOCUMENT_RICH, keep summary short, but write analysis as one overview paragraph, a blank line, then 2-4 themed blocks.\n");
+        builder.append("- Each DOCUMENT_RICH block must use 'emoji + short title' on one line, followed by one explanatory paragraph on the next line.\n");
+        builder.append("- DOCUMENT_RICH titles should stay within 2-6 Chinese characters, with sparse emoji and no Markdown bullet lists.\n\n");
         builder.append("# Forbidden\n");
         builder.append("- Do not treat order numbers, tracking numbers, waybill numbers, phone numbers, amounts, dates, or times as pickup/takeout codes.\n");
         builder.append("- Do not invent facts. Use null and low confidence when unsupported.\n");
@@ -156,6 +164,7 @@ public final class AiPromptBuilder {
         builder.append("For order-detail screenshots, a top isolated 3-6 digit code can be treated as a pickupCode candidate only when merchant or order-detail context supports it.\n");
         builder.append("Never treat order/tracking/waybill/phone/amount/date/time as pickupCode. Unsupported facts must be null/0.0.\n");
         builder.append("summary is display-only; structuredFacts drives detail cards.\n");
+        builder.append("analysisStyleHint=TRANSACTIONAL means concise 1-3 sentence analysis only. analysisStyleHint=DOCUMENT_RICH means one overview paragraph plus 2-4 themed blocks using 'emoji + short title' and one explanation paragraph each.\n");
         builder.append("pickupCodeEvidence and locationEvidence must be short evidence snippets from visible input/OCR.\n");
         builder.append("Do not invent facts, and do not output Markdown or explanatory prose.\n");
         builder.append("Required schema:\n");
@@ -172,13 +181,15 @@ public final class AiPromptBuilder {
             boolean economy,
             @Nullable String userText,
             @Nullable String detailContext,
-            @Nullable String localCandidatesJson
+            @Nullable String localCandidatesJson,
+            AiAnalysisStyleHint analysisStyleHint
     ) {
         StringBuilder builder = new StringBuilder();
         builder.append("promptVersion: ").append(PROMPT_VERSION).append('\n');
         builder.append("schemaVersion: ").append(SCHEMA_VERSION).append('\n');
         builder.append("promptMode: ").append(mode.name()).append('\n');
         builder.append("requestMode: ").append(requestMode).append('\n');
+        builder.append("analysisStyleHint: ").append(analysisStyleHint.name()).append('\n');
         builder.append("imageAttached: ").append(!"TEXT".equals(requestMode)).append("\n\n");
 
         if (!isBlank(localCandidatesJson)) {

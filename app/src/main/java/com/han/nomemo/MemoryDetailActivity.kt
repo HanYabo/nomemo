@@ -221,13 +221,28 @@ class MemoryDetailActivity : BaseComposeActivity() {
         loadJob?.cancel()
         loadJob = lifecycleScope.launch {
             val loaded = withContext(Dispatchers.IO) {
-                memoryStore.findRecordById(recordId)
+                memoryStore.findRecordById(recordId)?.let(::normalizeLoadedRecordForDetail)
             }
             record = loaded
             if (loaded == null) {
                 finish()
             }
         }
+    }
+
+    private fun normalizeLoadedRecordForDetail(loaded: MemoryRecord): MemoryRecord {
+        val state = AiAnalysisStateJson.parse(loaded.aiAnalysisStateJson) ?: return loaded
+        if (!state.isActive || state.operationKind != AiOperationKind.REANALYZE || reanalyzing) {
+            return loaded
+        }
+        val normalizedBase = normalizeStableAiRecord(loaded)
+        val cleared = copyRecordWithAiState(
+            baseRecord = normalizedBase,
+            aiAnalysisStateJson = "",
+            aiVisualStateJson = ""
+        )
+        memoryStore.updateRecord(cleared)
+        return cleared
     }
 
     private fun openMemoryPage() {
@@ -275,6 +290,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
     private data class ImageGpsInfo(
         val latitude: Double,
         val longitude: Double
+    )
+
+    private data class DetailAiActionState(
+        val text: String,
+        val processing: Boolean,
+        val cancelable: Boolean
     )
 
     private fun structuredPresentation(categoryCode: String): StructuredCategoryPresentation? {
@@ -827,6 +848,56 @@ class MemoryDetailActivity : BaseComposeActivity() {
     private fun isInitialAiAnalysisCancelable(record: MemoryRecord): Boolean {
         val state = AiAnalysisStateJson.parse(record.aiAnalysisStateJson) ?: return false
         return state.isActive && state.operationKind == AiOperationKind.INITIAL_ANALYSIS
+    }
+
+    private fun resolveDetailAiActionState(currentRecord: MemoryRecord): DetailAiActionState {
+        val persistedState = AiAnalysisStateJson.parse(currentRecord.aiAnalysisStateJson)
+        val activeInitialAnalysis = persistedState?.takeIf {
+            it.isActive && it.operationKind == AiOperationKind.INITIAL_ANALYSIS
+        }
+        return when {
+            reanalyzing -> DetailAiActionState(
+                text = detailAiProcessingLabel(persistedState),
+                processing = true,
+                cancelable = true
+            )
+
+            activeInitialAnalysis != null -> DetailAiActionState(
+                text = detailAiProcessingLabel(activeInitialAnalysis),
+                processing = true,
+                cancelable = true
+            )
+
+            isAiAnalysisFailedRecord(currentRecord) -> DetailAiActionState(
+                text = "AI分析失败，点击重试",
+                processing = false,
+                cancelable = false
+            )
+
+            hasPersistedAiAnalysis(currentRecord) -> DetailAiActionState(
+                text = "使用AI重新分析",
+                processing = false,
+                cancelable = false
+            )
+
+            else -> DetailAiActionState(
+                text = "使用AI分析",
+                processing = false,
+                cancelable = false
+            )
+        }
+    }
+
+    private fun detailAiProcessingLabel(state: AiAnalysisState?): String {
+        return if (state?.attemptCount?.coerceAtLeast(1) ?: 1 >= 2) {
+            "AI重试中..."
+        } else {
+            "AI分析中..."
+        }
+    }
+
+    private fun hasPersistedAiAnalysis(record: MemoryRecord): Boolean {
+        return !isPlainManualRecord(record)
     }
 
     private fun buildCanceledInitialAnalysisRecord(baseRecord: MemoryRecord): MemoryRecord {
@@ -1610,7 +1681,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         }
 
                         Text(
-                            text = "摘要",
+                            text = detailSummarySectionTitle(currentRecord),
                             color = palette.textPrimary,
                             fontSize = 17.sp,
                             fontWeight = FontWeight.SemiBold,
@@ -1744,17 +1815,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 }
                             )
                         } else if (aiEnabled) {
-                            val aiVisualState = rememberAiVisualState(currentRecord)
-                            val buttonProcessing = reanalyzing || aiVisualState.isProcessing
-                            val cancelableAnalysis = reanalyzing || isInitialAiAnalysisCancelable(currentRecord)
+                            val aiActionState = resolveDetailAiActionState(currentRecord)
                             NoMemoDetailReanalyzeButton(
-                                text = when {
-                                    aiVisualState.isProcessing -> aiVisualState.displayText
-                                    currentRecord.mode == MemoryRecord.MODE_AI -> "重新分析"
-                                    else -> "AI分析"
-                                },
-                                processing = buttonProcessing,
-                                cancelable = cancelableAnalysis,
+                                text = aiActionState.text,
+                                processing = aiActionState.processing,
+                                cancelable = aiActionState.cancelable,
+                                errorState = isAiAnalysisFailedRecord(currentRecord) && !aiActionState.processing,
                                 modifier = Modifier.padding(
                                     start = detailTextStartPadding,
                                     end = detailTextStartPadding,
@@ -1912,11 +1978,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
             }
 
             if (showAiFailureHint) {
-                NoMemoMessageDialog(
-                    title = "AI 分析失败",
+                NoMemoPersistentMessageDialog(
+                    title = "AI分析失败",
                     message = "AI分析失败，点击AI分析按钮可进行重试",
-                    confirmText = "确定",
-                    onDismiss = {
+                    onTemporaryDismiss = {
+                        showAiFailureHint = false
+                    },
+                    onConfirm = {
                         showAiFailureHint = false
                         record?.let(::acknowledgeAiFailure)
                     }
@@ -2171,6 +2239,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
             ?: record.sourceText?.takeIf { it.isNotBlank() }
             ?: record.analysis?.takeIf { it.isNotBlank() }
             ?: "暂无摘要"
+    }
+
+    private fun detailSummarySectionTitle(record: MemoryRecord): String {
+        return if (isPlainManualRecord(record)) "原始输入" else "摘要"
+    }
+
+    private fun isPlainManualRecord(record: MemoryRecord): Boolean {
+        return record.mode == MemoryRecord.MODE_NORMAL &&
+            record.engine.equals("manual", ignoreCase = true)
     }
 
     private fun deriveInsightText(record: MemoryRecord): String {

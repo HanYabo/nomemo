@@ -102,6 +102,14 @@ public class AiMemoryService {
         String safeContext = detailContext == null ? "" : detailContext.trim();
         CloudRequestMode requestMode = resolveRequestMode(safeText, imageUri);
         LocalEvidenceBundle localEvidence = buildLocalEvidence(safeText, imageUri);
+        String effectiveText = mergePrimaryText(safeText, localEvidence.getOcrVisibleText());
+        String predictedCategoryCode = classifyCategoryCode(effectiveText, imageUri != null);
+        AiAnalysisStyleHint analysisStyleHint = AiAnalysisStyleRouter.resolve(
+                safeText,
+                localEvidence.getOcrVisibleText(),
+                predictedCategoryCode,
+                imageUri != null
+        );
         Exception lastCloudError = null;
         AiFailureStage lastFailureStage = null;
         boolean repairUsed = false;
@@ -123,7 +131,8 @@ public class AiMemoryService {
                             policy,
                             requestMode,
                             policy.getCostMode() == AiCostMode.ECONOMY,
-                            localEvidence
+                            localEvidence,
+                            analysisStyleHint
                     );
                     repairUsed = repairUsed || cloudResult.isRepairUsed();
                     logAttemptSuccess(policy, attempt, totalAttemptLimit, cloudResult);
@@ -162,7 +171,8 @@ public class AiMemoryService {
                             policy,
                             requestMode,
                             false,
-                            localEvidence
+                            localEvidence,
+                            analysisStyleHint
                     );
                     repairUsed = repairUsed || cloudResult.isRepairUsed();
                     logAttemptSuccess(policy, totalAttemptLimit, totalAttemptLimit, cloudResult);
@@ -211,8 +221,8 @@ public class AiMemoryService {
         }
         try {
             GenerationResult result = enhanced
-                    ? generateByRulesEnhanced(safeText, imageUri, safeContext)
-                    : generateByRules(safeText, imageUri);
+                    ? generateByRulesEnhanced(safeText, imageUri, safeContext, analysisStyleHint)
+                    : generateByRules(safeText, imageUri, analysisStyleHint);
             return AiAnalysisOutcome.success(
                     result,
                     localAttemptCount,
@@ -221,7 +231,13 @@ public class AiMemoryService {
                     fullPromptRescueUsed
             );
         } catch (Exception localError) {
-            GenerationResult emergencyResult = buildEmergencyLocalResult(safeText, imageUri, enhanced, safeContext);
+            GenerationResult emergencyResult = buildEmergencyLocalResult(
+                    safeText,
+                    imageUri,
+                    enhanced,
+                    safeContext,
+                    analysisStyleHint
+            );
             return AiAnalysisOutcome.success(
                     emergencyResult,
                     localAttemptCount,
@@ -292,7 +308,8 @@ public class AiMemoryService {
             AiExecutionPolicy policy,
             CloudRequestMode requestMode,
             boolean economyMode,
-            LocalEvidenceBundle localEvidence
+            LocalEvidenceBundle localEvidence,
+            AiAnalysisStyleHint analysisStyleHint
     ) throws Exception {
         String localCandidatesJson = localEvidence.getLocalCandidatesJson();
         AiPromptSpec promptSpec = AiPromptBuilder.build(
@@ -301,7 +318,8 @@ public class AiMemoryService {
                 economyMode,
                 userText,
                 detailContext,
-                localCandidatesJson
+                localCandidatesJson,
+                analysisStyleHint
         );
         AiPreparedRequest preparedRequest = buildPreparedRequest(requestMode, imageUri, promptSpec);
 
@@ -496,7 +514,13 @@ public class AiMemoryService {
             summary = cropSingleLine(effectiveText, 36);
         }
         if (TextUtils.isEmpty(analysis)) {
-            analysis = "AI 已完成内容整理";
+            analysis = buildFallbackAnalysis(
+                    effectiveText,
+                    imageUri != null,
+                    policy.getOperationKind() == AiOperationKind.REANALYZE,
+                    null,
+                    preparedRequest.getPromptSpec().getAnalysisStyleHint()
+            );
         }
         if (TextUtils.isEmpty(suggestedCategoryCode)) {
             suggestedCategoryCode = classifyCategoryCode(effectiveText, imageUri != null);
@@ -1144,23 +1168,24 @@ public class AiMemoryService {
         return "";
     }
 
-    private GenerationResult generateByRules(String userText, @Nullable Uri imageUri) {
+    private GenerationResult generateByRules(
+            String userText,
+            @Nullable Uri imageUri,
+            AiAnalysisStyleHint analysisStyleHint
+    ) {
         String ocrVisibleText = extractLocalOcrVisibleText(imageUri);
         String effectiveText = mergePrimaryText(userText, ocrVisibleText);
         boolean hasText = !TextUtils.isEmpty(effectiveText);
         boolean hasImage = imageUri != null;
         String suggestedCategoryCode = classifyCategoryCode(effectiveText, hasImage);
 
-        String analysis;
-        if (hasText && hasImage) {
-            analysis = "已同时记录文字和截图，这是一条信息较完整的记忆。";
-        } else if (hasText) {
-            analysis = "已提取文字要点，关键词：" + buildTags(effectiveText);
-        } else if (hasImage) {
-            analysis = "已保存截图，建议之后补一句说明，便于回看。";
-        } else {
-            analysis = "未检测到可分析内容。";
-        }
+        String analysis = buildFallbackAnalysis(
+                effectiveText,
+                hasImage,
+                false,
+                null,
+                analysisStyleHint
+        );
 
         String title;
         String summary;
@@ -1203,17 +1228,19 @@ public class AiMemoryService {
     private GenerationResult generateByRulesEnhanced(
             String userText,
             @Nullable Uri imageUri,
-            @Nullable String detailContext
+            @Nullable String detailContext,
+            AiAnalysisStyleHint analysisStyleHint
     ) {
         String ocrVisibleText = extractLocalOcrVisibleText(imageUri);
         String effectiveText = mergePrimaryText(userText, ocrVisibleText);
-        GenerationResult base = generateByRules(userText, imageUri);
-        String analysis = base.getAnalysis();
-        if (!TextUtils.isEmpty(detailContext)) {
-            analysis = analysis + " 已结合现有条目内容进行二次整理与校对。";
-        } else {
-            analysis = analysis + " 已执行更细致的二次整理。";
-        }
+        GenerationResult base = generateByRules(userText, imageUri, analysisStyleHint);
+        String analysis = buildFallbackAnalysis(
+                effectiveText,
+                imageUri != null,
+                true,
+                detailContext,
+                analysisStyleHint
+        );
         String memory = base.getMemory();
         if (!TextUtils.isEmpty(detailContext)) {
             memory = memory + " 这次结果已参考旧版本信息并尽量补足上下文。";
@@ -1298,7 +1325,8 @@ public class AiMemoryService {
             String userText,
             @Nullable Uri imageUri,
             boolean enhanced,
-            @Nullable String detailContext
+            @Nullable String detailContext,
+            AiAnalysisStyleHint analysisStyleHint
     ) {
         String ocrVisibleText = extractLocalOcrVisibleText(imageUri);
         String effectiveText = mergePrimaryText(userText, ocrVisibleText);
@@ -1306,12 +1334,13 @@ public class AiMemoryService {
         String memory = fallbackMemory(effectiveText, imageUri);
         String title = cropSingleLine(memory, 18);
         String summary = cropSingleLine(TextUtils.isEmpty(effectiveText) ? memory : effectiveText, 40);
-        String analysis = enhanced
-                ? "已完成本地兜底重整"
-                : "已完成本地兜底分析";
-        if (enhanced && !TextUtils.isEmpty(detailContext)) {
-            analysis = analysis + "，并已参考现有内容。";
-        }
+        String analysis = buildFallbackAnalysis(
+                effectiveText,
+                imageUri != null,
+                enhanced,
+                detailContext,
+                analysisStyleHint
+        );
         String structuredFactsJson = reconcileSafely(
                 effectiveText,
                 mergeRawVisibleText("", ocrVisibleText),
@@ -1332,6 +1361,79 @@ public class AiMemoryService {
                 "local",
                 structuredFactsJson
         );
+    }
+
+    private String buildFallbackAnalysis(
+            String effectiveText,
+            boolean hasImage,
+            boolean enhanced,
+            @Nullable String detailContext,
+            AiAnalysisStyleHint analysisStyleHint
+    ) {
+        boolean hasText = !TextUtils.isEmpty(effectiveText);
+        if (analysisStyleHint == AiAnalysisStyleHint.DOCUMENT_RICH && hasText) {
+            return buildDocumentRichFallbackAnalysis(effectiveText, hasImage, enhanced, detailContext);
+        }
+        if (hasText && hasImage) {
+            return "已同时记录文字和截图，这是一条信息较完整的记忆。";
+        }
+        if (hasText) {
+            return "已提取文字要点，关键词：" + buildTags(effectiveText);
+        }
+        if (hasImage) {
+            return "已保存截图，建议之后补一句说明，便于回看。";
+        }
+        return "未检测到可分析内容。";
+    }
+
+    private String buildDocumentRichFallbackAnalysis(
+            String effectiveText,
+            boolean hasImage,
+            boolean enhanced,
+            @Nullable String detailContext
+    ) {
+        String normalizedText = normalizeDocumentText(effectiveText);
+        String overviewTopic = cropSingleLine(
+                TextUtils.isEmpty(normalizedText)
+                        ? (hasImage ? "这张截图中的说明内容" : "这段说明性内容")
+                        : normalizedText,
+                56
+        );
+        String contentOverview = cropSingleLine(
+                TextUtils.isEmpty(normalizedText)
+                        ? (hasImage ? "主要信息来自截图，建议结合原图核对细节。" : "当前文本内容较短，建议补充更多上下文。")
+                        : normalizedText,
+                120
+        );
+        StringBuilder builder = new StringBuilder();
+        builder.append("这条记忆主要围绕").append(overviewTopic).append("展开，已整理出便于回看的重点。");
+        builder.append("\n\n📌 内容概览\n");
+        builder.append(contentOverview);
+        builder.append("\n\n🧾 关键信息\n");
+        if (hasImage) {
+            builder.append("这条记忆包含截图证据，适合重点核对其中的时间、名称、权益或说明细节。");
+        } else {
+            builder.append("当前文本更偏说明性内容，适合关注其中的背景、重点信息与后续动作。");
+        }
+        builder.append("\n\n");
+        builder.append(enhanced ? "🔎 复核说明\n" : "✨ 阅读提示\n");
+        if (!TextUtils.isEmpty(detailContext)) {
+            builder.append("这次整理已参考现有条目内容，优先保留了可复用的信息线索。");
+        } else {
+            builder.append("如需更细致的理解，可继续结合原文或截图中的上下文细节查看。");
+        }
+        return builder.toString();
+    }
+
+    private String normalizeDocumentText(@Nullable String value) {
+        if (TextUtils.isEmpty(value)) {
+            return "";
+        }
+        return value
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
     }
 
     private String classifyCategoryCode(String text, boolean hasImage) {

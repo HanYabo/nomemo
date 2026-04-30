@@ -77,7 +77,7 @@ internal fun formatGpsDisplayText(
     latitude: Double,
     longitude: Double
 ): String {
-    return "${formatSingleGpsCoordinate(latitude, true)}，${formatSingleGpsCoordinate(longitude, false)}"
+    return "${formatSingleGpsCoordinate(latitude, true)} ${formatSingleGpsCoordinate(longitude, false)}"
 }
 
 private fun formatSingleGpsCoordinate(
@@ -143,6 +143,7 @@ fun NoMemoDetailReanalyzeButton(
     text: String,
     processing: Boolean,
     cancelable: Boolean = false,
+    errorState: Boolean = false,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
     onCancelClick: (() -> Unit)? = null
@@ -221,8 +222,8 @@ fun NoMemoDetailReanalyzeButton(
                 } else {
                     Text(
                         text = text,
-                        color = actionColor,
-                        fontSize = 17.sp,
+                        color = if (errorState) cancelTextColor else actionColor,
+                        fontSize = if (errorState) 16.sp else 17.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                 }
