@@ -6,8 +6,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Bundle
 import android.view.WindowManager
+import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -45,6 +45,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -90,8 +91,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -128,6 +131,7 @@ internal fun GroupPrimaryScreenRoute(
     val scope = rememberCoroutineScope()
     val memoryStore = remember(context) { MemoryStore(context) }
     val albumStore = remember(context) { GroupAlbumStore(context) }
+    val settingsStore = remember(context) { SettingsStore(context) }
     var allRecords by remember { mutableStateOf<List<MemoryRecord>>(emptyList()) }
     var albumList by remember { mutableStateOf(albumStore.loadAlbums()) }
     var hasLoadedRecords by remember { mutableStateOf(false) }
@@ -172,7 +176,10 @@ internal fun GroupPrimaryScreenRoute(
             ContextCompat.registerReceiver(
                 activity,
                 receiver,
-                IntentFilter(MemoryStoreNotifier.ACTION_RECORDS_CHANGED),
+                IntentFilter().apply {
+                    addAction(MemoryStoreNotifier.ACTION_RECORDS_CHANGED)
+                    addAction(GroupAlbumStoreNotifier.ACTION_ALBUMS_CHANGED)
+                },
                 ContextCompat.RECEIVER_NOT_EXPORTED
             )
             onDispose {
@@ -215,6 +222,7 @@ internal fun GroupPrimaryScreenRoute(
     var groupListMoreAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
     var albumNameInput by remember { mutableStateOf("") }
     var albumDescriptionInput by remember { mutableStateOf("") }
+    var albumAutoClassifyEnabledInput by remember { mutableStateOf(false) }
     val recordById = remember(allRecords) { allRecords.associateBy { it.recordId } }
     val orderedAlbums = albumList
     val albumRecordsMap = remember(albumList, recordById) {
@@ -306,6 +314,15 @@ internal fun GroupPrimaryScreenRoute(
         addExistingSearchQuery = ""
     }
 
+    fun openAlbumDetailWithOrganizeAck(album: GroupAlbumStore.GroupAlbum) {
+        if (album.organizeStatus == GroupAlbumStore.ORGANIZE_STATUS_COMPLETED) {
+            if (albumStore.updateOrganizeStatus(album.albumId, GroupAlbumStore.ORGANIZE_STATUS_IDLE)) {
+                albumList = albumStore.loadAlbums()
+            }
+        }
+        onOpenAlbumDetail(album.albumId)
+    }
+
     LaunchedEffect(isActive) {
         if (isActive) {
             onPrimaryDockStateChanged(true) {
@@ -319,6 +336,7 @@ internal fun GroupPrimaryScreenRoute(
         showCreateAlbumDialog,
         albumNameInput,
         albumDescriptionInput,
+        albumAutoClassifyEnabledInput,
         showAddExistingSheet,
         addExistingTargetAlbum,
         filteredExistingRecords,
@@ -331,24 +349,40 @@ internal fun GroupPrimaryScreenRoute(
                     title = "新建分组",
                     albumName = albumNameInput,
                     albumDescription = albumDescriptionInput,
+                    autoClassifyEnabled = albumAutoClassifyEnabledInput,
+                    onAutoClassifyEnabledChange = { albumAutoClassifyEnabledInput = it },
                     onNameChange = { albumNameInput = it },
                     onDescriptionChange = { albumDescriptionInput = it },
                     onDismiss = {
                         showCreateAlbumDialog = false
                         albumNameInput = ""
                         albumDescriptionInput = ""
+                        albumAutoClassifyEnabledInput = false
                     },
                     onConfirm = {
                         val finalName = albumNameInput.trim()
                         if (finalName.isBlank()) {
                             Toast.makeText(context, "请输入分组名称", Toast.LENGTH_SHORT).show()
                             false
+                        } else if (albumAutoClassifyEnabledInput && albumDescriptionInput.isBlank()) {
+                            false
+                        } else if (albumAutoClassifyEnabledInput && !settingsStore.isAiAvailable()) {
+                            Toast.makeText(context, "请先完成 AI 配置后再使用整理历史记忆", Toast.LENGTH_SHORT).show()
+                            false
                         } else {
-                            albumStore.addAlbum(finalName, albumDescriptionInput)
+                            val createdAlbum = albumStore.addAlbum(
+                                finalName,
+                                albumDescriptionInput,
+                                if (albumAutoClassifyEnabledInput) GroupAlbumStore.ORGANIZE_STATUS_PROCESSING else GroupAlbumStore.ORGANIZE_STATUS_IDLE
+                            )
+                            if (albumAutoClassifyEnabledInput) {
+                                GroupAiOrganizeWorkScheduler.enqueue(context, createdAlbum.albumId)
+                            }
                             albumList = albumStore.loadAlbums()
                             showCreateAlbumDialog = false
                             albumNameInput = ""
                             albumDescriptionInput = ""
+                            albumAutoClassifyEnabledInput = false
                             Toast.makeText(context, "分组已创建", Toast.LENGTH_SHORT).show()
                             true
                         }
@@ -511,10 +545,11 @@ internal fun GroupPrimaryScreenRoute(
                                 Column {
                                     PrimaryGroupSectionHeader(
                                         title = album.name,
+                                        organizeStatus = album.organizeStatus,
                                         modifier = Modifier.padding(horizontal = spec.pageHorizontalPadding),
                                         onClick = {
                                             groupListMoreExpanded = false
-                                            onOpenAlbumDetail(album.albumId)
+                                            openAlbumDetailWithOrganizeAck(album)
                                         }
                                     )
                                     Spacer(modifier = Modifier.height(12.dp))
@@ -645,6 +680,7 @@ class GroupAlbumSortActivity : BaseComposeActivity() {
 @Composable
 private fun PrimaryGroupSectionHeader(
     title: String,
+    organizeStatus: String,
     modifier: Modifier = Modifier,
     onClick: () -> Unit
 ) {
@@ -666,6 +702,26 @@ private fun PrimaryGroupSectionHeader(
                 fontSize = 18.sp,
                 fontWeight = FontWeight.SemiBold
             )
+            when (organizeStatus) {
+                GroupAlbumStore.ORGANIZE_STATUS_PROCESSING -> {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "整理中",
+                        color = Color(0xFF1A8CFF),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                GroupAlbumStore.ORGANIZE_STATUS_COMPLETED -> {
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Text(
+                        text = "整理完成",
+                        color = Color(0xFF34C759),
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
             Spacer(modifier = Modifier.weight(1f))
             Icon(
                 painter = painterResource(R.drawable.ic_sheet_chevron_down),
@@ -1088,6 +1144,7 @@ internal fun PrimaryGroupAddExistingMemorySheet(
             Card(
                 modifier = Modifier
                     .noMemoSheetDragOffset(sheetDrag)
+                    .imePadding()
                     .fillMaxWidth()
                     .shadow(
                         elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
@@ -2215,6 +2272,8 @@ internal fun PrimaryGroupEditAlbumSheet(
     title: String,
     albumName: String,
     albumDescription: String,
+    autoClassifyEnabled: Boolean,
+    onAutoClassifyEnabledChange: (Boolean) -> Unit,
     onNameChange: (String) -> Unit,
     onDescriptionChange: (String) -> Unit,
     onDismiss: () -> Unit,
@@ -2247,6 +2306,26 @@ internal fun PrimaryGroupEditAlbumSheet(
     val descriptionScrollState = rememberScrollState()
     var visible by remember { mutableStateOf(false) }
     var dismissCommitted by remember { mutableStateOf(false) }
+    var albumNameField by remember {
+        mutableStateOf(TextFieldValue(albumName, TextRange(albumName.length)))
+    }
+    var albumDescriptionField by remember {
+        mutableStateOf(TextFieldValue(albumDescription, TextRange(albumDescription.length)))
+    }
+
+    LaunchedEffect(albumName) {
+        if (albumName != albumNameField.text) {
+            albumNameField = TextFieldValue(albumName, TextRange(albumName.length))
+        }
+    }
+    LaunchedEffect(albumDescription) {
+        if (albumDescription != albumDescriptionField.text) {
+            albumDescriptionField = TextFieldValue(
+                albumDescription,
+                TextRange(albumDescription.length)
+            )
+        }
+    }
 
     DisposableEffect(activity) {
         val window = activity?.window
@@ -2259,10 +2338,7 @@ internal fun PrimaryGroupEditAlbumSheet(
         }
     }
 
-    LaunchedEffect(Unit) {
-        visible = true
-    }
-
+    LaunchedEffect(Unit) { visible = true }
     LaunchedEffect(visible) {
         if (!visible && !dismissCommitted) {
             dismissCommitted = true
@@ -2286,9 +2362,7 @@ internal fun PrimaryGroupEditAlbumSheet(
     }
     val sheetDrag = rememberNoMemoSheetDragController(onDismissRequest = tryDismiss)
 
-    BackHandler(enabled = visible) {
-        tryDismiss()
-    }
+    BackHandler(enabled = visible) { tryDismiss() }
 
     Box(
         modifier = Modifier
@@ -2327,6 +2401,7 @@ internal fun PrimaryGroupEditAlbumSheet(
             Card(
                 modifier = Modifier
                     .noMemoSheetDragOffset(sheetDrag)
+                    .imePadding()
                     .fillMaxWidth()
                     .shadow(
                         elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
@@ -2401,8 +2476,11 @@ internal fun PrimaryGroupEditAlbumSheet(
                             colors = CardDefaults.cardColors(containerColor = inputSurface)
                         ) {
                             BasicTextField(
-                                value = albumName,
-                                onValueChange = onNameChange,
+                                value = albumNameField,
+                                onValueChange = { updated ->
+                                    albumNameField = updated
+                                    onNameChange(updated.text)
+                                },
                                 singleLine = true,
                                 textStyle = TextStyle(
                                     color = palette.textPrimary,
@@ -2418,6 +2496,13 @@ internal fun PrimaryGroupEditAlbumSheet(
                                     modifier = Modifier.fillMaxSize(),
                                     contentAlignment = Alignment.CenterStart
                                 ) {
+                                    if (albumNameField.text.isBlank()) {
+                                        Text(
+                                            text = "请输入分组名称",
+                                            color = palette.textTertiary,
+                                            fontSize = 15.sp
+                                        )
+                                    }
                                     innerTextField()
                                 }
                             }
@@ -2436,8 +2521,11 @@ internal fun PrimaryGroupEditAlbumSheet(
                             colors = CardDefaults.cardColors(containerColor = inputSurface)
                         ) {
                             BasicTextField(
-                                value = albumDescription,
-                                onValueChange = onDescriptionChange,
+                                value = albumDescriptionField,
+                                onValueChange = { updated ->
+                                    albumDescriptionField = updated
+                                    onDescriptionChange(updated.text)
+                                },
                                 textStyle = TextStyle(
                                     color = palette.textPrimary,
                                     fontSize = 16.sp,
@@ -2454,10 +2542,24 @@ internal fun PrimaryGroupEditAlbumSheet(
                                         .verticalScroll(descriptionScrollState),
                                     contentAlignment = Alignment.TopStart
                                 ) {
+                                    if (albumDescriptionField.text.isBlank()) {
+                                        Text(
+                                            text = "请输入分组描述，或期望AI帮你分组的描述",
+                                            color = palette.textTertiary,
+                                            fontSize = 15.sp,
+                                            lineHeight = 22.sp
+                                        )
+                                    }
                                     innerTextField()
                                 }
                             }
                         }
+
+                        GroupAutoClassifyToggleRow(
+                            checked = autoClassifyEnabled,
+                            onCheckedChange = onAutoClassifyEnabledChange,
+                            modifier = Modifier.padding(top = 16.dp)
+                        )
 
                         Spacer(modifier = Modifier.height(adaptive.pageBottomPadding + 6.dp))
                     }

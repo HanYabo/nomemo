@@ -6,8 +6,8 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.content.IntentFilter
-import android.os.Bundle
 import android.view.WindowManager
+import android.os.Bundle
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -81,8 +82,10 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -128,6 +131,9 @@ class GroupActivity : BaseComposeActivity() {
     private val memoryChangeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: android.content.Context?, intent: Intent?) {
             refreshContent()
+            if (intent?.action == GroupAlbumStoreNotifier.ACTION_ALBUMS_CHANGED) {
+                albumRefreshTick += 1
+            }
         }
     }
 
@@ -210,7 +216,10 @@ class GroupActivity : BaseComposeActivity() {
         ContextCompat.registerReceiver(
             this,
             memoryChangeReceiver,
-            IntentFilter(MemoryStoreNotifier.ACTION_RECORDS_CHANGED),
+            IntentFilter().apply {
+                addAction(MemoryStoreNotifier.ACTION_RECORDS_CHANGED)
+                addAction(GroupAlbumStoreNotifier.ACTION_ALBUMS_CHANGED)
+            },
             ContextCompat.RECEIVER_NOT_EXPORTED
         )
         memoryChangeRegistered = true
@@ -298,6 +307,7 @@ class GroupActivity : BaseComposeActivity() {
     ) {
         val albumContext = LocalContext.current
         val albumStore = remember(albumContext) { GroupAlbumStore(albumContext) }
+        val settingsStore = remember(albumContext) { SettingsStore(albumContext) }
         val albumAdaptive = rememberNoMemoAdaptiveSpec()
         val albumPalette = rememberNoMemoPalette()
         val groupListState = rememberLazyListState()
@@ -318,9 +328,11 @@ class GroupActivity : BaseComposeActivity() {
         var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
         var showEditAlbumDialog by remember { mutableStateOf(false) }
         var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
+        var closingStandaloneDetail by remember { mutableStateOf(false) }
         var editingAlbumId by remember { mutableStateOf<String?>(null) }
         var albumNameInput by remember { mutableStateOf("") }
         var albumDescriptionInput by remember { mutableStateOf("") }
+        var albumAutoClassifyEnabledInput by remember { mutableStateOf(false) }
         val validRecordIds = remember(allRecords) { allRecords.map { it.recordId }.toSet() }
         LaunchedEffect(albumRefreshTick) {
             albumList = albumStore.loadAlbums()
@@ -438,6 +450,14 @@ class GroupActivity : BaseComposeActivity() {
             showRemoveFromAlbumConfirm = false
             showDeleteSelectedConfirm = false
         }
+        LaunchedEffect(openedAlbum?.albumId, openedAlbum?.organizeStatus) {
+            val currentAlbum = openedAlbum ?: return@LaunchedEffect
+            if (currentAlbum.organizeStatus == GroupAlbumStore.ORGANIZE_STATUS_COMPLETED) {
+                if (albumStore.updateOrganizeStatus(currentAlbum.albumId, GroupAlbumStore.ORGANIZE_STATUS_IDLE)) {
+                    albumList = albumStore.loadAlbums()
+                }
+            }
+        }
         LaunchedEffect(openedRecords, selectedAlbumRecordIds) {
             val validIds = openedRecords.map { it.recordId }.toSet()
             val sanitized = selectedAlbumRecordIds.filterTo(linkedSetOf()) { validIds.contains(it) }.toSet()
@@ -511,7 +531,7 @@ class GroupActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
-                        if (openedAlbum == null) {
+                        if (openedAlbum == null && !closingStandaloneDetail) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -609,7 +629,7 @@ class GroupActivity : BaseComposeActivity() {
                                     }
                                 }
                             }
-                        } else {
+                        } else if (openedAlbum != null) {
                             if (albumSelectionModeActive) {
                                 Box(
                                     modifier = Modifier
@@ -775,6 +795,8 @@ class GroupActivity : BaseComposeActivity() {
                                     )
                                 }
                             }
+                        } else {
+                            Spacer(modifier = Modifier.weight(1f))
                         }
                     }
 
@@ -905,17 +927,29 @@ class GroupActivity : BaseComposeActivity() {
                             title = "新建分组",
                             albumName = albumNameInput,
                             albumDescription = albumDescriptionInput,
+                            showOrganizeToggle = true,
+                            autoClassifyEnabled = albumAutoClassifyEnabledInput,
+                            onAutoClassifyEnabledChange = { albumAutoClassifyEnabledInput = it },
                             onNameChange = { albumNameInput = it },
                             onDescriptionChange = { albumDescriptionInput = it },
                             onDismiss = {
                                 showCreateAlbumDialog = false
                                 albumNameInput = ""
                                 albumDescriptionInput = ""
+                                albumAutoClassifyEnabledInput = false
                             },
                             onConfirm = {
                                 val finalName = albumNameInput.trim()
                                 if (finalName.isBlank()) {
-                                    Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(albumContext, "请输入分组名称", Toast.LENGTH_SHORT).show()
+                                    return@GroupEditAlbumSheet false
+                                }
+                                if (albumAutoClassifyEnabledInput && albumDescriptionInput.isBlank()) {
+                                    Toast.makeText(albumContext, "请先填写分组描述", Toast.LENGTH_SHORT).show()
+                                    return@GroupEditAlbumSheet false
+                                }
+                                if (albumAutoClassifyEnabledInput && !settingsStore.isAiAvailable()) {
+                                    Toast.makeText(albumContext, "请先完成 AI 配置后再使用整理历史记忆", Toast.LENGTH_SHORT).show()
                                     return@GroupEditAlbumSheet false
                                 }
                                 val normalized = finalName.lowercase(Locale.ROOT)
@@ -923,7 +957,14 @@ class GroupActivity : BaseComposeActivity() {
                                     Toast.makeText(albumContext, "已存在同名分组", Toast.LENGTH_SHORT).show()
                                     return@GroupEditAlbumSheet false
                                 }
-                                albumStore.addAlbum(finalName, albumDescriptionInput)
+                                val createdAlbum = albumStore.addAlbum(
+                                    finalName,
+                                    albumDescriptionInput,
+                                    if (albumAutoClassifyEnabledInput) GroupAlbumStore.ORGANIZE_STATUS_PROCESSING else GroupAlbumStore.ORGANIZE_STATUS_IDLE
+                                )
+                                if (albumAutoClassifyEnabledInput) {
+                                    GroupAiOrganizeWorkScheduler.enqueue(albumContext, createdAlbum.albumId)
+                                }
                                 albumList = albumStore.loadAlbums()
                                 Toast.makeText(albumContext, "分组已创建", Toast.LENGTH_SHORT).show()
                                 true
@@ -977,6 +1018,9 @@ class GroupActivity : BaseComposeActivity() {
                             title = "编辑分组",
                             albumName = albumNameInput,
                             albumDescription = albumDescriptionInput,
+                            showOrganizeToggle = false,
+                            autoClassifyEnabled = false,
+                            onAutoClassifyEnabledChange = { },
                             onNameChange = { albumNameInput = it },
                             onDescriptionChange = { albumDescriptionInput = it },
                             onDismiss = {
@@ -987,7 +1031,7 @@ class GroupActivity : BaseComposeActivity() {
                                 val targetId = editingAlbumId ?: openedAlbum.albumId
                                 val finalName = albumNameInput.trim()
                                 if (finalName.isBlank()) {
-                                    Toast.makeText(albumContext, "请输入分组名", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(albumContext, "请输入分组名称", Toast.LENGTH_SHORT).show()
                                     return@GroupEditAlbumSheet false
                                 }
                                 val normalized = finalName.lowercase(Locale.ROOT)
@@ -1013,12 +1057,15 @@ class GroupActivity : BaseComposeActivity() {
                                 val deleted = albumStore.deleteAlbum(targetAlbum.albumId)
                                 showDeleteAlbumConfirm = false
                                 if (deleted) {
+                                    if (openedAsStandaloneDetail) {
+                                        closingStandaloneDetail = true
+                                    } else {
+                                        openedAlbumId = null
+                                    }
                                     albumList = albumStore.loadAlbums()
                                     Toast.makeText(albumContext, "分组已删除", Toast.LENGTH_SHORT).show()
                                     if (openedAsStandaloneDetail) {
                                         onCloseAlbumDetail()
-                                    } else {
-                                        openedAlbumId = null
                                     }
                                 } else {
                                     Toast.makeText(albumContext, "删除失败，请重试", Toast.LENGTH_SHORT).show()
@@ -1830,266 +1877,314 @@ class GroupActivity : BaseComposeActivity() {
 
     @Composable
     private fun BoxScope.GroupEditAlbumSheet(
-        title: String,
-        albumName: String,
-        albumDescription: String,
-        onNameChange: (String) -> Unit,
-        onDescriptionChange: (String) -> Unit,
-        onDismiss: () -> Unit,
-        onConfirm: () -> Boolean
-    ) {
-        val adaptive = rememberNoMemoAdaptiveSpec()
-        val palette = rememberNoMemoPalette()
-        val isDark = isSystemInDarkTheme()
-        val context = LocalContext.current
-        val activity = remember(context) { context.findActivity() }
-        val panelSurface = noMemoThemeSyncedSheetSurface(palette, isDark)
-        val inputSurface = noMemoThemeSyncedContentSurface(
-            palette = palette,
-            isDark = isDark,
-            darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
-            lightDefault = Color.White.copy(alpha = 0.995f)
-        )
-        val dragHandleColor = if (isDark) {
-            Color(0xFF8E8E93).copy(alpha = 0.72f)
-        } else {
-            Color(0xFF8E8E93).copy(alpha = 0.68f)
-        }
-        val bodyHeight = rememberNoMemoSheetHeight(
-            compactPreferredHeight = 450.dp,
-            regularPreferredHeight = 500.dp,
-            compactScreenFraction = 0.76f,
-            regularScreenFraction = 0.70f,
-            minimumHeight = 300.dp
-        )
-        val descriptionScrollState = rememberScrollState()
-        var visible by remember { mutableStateOf(false) }
-        var dismissCommitted by remember { mutableStateOf(false) }
+    title: String,
+    albumName: String,
+    albumDescription: String,
+    showOrganizeToggle: Boolean,
+    autoClassifyEnabled: Boolean,
+    onAutoClassifyEnabledChange: (Boolean) -> Unit,
+    onNameChange: (String) -> Unit,
+    onDescriptionChange: (String) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Boolean
+) {
+    val adaptive = rememberNoMemoAdaptiveSpec()
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val context = LocalContext.current
+    val activity = remember(context) { context.findActivity() }
+    val panelSurface = noMemoThemeSyncedSheetSurface(palette, isDark)
+    val inputSurface = noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
+        lightDefault = Color.White.copy(alpha = 0.995f)
+    )
+    val dragHandleColor = if (isDark) {
+        Color(0xFF8E8E93).copy(alpha = 0.72f)
+    } else {
+        Color(0xFF8E8E93).copy(alpha = 0.68f)
+    }
+    val bodyHeight = rememberNoMemoSheetHeight(
+        compactPreferredHeight = 450.dp,
+        regularPreferredHeight = 500.dp,
+        compactScreenFraction = 0.76f,
+        regularScreenFraction = 0.70f,
+        minimumHeight = 300.dp
+    )
+    val descriptionScrollState = rememberScrollState()
+    var visible by remember { mutableStateOf(false) }
+    var dismissCommitted by remember { mutableStateOf(false) }
+    var albumNameField by remember {
+        mutableStateOf(TextFieldValue(albumName, TextRange(albumName.length)))
+    }
+    var albumDescriptionField by remember {
+        mutableStateOf(TextFieldValue(albumDescription, TextRange(albumDescription.length)))
+    }
 
-        DisposableEffect(activity) {
-            val window = activity?.window
-            val previousSoftInputMode = window?.attributes?.softInputMode
-            window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
-            onDispose {
-                if (window != null && previousSoftInputMode != null) {
-                    window.setSoftInputMode(previousSoftInputMode)
-                }
+    LaunchedEffect(albumName) {
+        if (albumName != albumNameField.text) {
+            albumNameField = TextFieldValue(albumName, TextRange(albumName.length))
+        }
+    }
+    LaunchedEffect(albumDescription) {
+        if (albumDescription != albumDescriptionField.text) {
+            albumDescriptionField = TextFieldValue(
+                albumDescription,
+                TextRange(albumDescription.length)
+            )
+        }
+    }
+
+    DisposableEffect(activity) {
+        val window = activity?.window
+        val previousSoftInputMode = window?.attributes?.softInputMode
+        window?.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING)
+        onDispose {
+            if (window != null && previousSoftInputMode != null) {
+                window.setSoftInputMode(previousSoftInputMode)
             }
         }
+    }
 
-        LaunchedEffect(Unit) {
-            visible = true
+    LaunchedEffect(Unit) { visible = true }
+    LaunchedEffect(visible) {
+        if (!visible && !dismissCommitted) {
+            dismissCommitted = true
+            delay(220)
+            onDismiss()
         }
+    }
 
-        LaunchedEffect(visible) {
-            if (!visible && !dismissCommitted) {
-                dismissCommitted = true
-                delay(220)
-                onDismiss()
-            }
+    val tryDismiss = remember {
+        {
+            visible = false
+            true
         }
-
-        val tryDismiss = remember {
-            {
+    }
+    val requestConfirm = remember(onConfirm) {
+        {
+            if (onConfirm()) {
                 visible = false
-                true
             }
         }
-        val requestConfirm = remember(onConfirm) {
-            {
-                if (onConfirm()) {
-                    visible = false
-                }
-            }
-        }
-        val sheetDrag = rememberNoMemoSheetDragController(onDismissRequest = tryDismiss)
+    }
+    val sheetDrag = rememberNoMemoSheetDragController(onDismissRequest = tryDismiss)
 
-        BackHandler(enabled = visible) {
-            tryDismiss()
-        }
+    BackHandler(enabled = visible) { tryDismiss() }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .zIndex(20f)
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .zIndex(20f)
+    ) {
+        AnimatedVisibility(
+            visible = visible,
+            enter = fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = fadeOut(animationSpec = tween(durationMillis = 180))
         ) {
-            AnimatedVisibility(
-                visible = visible,
-                enter = fadeIn(animationSpec = tween(durationMillis = 180)),
-                exit = fadeOut(animationSpec = tween(durationMillis = 180))
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Color.Black.copy(
-                                alpha = (if (isDark) 0.56f else 0.28f) * sheetDrag.scrimAlphaFraction
-                            )
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Color.Black.copy(
+                            alpha = (if (isDark) 0.56f else 0.28f) * sheetDrag.scrimAlphaFraction
                         )
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null,
-                            onClick = { tryDismiss() }
-                        )
-                )
-            }
+                    )
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = { tryDismiss() }
+                    )
+            )
+        }
 
-            AnimatedVisibility(
-                visible = visible,
-                enter = slideInVertically(
-                    initialOffsetY = { fullHeight -> fullHeight },
-                    animationSpec = tween(durationMillis = 260)
-                ) + fadeIn(animationSpec = tween(durationMillis = 180)),
-                exit = slideOutVertically(
-                    targetOffsetY = { fullHeight -> fullHeight },
-                    animationSpec = tween(durationMillis = 220)
-                ) + fadeOut(animationSpec = tween(durationMillis = 150)),
-                modifier = Modifier.align(Alignment.BottomCenter)
+        AnimatedVisibility(
+            visible = visible,
+            enter = slideInVertically(
+                initialOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 260)
+            ) + fadeIn(animationSpec = tween(durationMillis = 180)),
+            exit = slideOutVertically(
+                targetOffsetY = { fullHeight -> fullHeight },
+                animationSpec = tween(durationMillis = 220)
+            ) + fadeOut(animationSpec = tween(durationMillis = 150)),
+            modifier = Modifier.align(Alignment.BottomCenter)
+        ) {
+            Card(
+                modifier = Modifier
+                    .noMemoSheetDragOffset(sheetDrag)
+                    .imePadding()
+                    .fillMaxWidth()
+                    .shadow(
+                        elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
+                        shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp)
+                    ),
+                shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp),
+                colors = CardDefaults.cardColors(containerColor = panelSurface)
             ) {
-                Card(
+                Column(
                     modifier = Modifier
-                        .noMemoSheetDragOffset(sheetDrag)
                         .fillMaxWidth()
-                        .shadow(
-                            elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
-                            shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp)
-                        ),
-                    shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp),
-                    colors = CardDefaults.cardColors(containerColor = panelSurface)
+                        .heightIn(max = bodyHeight)
+                        .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
                 ) {
+                    NoMemoSheetDragHandle(
+                        color = dragHandleColor,
+                        controller = sheetDrag,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(top = 12.dp, bottom = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        GlassIconCircleButton(
+                            iconRes = R.drawable.ic_sheet_close,
+                            contentDescription = stringResource(R.string.cancel),
+                            onClick = { tryDismiss() },
+                            size = adaptive.topActionButtonSize
+                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(horizontal = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Text(
+                                text = title,
+                                color = palette.textPrimary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                        GlassIconCircleButton(
+                            iconRes = R.drawable.ic_sheet_check,
+                            contentDescription = stringResource(R.string.confirm),
+                            onClick = requestConfirm,
+                            size = adaptive.topActionButtonSize
+                        )
+                    }
+
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = bodyHeight)
-                            .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
+                            .weight(1f)
                     ) {
-                        NoMemoSheetDragHandle(
-                            color = dragHandleColor,
-                            controller = sheetDrag,
-                            modifier = Modifier.align(Alignment.CenterHorizontally)
+                        Text(
+                            text = "分组名称",
+                            color = palette.textSecondary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 2.dp, bottom = 6.dp)
                         )
-
-                        Row(
+                        Card(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(top = 12.dp, bottom = 12.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                                .padding(bottom = 12.dp),
+                            shape = noMemoG2RoundedShape(22.dp),
+                            colors = CardDefaults.cardColors(containerColor = inputSurface)
                         ) {
-                            GlassIconCircleButton(
-                                iconRes = R.drawable.ic_sheet_close,
-                                contentDescription = stringResource(R.string.cancel),
-                                onClick = { tryDismiss() },
-                                size = adaptive.topActionButtonSize
-                            )
-                            Column(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .padding(horizontal = 10.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally
-                            ) {
-                                Text(
-                                    text = title,
+                            BasicTextField(
+                                value = albumNameField,
+                                onValueChange = { updated ->
+                                    albumNameField = updated
+                                    onNameChange(updated.text)
+                                },
+                                singleLine = true,
+                                textStyle = TextStyle(
                                     color = palette.textPrimary,
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    maxLines = 1
-                                )
-                            }
-                            GlassIconCircleButton(
-                                iconRes = R.drawable.ic_sheet_check,
-                                contentDescription = stringResource(R.string.confirm),
-                                onClick = requestConfirm,
-                                size = adaptive.topActionButtonSize
-                            )
-                        }
-
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .weight(1f)
-                        ) {
-                            Text(
-                                text = "分组名称",
-                                color = palette.textSecondary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(start = 2.dp, bottom = 6.dp)
-                            )
-                            Card(
+                                    fontSize = 16.sp,
+                                    lineHeight = 24.sp
+                                ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(bottom = 12.dp),
-                                shape = noMemoG2RoundedShape(22.dp),
-                                colors = CardDefaults.cardColors(containerColor = inputSurface)
-                            ) {
-                                BasicTextField(
-                                    value = albumName,
-                                    onValueChange = onNameChange,
-                                    singleLine = true,
-                                    textStyle = TextStyle(
-                                        color = palette.textPrimary,
-                                        fontSize = 16.sp,
-                                        lineHeight = 24.sp
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(56.dp)
-                                        .padding(horizontal = 14.dp)
-                                ) { innerTextField ->
-                                    Box(
-                                        modifier = Modifier.fillMaxSize(),
-                                        contentAlignment = Alignment.CenterStart
-                                    ) {
-                                        innerTextField()
+                                    .height(56.dp)
+                                    .padding(horizontal = 14.dp)
+                            ) { innerTextField ->
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (albumNameField.text.isBlank()) {
+                                        Text(
+                                            text = "请输入分组名称",
+                                            color = palette.textTertiary,
+                                            fontSize = 15.sp
+                                        )
                                     }
+                                    innerTextField()
                                 }
                             }
-
-                            Text(
-                                text = "分组描述",
-                                color = palette.textSecondary,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(start = 2.dp, bottom = 6.dp)
-                            )
-                            Card(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = noMemoG2RoundedShape(22.dp),
-                                colors = CardDefaults.cardColors(containerColor = inputSurface)
-                            ) {
-                                BasicTextField(
-                                    value = albumDescription,
-                                    onValueChange = onDescriptionChange,
-                                    textStyle = TextStyle(
-                                        color = palette.textPrimary,
-                                        fontSize = 16.sp,
-                                        lineHeight = 24.sp
-                                    ),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(148.dp)
-                                        .padding(horizontal = 14.dp, vertical = 14.dp)
-                                ) { innerTextField ->
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .verticalScroll(descriptionScrollState),
-                                        contentAlignment = Alignment.TopStart
-                                    ) {
-                                        innerTextField()
-                                    }
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(adaptive.pageBottomPadding + 6.dp))
                         }
+
+                        Text(
+                            text = "分组描述",
+                            color = palette.textSecondary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.padding(start = 2.dp, bottom = 6.dp)
+                        )
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = noMemoG2RoundedShape(22.dp),
+                            colors = CardDefaults.cardColors(containerColor = inputSurface)
+                        ) {
+                            BasicTextField(
+                                value = albumDescriptionField,
+                                onValueChange = { updated ->
+                                    albumDescriptionField = updated
+                                    onDescriptionChange(updated.text)
+                                },
+                                textStyle = TextStyle(
+                                    color = palette.textPrimary,
+                                    fontSize = 16.sp,
+                                    lineHeight = 24.sp
+                                ),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(148.dp)
+                                    .padding(horizontal = 14.dp, vertical = 14.dp)
+                            ) { innerTextField ->
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .verticalScroll(descriptionScrollState),
+                                    contentAlignment = Alignment.TopStart
+                                ) {
+                                    if (albumDescriptionField.text.isBlank()) {
+                                        Text(
+                                            text = "请输入分组描述，或期望AI帮你分组的描述",
+                                            color = palette.textTertiary,
+                                            fontSize = 15.sp,
+                                            lineHeight = 22.sp
+                                        )
+                                    }
+                                    innerTextField()
+                                }
+                            }
+                        }
+
+                        if (showOrganizeToggle) {
+                            GroupAutoClassifyToggleRow(
+                                checked = autoClassifyEnabled,
+                                onCheckedChange = onAutoClassifyEnabledChange,
+                                modifier = Modifier.padding(top = 16.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.height(adaptive.pageBottomPadding + 6.dp))
                     }
                 }
             }
         }
     }
+}
 
-    private tailrec fun Context.findActivity(): Activity? {
+private tailrec fun Context.findActivity(): Activity? {
         return when (this) {
             is Activity -> this
             is ContextWrapper -> baseContext.findActivity()

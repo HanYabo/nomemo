@@ -10,6 +10,7 @@ public class NoMemoApp extends Application {
         AiSummaryNotifier.ensureChannel(this);
         ReminderNotifier.ensureChannel(this);
         AiInitialAnalysisWorkScheduler.recoverPendingRecords(this);
+        GroupAiOrganizeWorkScheduler.recoverProcessingAlbums(this);
         new Thread(() -> ReminderScheduler.scheduleAll(this)).start();
     }
 }

@@ -21,10 +21,16 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.Date;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Locale;
 import java.util.Scanner;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class AiMemoryService {
     private static final String TAG = "AiMemoryService";
@@ -33,6 +39,11 @@ public class AiMemoryService {
     private static final int MIN_REPAIR_MAX_TOKENS = 900;
     private static final long RETRY_BASE_DELAY_MS = 1_500L;
     private static final long RETRY_MAX_DELAY_MS = 8_000L;
+    private static final int GROUP_ORGANIZE_BATCH_SIZE = 18;
+    private static final int GROUP_ORGANIZE_FIELD_MAX = 160;
+    private static final Pattern GROUP_ORGANIZE_ID_PATTERN = Pattern.compile(
+            "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
+    );
 
     private final Context context;
     private final SettingsStore settingsStore;
@@ -88,6 +99,45 @@ public class AiMemoryService {
             @Nullable AttemptListener attemptListener
     ) {
         return generateMemoryInternal(userText, imageUri, true, detailContext, attemptListener, true);
+    }
+
+    public LinkedHashSet<String> selectRecordIdsForAlbum(
+            String albumName,
+            String albumDescription,
+            List<MemoryRecord> records
+    ) throws Exception {
+        String safeAlbumName = albumName == null ? "" : albumName.trim();
+        String safeAlbumDescription = albumDescription == null ? "" : albumDescription.trim();
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        if (TextUtils.isEmpty(safeAlbumName) || TextUtils.isEmpty(safeAlbumDescription) || records == null || records.isEmpty()) {
+            return result;
+        }
+        if (!hasCloudConfigFor(CloudRequestMode.TEXT)) {
+            throw new IllegalStateException("AI cloud config unavailable for group organize");
+        }
+
+        ArrayList<MemoryRecord> candidates = new ArrayList<>();
+        HashSet<String> seenIds = new HashSet<>();
+        for (MemoryRecord record : records) {
+            if (record == null) {
+                continue;
+            }
+            String recordId = record.getRecordId() == null ? "" : record.getRecordId().trim();
+            if (recordId.isEmpty() || !seenIds.add(recordId)) {
+                continue;
+            }
+            candidates.add(record);
+        }
+        if (candidates.isEmpty()) {
+            return result;
+        }
+
+        for (int start = 0; start < candidates.size(); start += GROUP_ORGANIZE_BATCH_SIZE) {
+            int end = Math.min(candidates.size(), start + GROUP_ORGANIZE_BATCH_SIZE);
+            List<MemoryRecord> batch = candidates.subList(start, end);
+            result.addAll(requestGroupOrganizeBatch(safeAlbumName, safeAlbumDescription, batch));
+        }
+        return result;
     }
 
     public AiAnalysisOutcome analyzeWithPolicy(
@@ -298,6 +348,217 @@ public class AiMemoryService {
                 && !TextUtils.isEmpty(settingsStore.resolvedApiKey())
                 && !TextUtils.isEmpty(settingsStore.resolvedApiBaseUrl())
                 && !TextUtils.isEmpty(resolvedModel);
+    }
+
+    private LinkedHashSet<String> requestGroupOrganizeBatch(
+            String albumName,
+            String albumDescription,
+            List<MemoryRecord> batch
+    ) throws Exception {
+        LinkedHashSet<String> allowedIds = new LinkedHashSet<>();
+        JSONArray candidatesJson = new JSONArray();
+        for (MemoryRecord record : batch) {
+            String recordId = record.getRecordId() == null ? "" : record.getRecordId().trim();
+            if (recordId.isEmpty()) {
+                continue;
+            }
+            allowedIds.add(recordId);
+            candidatesJson.put(buildGroupOrganizeCandidateJson(record));
+        }
+        if (allowedIds.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+
+        boolean economy = settingsStore.getEconomyMode();
+        AiPromptMode mode = economy ? AiPromptMode.ECONOMY : AiPromptMode.FULL;
+        AiPromptSpec promptSpec = new AiPromptSpec(
+                mode,
+                AiAnalysisStyleHint.TRANSACTIONAL,
+                AiPromptBuilder.PROMPT_VERSION,
+                "group-organize-v1",
+                buildGroupOrganizeSystemPrompt(),
+                buildGroupOrganizeUserPrompt(albumName, albumDescription, candidatesJson),
+                economy ? 900 : 1200,
+                economy ? 0.10 : 0.18,
+                1024,
+                80
+        );
+        AiPreparedRequest preparedRequest = buildPreparedRequest(CloudRequestMode.TEXT, null, promptSpec);
+        String responseContent = requestGroupOrganizeContent(preparedRequest);
+        return parseGroupOrganizeSelectedIds(responseContent, allowedIds);
+    }
+
+    private JSONObject buildGroupOrganizeCandidateJson(MemoryRecord record) throws Exception {
+        JSONObject json = new JSONObject();
+        json.put("recordId", record.getRecordId());
+        json.put("title", compactForGroupOrganize(record.getTitle(), GROUP_ORGANIZE_FIELD_MAX));
+        json.put("categoryName", compactForGroupOrganize(record.getCategoryName(), 32));
+        json.put("summary", compactForGroupOrganize(record.getSummary(), GROUP_ORGANIZE_FIELD_MAX));
+        json.put("memory", compactForGroupOrganize(record.getMemory(), GROUP_ORGANIZE_FIELD_MAX));
+        json.put("analysis", compactForGroupOrganize(record.getAnalysis(), GROUP_ORGANIZE_FIELD_MAX));
+        json.put("sourceText", compactForGroupOrganize(record.getSourceText(), GROUP_ORGANIZE_FIELD_MAX));
+        json.put("structuredFacts", compactForGroupOrganize(buildGroupOrganizeFactsSummary(record), GROUP_ORGANIZE_FIELD_MAX));
+        return json;
+    }
+
+    private String buildGroupOrganizeFactsSummary(MemoryRecord record) {
+        MemoryStructuredFacts facts = MemoryStructuredFactsJson.parse(record.getStructuredFactsJson());
+        if (facts == null) {
+            return "";
+        }
+        ArrayList<String> parts = new ArrayList<>();
+        if (!TextUtils.isEmpty(facts.getMerchantOrCompany())) {
+            parts.add("merchant=" + facts.getMerchantOrCompany().trim());
+        }
+        if (!TextUtils.isEmpty(facts.getItemName())) {
+            parts.add("item=" + facts.getItemName().trim());
+        }
+        if (!TextUtils.isEmpty(facts.getLocation())) {
+            parts.add("location=" + facts.getLocation().trim());
+        }
+        if (!TextUtils.isEmpty(facts.getPickupCode())) {
+            parts.add("pickupCode=" + facts.getPickupCode().trim());
+        }
+        if (!TextUtils.isEmpty(facts.getOrderNumber())) {
+            parts.add("orderNumber=" + facts.getOrderNumber().trim());
+        }
+        return TextUtils.join("; ", parts);
+    }
+
+    private String buildGroupOrganizeSystemPrompt() {
+        return "You are NoMemo's AI group organizer. Read the group name, the group description, and the candidate memories. "
+                + "Select only the memories that clearly belong in this group using semantic understanding of the description, not just literal keyword overlap. "
+                + "Be conservative: if uncertain, leave the record out. "
+                + "Return JSON only in this exact schema: {\"selectedRecordIds\":[\"record-id-1\",\"record-id-2\"]}. "
+                + "Only use record IDs that appear in the candidate list. Do not add explanations outside JSON.";
+    }
+
+    private String buildGroupOrganizeUserPrompt(
+            String albumName,
+            String albumDescription,
+            JSONArray candidatesJson
+    ) {
+        return "groupName:\n" + compactForGroupOrganize(albumName, 80) + "\n\n"
+                + "groupDescription:\n" + compactForGroupOrganize(albumDescription, 800) + "\n\n"
+                + "candidates:\n" + candidatesJson.toString();
+    }
+
+    private String requestGroupOrganizeContent(AiPreparedRequest preparedRequest) throws Exception {
+        Exception firstError = null;
+        AiModelCapabilityRegistry.ModelCapabilities capabilities =
+                AiModelCapabilityRegistry.resolve(preparedRequest.getModel());
+        if (capabilities.supportsResponseFormatJson()) {
+            try {
+                return requestGroupOrganizeContent(preparedRequest, true);
+            } catch (AiGenerationException exception) {
+                if (isResponseFormatUnsupported(exception)) {
+                    AiModelCapabilityRegistry.markResponseFormatUnsupported(preparedRequest.getModel());
+                    firstError = exception;
+                } else if (isSystemRoleUnsupported(exception) && capabilities.supportsSystemRole()) {
+                    AiModelCapabilityRegistry.markSystemRoleUnsupported(preparedRequest.getModel());
+                    preparedRequest = buildPreparedRequest(
+                            preparedRequest.getRequestMode(),
+                            null,
+                            preparedRequest.getPromptSpec()
+                    );
+                    firstError = exception;
+                } else {
+                    throw exception;
+                }
+            }
+        }
+
+        try {
+            return requestGroupOrganizeContent(preparedRequest, false);
+        } catch (AiGenerationException exception) {
+            if (isSystemRoleUnsupported(exception)
+                    && AiModelCapabilityRegistry.resolve(preparedRequest.getModel()).supportsSystemRole()) {
+                AiModelCapabilityRegistry.markSystemRoleUnsupported(preparedRequest.getModel());
+                AiPreparedRequest adjustedRequest = buildPreparedRequest(
+                        preparedRequest.getRequestMode(),
+                        null,
+                        preparedRequest.getPromptSpec()
+                );
+                return requestGroupOrganizeContent(adjustedRequest, false);
+            }
+            if (firstError != null) {
+                exception.addSuppressed(firstError);
+            }
+            throw exception;
+        } catch (Exception secondError) {
+            if (firstError != null) {
+                secondError.addSuppressed(firstError);
+            }
+            throw secondError;
+        }
+    }
+
+    private String requestGroupOrganizeContent(
+            AiPreparedRequest preparedRequest,
+            boolean useResponseFormat
+    ) throws Exception {
+        JSONObject payload = new JSONObject(preparedRequest.getPayload().toString());
+        if (useResponseFormat) {
+            payload.put("response_format", new JSONObject().put("type", "json_object"));
+        }
+        AiCloudResponse response = executeCloudRequest(payload, preparedRequest, useResponseFormat);
+        if (shouldTreatAsTokenExhausted(response.getFinishReason(), response.getContent())) {
+            throw buildTokenExhaustedException(response, null);
+        }
+        return response.getContent();
+    }
+
+    private LinkedHashSet<String> parseGroupOrganizeSelectedIds(
+            String rawContent,
+            Set<String> allowedIds
+    ) {
+        LinkedHashSet<String> result = new LinkedHashSet<>();
+        if (allowedIds == null || allowedIds.isEmpty() || TextUtils.isEmpty(rawContent)) {
+            return result;
+        }
+        try {
+            JSONObject json = new JSONObject(rawContent);
+            JSONArray selected = json.optJSONArray("selectedRecordIds");
+            if (selected == null) {
+                selected = json.optJSONArray("selectedIds");
+            }
+            if (selected != null) {
+                for (int index = 0; index < selected.length(); index++) {
+                    String value = selected.optString(index, "").trim();
+                    if (allowedIds.contains(value)) {
+                        result.add(value);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Fallback to extracting UUID-like ids from raw output.
+        }
+        if (!result.isEmpty()) {
+            return result;
+        }
+        Matcher matcher = GROUP_ORGANIZE_ID_PATTERN.matcher(rawContent);
+        while (matcher.find()) {
+            String value = matcher.group();
+            if (allowedIds.contains(value)) {
+                result.add(value);
+            }
+        }
+        return result;
+    }
+
+    private String compactForGroupOrganize(@Nullable String value, int maxLength) {
+        if (TextUtils.isEmpty(value)) {
+            return "";
+        }
+        String normalized = value
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (normalized.length() <= maxLength) {
+            return normalized;
+        }
+        return normalized.substring(0, maxLength).trim();
     }
 
     private CloudGenerationResult generateByCloud(
@@ -522,6 +783,14 @@ public class AiMemoryService {
                     preparedRequest.getPromptSpec().getAnalysisStyleHint()
             );
         }
+        analysis = ensureAnalysisPresentationStyle(
+                analysis,
+                effectiveText,
+                imageUri != null,
+                policy.getOperationKind() == AiOperationKind.REANALYZE,
+                null,
+                preparedRequest.getPromptSpec().getAnalysisStyleHint()
+        );
         if (TextUtils.isEmpty(suggestedCategoryCode)) {
             suggestedCategoryCode = classifyCategoryCode(effectiveText, imageUri != null);
         }
@@ -1186,6 +1455,14 @@ public class AiMemoryService {
                 null,
                 analysisStyleHint
         );
+        analysis = ensureAnalysisPresentationStyle(
+                analysis,
+                effectiveText,
+                hasImage,
+                false,
+                null,
+                analysisStyleHint
+        );
 
         String title;
         String summary;
@@ -1235,6 +1512,14 @@ public class AiMemoryService {
         String effectiveText = mergePrimaryText(userText, ocrVisibleText);
         GenerationResult base = generateByRules(userText, imageUri, analysisStyleHint);
         String analysis = buildFallbackAnalysis(
+                effectiveText,
+                imageUri != null,
+                true,
+                detailContext,
+                analysisStyleHint
+        );
+        analysis = ensureAnalysisPresentationStyle(
+                analysis,
                 effectiveText,
                 imageUri != null,
                 true,
@@ -1341,6 +1626,14 @@ public class AiMemoryService {
                 detailContext,
                 analysisStyleHint
         );
+        analysis = ensureAnalysisPresentationStyle(
+                analysis,
+                effectiveText,
+                imageUri != null,
+                enhanced,
+                detailContext,
+                analysisStyleHint
+        );
         String structuredFactsJson = reconcileSafely(
                 effectiveText,
                 mergeRawVisibleText("", ocrVisibleText),
@@ -1384,6 +1677,29 @@ public class AiMemoryService {
             return "已保存截图，建议之后补一句说明，便于回看。";
         }
         return "未检测到可分析内容。";
+    }
+
+    private String ensureAnalysisPresentationStyle(
+            @Nullable String analysis,
+            String effectiveText,
+            boolean hasImage,
+            boolean enhanced,
+            @Nullable String detailContext,
+            AiAnalysisStyleHint analysisStyleHint
+    ) {
+        String safeAnalysis = analysis == null ? "" : analysis.trim();
+        if (analysisStyleHint != AiAnalysisStyleHint.DOCUMENT_RICH) {
+            return safeAnalysis;
+        }
+        if (!TextUtils.isEmpty(safeAnalysis)
+                && RichAnalysisTextKt.parseRichAnalysisContent(safeAnalysis) != null) {
+            return safeAnalysis;
+        }
+        String source = mergePrimaryText(safeAnalysis, effectiveText);
+        if (TextUtils.isEmpty(source)) {
+            source = safeAnalysis;
+        }
+        return buildDocumentRichFallbackAnalysis(source, hasImage, enhanced, detailContext);
     }
 
     private String buildDocumentRichFallbackAnalysis(

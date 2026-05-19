@@ -1,13 +1,5 @@
 ﻿package com.han.nomemo
 
-import android.text.Selection
-import android.text.Spannable
-import android.util.TypedValue
-import android.view.ActionMode
-import android.view.Menu
-import android.view.MenuItem
-import android.widget.TextView
-
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -25,6 +17,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Text
@@ -51,8 +44,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.viewinterop.AndroidView
 
 data class StructuredPickupInfo(
     val sectionTitle: String,
@@ -103,6 +94,8 @@ private val memoryDetailContentHorizontalPadding = 18.dp
 private val memoryDetailContentVerticalPadding = 17.dp
 private val memoryDetailBodyFontSize = 16.sp
 private val memoryDetailBodyLineHeight = 25.sp
+private val memoryDetailHeadingFontSize = 18.sp
+private val memoryDetailHeadingLineHeight = 28.sp
 private val memoryDetailLocationFontSize = 18.sp
 private val memoryDetailLocationLineHeight = 28.sp
 
@@ -299,6 +292,7 @@ fun NoMemoDetailSummaryBox(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val richContent = remember(value) { parseRichAnalysisContent(value) }
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = memoryDetailContentPanelShape,
@@ -338,58 +332,61 @@ fun NoMemoDetailSummaryBox(
                 }
             }
         } else {
-            AndroidView(
-                factory = { context ->
-                    TextView(context).apply {
-                        setTextIsSelectable(true)
-                        setTextColor(palette.textPrimary.toArgb())
-                        setTextSize(TypedValue.COMPLEX_UNIT_SP, memoryDetailBodyFontSize.value)
-                        setLineSpacing(
-                            (memoryDetailBodyLineHeight.value - memoryDetailBodyFontSize.value).coerceAtLeast(0f),
-                            1f
-                        )
-                        typeface = android.graphics.Typeface.DEFAULT
-                        isFocusable = false
-                        isFocusableInTouchMode = false
-                    }
-                },
+            SelectionContainer(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(
                         horizontal = memoryDetailContentHorizontalPadding,
                         vertical = memoryDetailContentVerticalPadding
-                    ),
-                update = { textView ->
-                    textView.text = value
-                    textView.setTextColor(palette.textPrimary.toArgb())
-                    textView.setCustomSelectionActionModeCallback(object : ActionMode.Callback {
-                        override fun onCreateActionMode(mode: ActionMode?, menu: Menu?): Boolean = true
-                        override fun onPrepareActionMode(mode: ActionMode?, menu: Menu?): Boolean = false
-                        override fun onActionItemClicked(mode: ActionMode?, item: MenuItem?): Boolean {
-                            if (item?.itemId == android.R.id.copy) {
-                                textView.post {
-                                    clearSelectableTextSelection(textView)
-                                    mode?.finish()
-                                }
+                    )
+            ) {
+                if (richContent != null) {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Text(
+                            text = richContent.overview,
+                            color = palette.textPrimary,
+                            fontSize = memoryDetailBodyFontSize,
+                            lineHeight = memoryDetailBodyLineHeight,
+                            fontWeight = FontWeight.Normal
+                        )
+                        richContent.blocks.forEach { block ->
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = block.heading,
+                                    color = palette.textPrimary,
+                                    fontSize = memoryDetailHeadingFontSize,
+                                    lineHeight = memoryDetailHeadingLineHeight,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    text = block.body,
+                                    color = palette.textPrimary,
+                                    fontSize = memoryDetailBodyFontSize,
+                                    lineHeight = memoryDetailBodyLineHeight,
+                                    fontWeight = FontWeight.Normal
+                                )
                             }
-                            return false
                         }
-
-                        override fun onDestroyActionMode(mode: ActionMode?) {
-                            clearSelectableTextSelection(textView)
-                        }
-                    })
+                    }
+                } else {
+                    Text(
+                        text = value,
+                        modifier = Modifier.fillMaxWidth(),
+                        color = palette.textPrimary,
+                        fontSize = memoryDetailBodyFontSize,
+                        lineHeight = memoryDetailBodyLineHeight,
+                        fontWeight = FontWeight.Normal
+                    )
                 }
-            )
+            }
         }
     }
-}
-
-private fun clearSelectableTextSelection(textView: TextView) {
-    (textView.text as? Spannable)?.let { spannable ->
-        Selection.removeSelection(spannable)
-    }
-    textView.clearFocus()
 }
 @Composable
 fun NoMemoPickupCodeCard(

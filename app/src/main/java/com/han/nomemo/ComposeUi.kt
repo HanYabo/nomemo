@@ -462,11 +462,15 @@ private fun noMemoThemeSyncedRecordCardGradient(
     palette: NoMemoPalette,
     isDark: Boolean,
     selected: Boolean,
-    darkCardBackgroundOverride: Color?
+    darkCardBackgroundOverride: Color?,
+    lightCardBackgroundOverride: Color?
 ): List<Color> {
     if (selected) return noMemoSelectedCardGradient(isDark)
     if (isDark && darkCardBackgroundOverride != null) {
         return listOf(darkCardBackgroundOverride, darkCardBackgroundOverride)
+    }
+    if (!isDark && lightCardBackgroundOverride != null) {
+        return listOf(lightCardBackgroundOverride, lightCardBackgroundOverride)
     }
     val themed = noMemoPaletteHasThemeTint(palette, isDark)
     return if (isDark) {
@@ -2788,7 +2792,8 @@ fun RecordCard(
     adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
     allowImageLoading: Boolean = true,
     showShadow: Boolean = true,
-    darkCardBackgroundOverride: Color? = null
+    darkCardBackgroundOverride: Color? = null,
+    lightCardBackgroundOverride: Color? = null
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -2834,7 +2839,8 @@ fun RecordCard(
         palette = palette,
         isDark = isDark,
         selected = selected,
-        darkCardBackgroundOverride = darkCardBackgroundOverride
+        darkCardBackgroundOverride = darkCardBackgroundOverride,
+        lightCardBackgroundOverride = lightCardBackgroundOverride
     )
     val cardShadow = if (showShadow) {
         if (isDark) 0.dp else if (selected) 5.dp else 4.dp

@@ -5,8 +5,9 @@ import androidx.annotation.Nullable;
 import java.util.Locale;
 
 public final class AiAnalysisStyleRouter {
-    private static final int DOCUMENT_RICH_MIN_LENGTH = 120;
-    private static final int DOCUMENT_RICH_MIN_LINES = 4;
+    private static final int DOCUMENT_RICH_MIN_LENGTH = 90;
+    private static final int DOCUMENT_RICH_MIN_LINES = 3;
+    private static final int DOCUMENT_RICH_STRONG_LENGTH = 70;
 
     private AiAnalysisStyleRouter() {
     }
@@ -48,6 +49,16 @@ public final class AiAnalysisStyleRouter {
                 "email", "invite", "invitation", "credits", "token", "announcement", "program")) {
             score++;
         }
+        if (containsAny(normalized,
+                "流程", "规则", "资格", "参与", "报名", "开放", "名额", "时间安排", "使用说明",
+                "申请方式", "计划背景", "活动背景", "详情如下", "如下说明", "请查收", "请查看",
+                "规则说明", "权益说明", "常见问题", "更新说明", "指南", "手册", "须知",
+                "overview", "details", "benefits", "requirements", "timeline", "guide", "notice")) {
+            score++;
+        }
+        if (countSentenceLikeSegments(mergedRaw) >= 3) {
+            score++;
+        }
         if (hasImage && countMeaningfulLines(mergedRaw) >= 6) {
             score++;
         }
@@ -60,10 +71,13 @@ public final class AiAnalysisStyleRouter {
                 "公告", "通知", "计划", "权益", "活动说明", "申请", "介绍", "文章", "附件",
                 "email", "invite", "invitation", "subject", "dear", "announcement", "program");
         if (!hasPrimaryKeywords) {
-            return false;
+            return normalized.length() >= 140
+                    && countMeaningfulLines(rawText) >= 3
+                    && countSentenceLikeSegments(rawText) >= 3;
         }
-        return normalized.length() >= 80
-                || countMeaningfulLines(rawText) >= 3
+        return normalized.length() >= DOCUMENT_RICH_STRONG_LENGTH
+                || countMeaningfulLines(rawText) >= 2
+                || countSentenceLikeSegments(rawText) >= 2
                 || hasImage;
     }
 
@@ -87,6 +101,20 @@ public final class AiAnalysisStyleRouter {
         int count = 0;
         for (String line : lines) {
             if (line != null && !line.trim().isEmpty()) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static int countSentenceLikeSegments(@Nullable String value) {
+        if (value == null || value.trim().isEmpty()) {
+            return 0;
+        }
+        int count = 0;
+        String[] segments = value.split("[。！？!?；;\\n]+");
+        for (String segment : segments) {
+            if (segment != null && segment.trim().length() >= 8) {
                 count++;
             }
         }

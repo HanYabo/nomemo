@@ -32,4 +32,37 @@ class AiAnalysisStyleRouterTest {
 
         assertEquals(AiAnalysisStyleHint.DOCUMENT_RICH, style)
     }
+
+    @Test
+    fun mediumLengthExplainerWithNoticeTone_usesDocumentRichStyle() {
+        val style = AiAnalysisStyleRouter.resolve(
+            """
+                这是一份活动说明，主要介绍参与资格、时间安排和使用方式。
+                请查看以下详情：本次开放给已完成申请的用户，名额有限，需要在规定时间内领取权益。
+                如需后续参与，请按页面提示完成报名并阅读规则说明。
+            """.trimIndent(),
+            null,
+            CategoryCatalog.CODE_QUICK_NOTE,
+            false
+        )
+
+        assertEquals(AiAnalysisStyleHint.DOCUMENT_RICH, style)
+    }
+
+    @Test
+    fun longStructuredScreenshotTextWithoutPrimaryKeywords_usesDocumentRichStyle() {
+        val style = AiAnalysisStyleRouter.resolve(
+            """
+                本页主要展示一个计划的背景介绍和参与方式
+                当前开放对象为受邀用户，需要在指定时间内完成确认
+                页面包含权益说明、后续流程以及使用须知
+                请继续查看详情并按步骤完成操作
+            """.trimIndent(),
+            null,
+            CategoryCatalog.CODE_QUICK_NOTE,
+            true
+        )
+
+        assertEquals(AiAnalysisStyleHint.DOCUMENT_RICH, style)
+    }
 }

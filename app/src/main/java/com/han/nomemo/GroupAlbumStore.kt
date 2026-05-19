@@ -6,16 +6,29 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 class GroupAlbumStore(context: Context) {
+    private val appContext = context.applicationContext
+
     data class GroupAlbum(
         val albumId: String,
         val name: String,
         val description: String,
         val createdAt: Long,
-        val recordIds: List<String>
+        val recordIds: List<String>,
+        val organizeStatus: String
     )
 
+    companion object {
+        private const val PREF_NAME = "no_memo_group_albums"
+        private const val KEY_ALBUMS = "albums"
+
+        const val ORGANIZE_STATUS_IDLE = "idle"
+        const val ORGANIZE_STATUS_PROCESSING = "processing"
+        const val ORGANIZE_STATUS_COMPLETED = "completed"
+        const val ORGANIZE_STATUS_FAILED = "failed"
+    }
+
     private val prefs =
-        context.applicationContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
+        appContext.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     fun loadAlbums(): List<GroupAlbum> {
         val raw = prefs.getString(KEY_ALBUMS, "[]") ?: "[]"
@@ -33,13 +46,18 @@ class GroupAlbumStore(context: Context) {
                 name = name,
                 description = obj.optString("description").trim(),
                 createdAt = obj.optLong("created_at"),
-                recordIds = parseRecordIds(obj.optJSONArray("record_ids"))
+                recordIds = parseRecordIds(obj.optJSONArray("record_ids")),
+                organizeStatus = normalizeOrganizeStatus(obj.optString("organize_status"))
             )
         }
         return result
     }
 
-    fun addAlbum(name: String, description: String): GroupAlbum {
+    fun addAlbum(
+        name: String,
+        description: String,
+        organizeStatus: String = ORGANIZE_STATUS_IDLE
+    ): GroupAlbum {
         val trimmedName = name.trim()
         val trimmedDescription = description.trim()
         val album = GroupAlbum(
@@ -47,7 +65,8 @@ class GroupAlbumStore(context: Context) {
             name = trimmedName,
             description = trimmedDescription,
             createdAt = System.currentTimeMillis(),
-            recordIds = emptyList()
+            recordIds = emptyList(),
+            organizeStatus = normalizeOrganizeStatus(organizeStatus)
         )
         val next = loadAlbums().toMutableList()
         next.add(0, album)
@@ -101,7 +120,11 @@ class GroupAlbumStore(context: Context) {
         return true
     }
 
-    fun updateAlbum(albumId: String, name: String, description: String): Boolean {
+    fun updateAlbum(
+        albumId: String,
+        name: String,
+        description: String
+    ): Boolean {
         val trimmedId = albumId.trim()
         val trimmedName = name.trim()
         val trimmedDescription = description.trim()
@@ -114,12 +137,44 @@ class GroupAlbumStore(context: Context) {
             return false
         }
         val current = albums[index]
-        if (current.name == trimmedName && current.description == trimmedDescription) {
+        if (
+            current.name == trimmedName &&
+            current.description == trimmedDescription
+        ) {
             return false
         }
-        albums[index] = current.copy(name = trimmedName, description = trimmedDescription)
+        albums[index] = current.copy(
+            name = trimmedName,
+            description = trimmedDescription
+        )
         saveAlbums(albums)
         return true
+    }
+
+    fun updateOrganizeStatus(albumId: String, organizeStatus: String): Boolean {
+        val trimmedId = albumId.trim()
+        if (trimmedId.isEmpty()) {
+            return false
+        }
+        val albums = loadAlbums().toMutableList()
+        val index = albums.indexOfFirst { it.albumId == trimmedId }
+        if (index < 0) {
+            return false
+        }
+        val normalized = normalizeOrganizeStatus(organizeStatus)
+        val current = albums[index]
+        if (current.organizeStatus == normalized) {
+            return false
+        }
+        albums[index] = current.copy(organizeStatus = normalized)
+        saveAlbums(albums)
+        return true
+    }
+
+    fun findAlbumById(albumId: String): GroupAlbum? {
+        val trimmedId = albumId.trim()
+        if (trimmedId.isEmpty()) return null
+        return loadAlbums().firstOrNull { it.albumId == trimmedId }
     }
 
     fun reorderAlbums(albumIdsInOrder: List<String>): Boolean {
@@ -199,9 +254,11 @@ class GroupAlbumStore(context: Context) {
                     .put("description", album.description)
                     .put("created_at", album.createdAt)
                     .put("record_ids", recordIdsJson)
+                    .put("organize_status", normalizeOrganizeStatus(album.organizeStatus))
             )
         }
         prefs.edit().putString(KEY_ALBUMS, payload.toString()).apply()
+        GroupAlbumStoreNotifier.notifyChanged(appContext)
     }
 
     private fun parseRecordIds(raw: JSONArray?): List<String> {
@@ -218,8 +275,12 @@ class GroupAlbumStore(context: Context) {
         return result.distinct()
     }
 
-    companion object {
-        private const val PREF_NAME = "no_memo_group_albums"
-        private const val KEY_ALBUMS = "albums"
+    private fun normalizeOrganizeStatus(raw: String?): String {
+        return when (raw?.trim()?.lowercase()) {
+            ORGANIZE_STATUS_PROCESSING -> ORGANIZE_STATUS_PROCESSING
+            ORGANIZE_STATUS_COMPLETED -> ORGANIZE_STATUS_COMPLETED
+            ORGANIZE_STATUS_FAILED -> ORGANIZE_STATUS_FAILED
+            else -> ORGANIZE_STATUS_IDLE
+        }
     }
 }
