@@ -13,3 +13,12 @@
 .externalNativeBuild
 .cxx
 local.properties
+.claude
+.adb-home
+.android
+.android-home
+.gradle-user
+.idea
+.kotlin
+.vscode
+
