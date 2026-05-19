@@ -682,8 +682,8 @@ class MainActivity : BaseComposeActivity() {
             animationSpec = tween(durationMillis = 110, easing = FastOutSlowInEasing),
             label = "memoryHeaderCollapseProgress"
         )
-        val expandedTitleAlpha = (1f - headerCollapseProgress).coerceIn(0f, 1f)
-        val collapsedTitleAlpha = headerCollapseProgress.coerceIn(0f, 1f)
+        val expandedTitleAlpha = (1f - (headerCollapseProgress / 0.42f)).coerceIn(0f, 1f)
+        val collapsedTitleAlpha = ((headerCollapseProgress - 0.74f) / 0.22f).coerceIn(0f, 1f)
         val expandedTitleTranslateY = with(density) { (-22).dp.toPx() * headerCollapseProgress }
         val recordSpacing = 14.dp
         val chipBottomPadding = 12.dp

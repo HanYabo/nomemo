@@ -420,8 +420,8 @@ class GroupActivity : BaseComposeActivity() {
             animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
             label = "groupHeaderCollapse"
         )
-        val groupExpandedTitleAlpha = (1f - groupHeaderCollapseProgress).coerceIn(0f, 1f)
-        val groupCollapsedTitleAlpha = groupHeaderCollapseProgress.coerceIn(0f, 1f)
+        val groupExpandedTitleAlpha = (1f - (groupHeaderCollapseProgress / 0.42f)).coerceIn(0f, 1f)
+        val groupCollapsedTitleAlpha = ((groupHeaderCollapseProgress - 0.74f) / 0.22f).coerceIn(0f, 1f)
         val groupExpandedTitleTranslateY =
             with(density) { (-20).dp.toPx() * groupHeaderCollapseProgress }
         val groupExpandedTitleMaxHeight = if (albumAdaptive.isNarrow) 44.dp else 50.dp

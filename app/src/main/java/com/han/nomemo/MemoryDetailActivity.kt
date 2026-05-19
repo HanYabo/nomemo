@@ -2046,19 +2046,44 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 imageCardBounds
             }
         }
-        val previewFillScreen = previewImageAspectRatio != null &&
-            isAspectRatioCloseToScreen(previewImageAspectRatio, screenAspectRatio)
-        val animationTargetRect = remember(
+        val previewSafeVerticalInsetPx = with(density) {
+            (statusBarHeightDp + 12.dp).toPx()
+        }
+        val previewViewportRect = remember(
             screenWidthPx,
             screenHeightPx,
             previewImageAspectRatio,
-            previewFillScreen
+            screenAspectRatio,
+            previewSafeVerticalInsetPx
         ) {
-            buildPreviewDisplayedImageBounds(
+            buildPreviewTargetBounds(
                 screenWidthPx = screenWidthPx,
                 screenHeightPx = screenHeightPx,
                 imageAspectRatio = previewImageAspectRatio,
+                screenAspectRatio = screenAspectRatio,
+                verticalInsetPx = previewSafeVerticalInsetPx
+            )
+        }
+        val previewFillScreen = previewImageAspectRatio != null &&
+            isAspectRatioCloseToScreen(previewImageAspectRatio, screenAspectRatio)
+        val animationTargetRect = remember(
+            previewViewportRect,
+            previewImageAspectRatio,
+            previewFillScreen
+        ) {
+            val contentSize = calculatePreviewContentSize(
+                containerWidthPx = previewViewportRect.width,
+                containerHeightPx = previewViewportRect.height,
+                imageAspectRatio = previewImageAspectRatio,
                 fillScreen = previewFillScreen
+            )
+            val left = previewViewportRect.left + (previewViewportRect.width - contentSize.first) / 2f
+            val top = previewViewportRect.top + (previewViewportRect.height - contentSize.second) / 2f
+            Rect(
+                left = left,
+                top = top,
+                right = left + contentSize.first,
+                bottom = top + contentSize.second
             )
         }
         val previewAlpha by transition.animateFloat(
@@ -2152,18 +2177,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     .graphicsLayer(alpha = previewBaseAlpha, compositingStrategy = CompositingStrategy.Offscreen)
                     .clip(noMemoG2RoundedShape(renderedCornerRadiusDp))
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(Color.Black)
-                ) {
-                    AsyncImage(
-                        model = previewRequest,
-                        contentDescription = "预览图片",
-                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
+                AsyncImage(
+                    model = previewRequest,
+                    contentDescription = "预览图片",
+                    contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
 
             Box(
@@ -2345,7 +2364,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
         screenAspectRatio: Float,
         verticalInsetPx: Float
     ): Rect {
-        return Rect(0f, 0f, screenWidthPx, screenHeightPx)
+        val safeInset = verticalInsetPx
+            .coerceAtLeast(0f)
+            .coerceAtMost((screenHeightPx / 2f) - 1f)
+        return Rect(
+            left = 0f,
+            top = safeInset,
+            right = screenWidthPx,
+            bottom = screenHeightPx - safeInset
+        )
     }
 
     private fun buildPreviewDisplayedImageBounds(
@@ -2382,7 +2409,16 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 BitmapFactory.decodeStream(input, null, options)
             }
             if (options.outWidth > 0 && options.outHeight > 0) {
-                options.outWidth.toFloat() / options.outHeight.toFloat()
+                val rotationDegrees = openImageInputStream(uriString)?.use { input ->
+                    runCatching { ExifInterface(input).rotationDegrees }.getOrDefault(0)
+                } ?: 0
+                val width = options.outWidth.toFloat()
+                val height = options.outHeight.toFloat()
+                if (rotationDegrees == 90 || rotationDegrees == 270) {
+                    height / width
+                } else {
+                    width / height
+                }
             } else {
                 null
             }
