@@ -169,7 +169,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
     }
 
     private fun openDetailPage(recordId: String) {
-        startActivity(MemoryDetailActivity.createIntent(this, recordId))
+        startActivity(MemoryDetailActivity.createIntent(this, recordId, openedFromArchivedList = true))
     }
 
     private fun openSearchPage() {
@@ -190,6 +190,9 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
             if (nextArchived) R.string.archive_success else R.string.unarchive_success,
             Toast.LENGTH_SHORT
         ).show()
+        if (!nextArchived) {
+            finish()
+        }
     }
 
     private fun deleteRecords(recordIds: Set<String>) {

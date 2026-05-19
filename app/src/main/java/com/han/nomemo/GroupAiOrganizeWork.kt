@@ -60,17 +60,36 @@ class GroupAiOrganizeWorker(
         return try {
             val candidateRecords = memoryStore.loadActiveRecords()
                 .filterNot { album.recordIds.contains(it.recordId) }
-            if (candidateRecords.isNotEmpty()) {
-                val aiMemoryService = AiMemoryService(appContext)
-                val selectedRecordIds = aiMemoryService.selectRecordIdsForAlbum(
-                    album.name,
-                    album.description,
-                    candidateRecords
-                )
-                if (selectedRecordIds.isNotEmpty()) {
-                    albumStore.addRecordIds(albumId, selectedRecordIds)
-                }
+            if (candidateRecords.isEmpty()) {
+                albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_COMPLETED)
+                return Result.success()
             }
+
+            val aiMemoryService = AiMemoryService(appContext)
+            val selectedRecordIds = aiMemoryService.selectRecordIdsForAlbum(
+                album.name,
+                album.description,
+                candidateRecords
+            )
+            if (selectedRecordIds.isEmpty()) {
+                Log.w(
+                    "GroupAiOrganizeWorker",
+                    "AI organize returned no matches albumId=$albumId name=${album.name}"
+                )
+                albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+                return Result.success()
+            }
+
+            val added = albumStore.addRecordIds(albumId, selectedRecordIds)
+            if (!added) {
+                Log.w(
+                    "GroupAiOrganizeWorker",
+                    "AI organize selected records but addRecordIds failed albumId=$albumId selected=${selectedRecordIds.size}"
+                )
+                albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+                return Result.success()
+            }
+
             albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_COMPLETED)
             Result.success()
         } catch (exception: Exception) {

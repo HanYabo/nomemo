@@ -127,17 +127,27 @@ private const val ReanalyzeStateRevealDelayMs = 120L
 class MemoryDetailActivity : BaseComposeActivity() {
     companion object {
         private const val EXTRA_RECORD_ID = "extra_record_id"
+        private const val EXTRA_OPENED_FROM_ARCHIVED_LIST = "extra_opened_from_archived_list"
 
         @JvmStatic
-        fun createIntent(context: Context, recordId: String): Intent {
+        @JvmOverloads
+        fun createIntent(
+            context: Context,
+            recordId: String,
+            openedFromArchivedList: Boolean = false
+        ): Intent {
             return Intent(context, MemoryDetailActivity::class.java)
                 .putExtra(EXTRA_RECORD_ID, recordId)
+                .putExtra(EXTRA_OPENED_FROM_ARCHIVED_LIST, openedFromArchivedList)
         }
     }
 
     private lateinit var memoryStore: MemoryStore
     private lateinit var settingsStore: SettingsStore
     private lateinit var aiMemoryService: AiMemoryService
+    private val openedFromArchivedList by lazy {
+        intent.getBooleanExtra(EXTRA_OPENED_FROM_ARCHIVED_LIST, false)
+    }
     private var aiEnabled by mutableStateOf(false)
     private var record by mutableStateOf<MemoryRecord?>(null)
     private var reanalyzing by mutableStateOf(false)
@@ -263,6 +273,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         ).show()
         if (nextArchived) {
             openMemoryPage()
+        } else if (openedFromArchivedList) {
+            finish()
         }
     }
 
