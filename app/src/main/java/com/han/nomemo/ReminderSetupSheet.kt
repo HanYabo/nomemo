@@ -135,7 +135,7 @@ internal fun NoMemoReminderSetupSheet(
     var day by remember(initialTime, visible) { mutableStateOf(initialCalendar.get(Calendar.DAY_OF_MONTH)) }
     var hour by remember(initialTime, visible) { mutableStateOf(initialCalendar.get(Calendar.HOUR_OF_DAY)) }
     var minute by remember(initialTime, visible) { mutableStateOf(initialCalendar.get(Calendar.MINUTE)) }
-    var leadMinutes by remember(initialTime, visible) { mutableStateOf(defaultLeadMinutes) }
+    var leadMinutes by remember(initialTime, visible) { mutableStateOf(0) }
     var selectedLeadIsCustom by remember(initialTime, visible) { mutableStateOf(false) }
     var customLeadHours by remember(initialTime, visible) { mutableStateOf(0) }
     var customLeadPartMinutes by remember(initialTime, visible) { mutableStateOf(defaultLeadMinutes) }
@@ -168,7 +168,7 @@ internal fun NoMemoReminderSetupSheet(
             day = resetCalendar.get(Calendar.DAY_OF_MONTH)
             hour = resetCalendar.get(Calendar.HOUR_OF_DAY)
             minute = resetCalendar.get(Calendar.MINUTE)
-            leadMinutes = defaultLeadMinutes
+            leadMinutes = 0
             selectedLeadIsCustom = false
             customLeadHours = 0
             customLeadPartMinutes = defaultLeadMinutes
@@ -265,6 +265,7 @@ internal fun NoMemoReminderSetupSheet(
     val wheelSelectedTextColor = if (isDark) Color.White.copy(alpha = 0.96f) else reminderAccent
     val wheelNormalTextColor = if (isDark) Color.White.copy(alpha = 0.70f) else palette.textPrimary.copy(alpha = 0.58f)
     val customRepeatSummary = "每${customRepeatInterval}${customRepeatUnit.label}"
+    val showRepeatEndConditions = repeatMode != "none"
     val sheetBodyHeight = rememberNoMemoSheetHeight(
         compactPreferredHeight = 664.dp,
         regularPreferredHeight = 720.dp,
@@ -632,10 +633,21 @@ internal fun NoMemoReminderSetupSheet(
                                         }
                                     )
 
+                                }
+                            }
+
+                            AnimatedVisibility(
+                                visible = showRepeatEndConditions,
+                                enter = fadeIn(tween(180)),
+                                exit = fadeOut(tween(140))
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+
                                     DetailReminderSectionLabel(
                                         text = "结束条件",
                                         color = palette.textSecondary.copy(alpha = if (isDark) 0.78f else 0.72f),
-                                        topPadding = 22.dp
+                                        topPadding = 10.dp
                                     )
 
                                     DetailReminderOptionListCard(
@@ -659,9 +671,11 @@ internal fun NoMemoReminderSetupSheet(
                                                             null
                                                         }
                                                     }
+
                                                     ReminderRepeatEndCondition.COUNT -> {
                                                         if (repeatEndCondition == condition) "${repeatEndCount}次" else null
                                                     }
+
                                                     ReminderRepeatEndCondition.NEVER -> null
                                                 },
                                                 trailingTextColor = palette.textSecondary.copy(alpha = if (isDark) 0.84f else 0.78f)
@@ -673,16 +687,19 @@ internal fun NoMemoReminderSetupSheet(
                                                                 showCustomLeadSheet = false
                                                                 showRepeatEndDateSheet = true
                                                             }
+
                                                             repeatEndDateConfirmed -> {
                                                                 repeatEndCondition = condition
                                                                 showRepeatEndDateSheet = false
                                                             }
+
                                                             else -> {
                                                                 showCustomLeadSheet = false
                                                                 showRepeatEndDateSheet = true
                                                             }
                                                         }
                                                     }
+
                                                     else -> {
                                                         repeatEndCondition = condition
                                                         showRepeatEndDateSheet = false
