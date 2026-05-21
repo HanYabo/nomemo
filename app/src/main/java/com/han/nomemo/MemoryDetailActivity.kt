@@ -5,6 +5,7 @@ import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.media.MediaScannerConnection
 import android.net.Uri
@@ -2046,44 +2047,19 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 imageCardBounds
             }
         }
-        val previewSafeVerticalInsetPx = with(density) {
-            (statusBarHeightDp + 12.dp).toPx()
-        }
-        val previewViewportRect = remember(
-            screenWidthPx,
-            screenHeightPx,
-            previewImageAspectRatio,
-            screenAspectRatio,
-            previewSafeVerticalInsetPx
-        ) {
-            buildPreviewTargetBounds(
-                screenWidthPx = screenWidthPx,
-                screenHeightPx = screenHeightPx,
-                imageAspectRatio = previewImageAspectRatio,
-                screenAspectRatio = screenAspectRatio,
-                verticalInsetPx = previewSafeVerticalInsetPx
-            )
-        }
         val previewFillScreen = previewImageAspectRatio != null &&
             isAspectRatioCloseToScreen(previewImageAspectRatio, screenAspectRatio)
         val animationTargetRect = remember(
-            previewViewportRect,
+            screenWidthPx,
+            screenHeightPx,
             previewImageAspectRatio,
             previewFillScreen
         ) {
-            val contentSize = calculatePreviewContentSize(
-                containerWidthPx = previewViewportRect.width,
-                containerHeightPx = previewViewportRect.height,
+            buildPreviewDisplayedImageBounds(
+                screenWidthPx = screenWidthPx,
+                screenHeightPx = screenHeightPx,
                 imageAspectRatio = previewImageAspectRatio,
                 fillScreen = previewFillScreen
-            )
-            val left = previewViewportRect.left + (previewViewportRect.width - contentSize.first) / 2f
-            val top = previewViewportRect.top + (previewViewportRect.height - contentSize.second) / 2f
-            Rect(
-                left = left,
-                top = top,
-                right = left + contentSize.first,
-                bottom = top + contentSize.second
             )
         }
         val previewAlpha by transition.animateFloat(
@@ -2177,12 +2153,18 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     .graphicsLayer(alpha = previewBaseAlpha, compositingStrategy = CompositingStrategy.Offscreen)
                     .clip(noMemoG2RoundedShape(renderedCornerRadiusDp))
             ) {
-                AsyncImage(
-                    model = previewRequest,
-                    contentDescription = "预览图片",
-                    contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
-                    modifier = Modifier.fillMaxSize()
-                )
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                ) {
+                    AsyncImage(
+                        model = previewRequest,
+                        contentDescription = "预览图片",
+                        contentScale = if (previewFillScreen) ContentScale.Crop else ContentScale.Fit,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
 
             Box(
@@ -2364,15 +2346,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         screenAspectRatio: Float,
         verticalInsetPx: Float
     ): Rect {
-        val safeInset = verticalInsetPx
-            .coerceAtLeast(0f)
-            .coerceAtMost((screenHeightPx / 2f) - 1f)
-        return Rect(
-            left = 0f,
-            top = safeInset,
-            right = screenWidthPx,
-            bottom = screenHeightPx - safeInset
-        )
+        return Rect(0f, 0f, screenWidthPx, screenHeightPx)
     }
 
     private fun buildPreviewDisplayedImageBounds(
@@ -2409,16 +2383,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 BitmapFactory.decodeStream(input, null, options)
             }
             if (options.outWidth > 0 && options.outHeight > 0) {
-                val rotationDegrees = openImageInputStream(uriString)?.use { input ->
-                    runCatching { ExifInterface(input).rotationDegrees }.getOrDefault(0)
-                } ?: 0
-                val width = options.outWidth.toFloat()
-                val height = options.outHeight.toFloat()
-                if (rotationDegrees == 90 || rotationDegrees == 270) {
-                    height / width
-                } else {
-                    width / height
-                }
+                options.outWidth.toFloat() / options.outHeight.toFloat()
             } else {
                 null
             }
@@ -2641,66 +2606,53 @@ class MemoryDetailActivity : BaseComposeActivity() {
         modifier: Modifier = Modifier
     ) {
         val isDark = isSystemInDarkTheme()
-        val palette = rememberNoMemoPalette()
-        val buttonSurface = if (isDark) {
-            noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f))
-        } else {
-            Color.White.copy(alpha = 0.94f)
-        }
-        val borderColor = if (isDark) {
-            Color.White.copy(alpha = 0.16f)
-        } else {
-            Color.Black.copy(alpha = 0.08f)
-        }
-        val iconTint = if (isDark) {
-            Color.White.copy(alpha = 0.96f)
-        } else {
-            palette.textPrimary
-        }
-        val shadowColor = if (isDark) {
-            Color.Black.copy(alpha = 0.32f)
-        } else {
-            Color.Black.copy(alpha = 0.18f)
-        }
-
-        PressScaleBox(
-            onClick = onClick,
-            modifier = modifier
-                .size(size)
-                .onGloballyPositioned { coordinates ->
-                    val bounds = coordinates.boundsInWindow()
-                    onBoundsChanged?.invoke(
-                        androidx.compose.ui.unit.IntRect(
-                            left = bounds.left.roundToInt(),
-                            top = bounds.top.roundToInt(),
-                            right = bounds.right.roundToInt(),
-                            bottom = bounds.bottom.roundToInt()
-                        )
+        val buttonBackground = if (isDark) Color(0xFF1B1D21) else Color.White
+        val buttonBorder = if (isDark) Color(0xFF2A2D33) else Color(0xFFE7EBF0)
+        val iconTint = if (isDark) Color.White else Color(0xFF17191D)
+        val shadowColor = if (isDark) Color(0x55000000) else Color(0x33000000)
+        val buttonModifier = if (onBoundsChanged != null) {
+            modifier.onGloballyPositioned { coordinates ->
+                val bounds = coordinates.boundsInWindow()
+                onBoundsChanged(
+                    androidx.compose.ui.unit.IntRect(
+                        left = bounds.left.roundToInt(),
+                        top = bounds.top.roundToInt(),
+                        right = bounds.right.roundToInt(),
+                        bottom = bounds.bottom.roundToInt()
                     )
-                }
+                )
+            }
+        } else {
+            modifier
+        }
+        Box(
+            modifier = buttonModifier
+                .size(size)
                 .shadow(
                     elevation = 18.dp,
                     shape = CircleShape,
+                    clip = false,
                     ambientColor = shadowColor,
                     spotColor = shadowColor
                 )
-        ) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(buttonSurface)
-                    .border(1.dp, borderColor, CircleShape)
-            ) {
-                Icon(
-                    painter = painterResource(id = iconRes),
-                    contentDescription = contentDescription,
-                    tint = iconTint,
-                    modifier = Modifier
-                        .align(Alignment.Center)
-                        .size(if (size <= 48.dp) 22.dp else 24.dp)
+                .clip(CircleShape)
+                .background(
+                    buttonBackground
                 )
-            }
+                .border(
+                    width = 1.dp,
+                    color = buttonBorder,
+                    shape = CircleShape
+                )
+                .clickable(onClick = onClick),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = contentDescription,
+                tint = iconTint,
+                modifier = Modifier.size(size * 0.44f)
+            )
         }
     }
 

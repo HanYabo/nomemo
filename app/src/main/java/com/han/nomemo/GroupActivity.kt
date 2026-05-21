@@ -28,6 +28,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -70,6 +71,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.draw.shadow
@@ -788,10 +790,31 @@ class GroupActivity : BaseComposeActivity() {
                                         .weight(1f),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    NoMemoEmptyState(
-                                        iconRes = R.drawable.ic_nm_memory_dock,
-                                        title = "分组里还没有记忆",
-                                        subtitle = "点击右上角添加记忆"
+                                    GroupAlbumDetailEmptyState(
+                                        organizeProcessing = openedAlbum?.organizeStatus == GroupAlbumStore.ORGANIZE_STATUS_PROCESSING,
+                                        onAddMemoryClick = {
+                                            selectedExistingRecordIds = emptySet()
+                                            addExistingSearchQuery = ""
+                                            showAddExistingSheet = true
+                                        },
+                                        onOrganizeClick = {
+                                            val currentAlbum = openedAlbum ?: return@GroupAlbumDetailEmptyState
+                                            if (currentAlbum.organizeStatus == GroupAlbumStore.ORGANIZE_STATUS_PROCESSING) {
+                                                return@GroupAlbumDetailEmptyState
+                                            }
+                                            if (currentAlbum.description.isBlank()) {
+                                                Toast.makeText(albumContext, "请先填写分组描述", Toast.LENGTH_SHORT).show()
+                                                return@GroupAlbumDetailEmptyState
+                                            }
+                                            if (!settingsStore.isAiAvailable()) {
+                                                Toast.makeText(albumContext, "请先完成 AI 配置后再使用整理历史记忆", Toast.LENGTH_SHORT).show()
+                                                return@GroupAlbumDetailEmptyState
+                                            }
+                                            if (albumStore.updateOrganizeStatus(currentAlbum.albumId, GroupAlbumStore.ORGANIZE_STATUS_PROCESSING)) {
+                                                albumList = albumStore.loadAlbums()
+                                            }
+                                            GroupAiOrganizeWorkScheduler.enqueue(albumContext, currentAlbum.albumId)
+                                        }
                                     )
                                 }
                             }
@@ -2275,6 +2298,136 @@ private tailrec fun Context.findActivity(): Activity? {
         val start = if (isDark) colors[0].copy(alpha = 0.78f) else colors[0].copy(alpha = 0.92f)
         val end = if (isDark) colors[1].copy(alpha = 0.88f) else colors[1].copy(alpha = 0.98f)
         return Brush.linearGradient(listOf(start, end))
+    }
+
+    @Composable
+    private fun GroupAlbumDetailEmptyState(
+        organizeProcessing: Boolean,
+        onAddMemoryClick: () -> Unit,
+        onOrganizeClick: () -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        val primaryActionBlue = if (isDark) Color(0xFF4A9DFF) else Color(0xFF1677FF)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset(y = (-26).dp)
+                .padding(horizontal = 30.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+        ) {
+            Icon(
+                painter = painterResource(R.drawable.ic_nm_group_dock),
+                contentDescription = null,
+                tint = palette.textTertiary.copy(alpha = 0.72f),
+                modifier = Modifier.size(66.dp)
+            )
+            Spacer(modifier = Modifier.height(18.dp))
+            Text(
+                text = "暂无记忆",
+                color = palette.textPrimary,
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Spacer(modifier = Modifier.height(10.dp))
+            Text(
+                text = "该分组下暂无记忆",
+                color = palette.textTertiary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Medium
+            )
+            Spacer(modifier = Modifier.height(34.dp))
+            GroupAlbumEmptyActionButton(
+                text = "添加记忆",
+                containerColor = primaryActionBlue,
+                contentColor = Color.White,
+                onClick = onAddMemoryClick
+            )
+            Spacer(modifier = Modifier.height(14.dp))
+            GroupAlbumEmptyActionButton(
+                text = if (organizeProcessing) "整理中" else "整理历史记忆",
+                containerColor = noMemoThemeSyncedContentSurface(
+                    palette = palette,
+                    isDark = isDark,
+                    darkDefault = noMemoCardSurfaceColor(true, Color(0xFF171A20)),
+                    lightDefault = Color.White.copy(alpha = 0.995f),
+                    darkLift = 0.05f,
+                    lightMix = 0.14f,
+                    darkAlpha = 0.96f,
+                    lightAlpha = 0.995f
+                ),
+                contentColor = palette.textPrimary,
+                enabled = !organizeProcessing,
+                onClick = onOrganizeClick
+            )
+        }
+    }
+
+    @Composable
+    private fun GroupAlbumEmptyActionButton(
+        text: String,
+        containerColor: Color,
+        contentColor: Color,
+        enabled: Boolean = true,
+        onClick: () -> Unit
+    ) {
+        val isDark = isSystemInDarkTheme()
+        val alpha by animateFloatAsState(
+            targetValue = if (enabled) 1f else 0.7f,
+            animationSpec = tween(durationMillis = 180),
+            label = "groupAlbumEmptyActionAlpha"
+        )
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val shape = noMemoG2RoundedShape(26.dp)
+        val effectiveContainerColor = if (enabled && pressed) {
+            if (isDark) Color(0xFF2B2E34) else Color(0xFFE7E9EE)
+        } else {
+            containerColor
+        }
+        val buttonContent: @Composable BoxScope.() -> Unit = {
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = shape,
+                colors = CardDefaults.cardColors(containerColor = effectiveContainerColor)
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(54.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = text,
+                        color = contentColor,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+            }
+        }
+        if (enabled) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.62f)
+                    .alpha(alpha)
+                    .clickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        onClick = onClick
+                    ),
+                content = buttonContent
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.62f)
+                    .alpha(alpha)
+            ) {
+                buttonContent()
+            }
+        }
     }
 
     private fun groupAlbumFallbackTileLabel(record: MemoryRecord?): String {
