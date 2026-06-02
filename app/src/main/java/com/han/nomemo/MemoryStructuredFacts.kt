@@ -634,14 +634,15 @@ object MemoryFactReconciler {
                 navigationLongitude = null
             )
         } else {
+            val location = facts.location?.trim()?.takeIf { it.isNotEmpty() }
             StructuredPickupInfo(
                 sectionTitle = "取餐码",
                 code = code,
                 primaryLabel = "店铺",
-                primaryValue = fallbackStructuredValue(facts.merchantOrCompany),
+                primaryValue = fallbackStructuredValue(facts.merchantOrCompany ?: location),
                 secondaryLabel = "商品",
                 secondaryValue = fallbackStructuredValue(facts.itemName),
-                locationText = facts.location?.trim()?.takeIf { it.isNotEmpty() },
+                locationText = location,
                 navigationLatitude = null,
                 navigationLongitude = null
             )

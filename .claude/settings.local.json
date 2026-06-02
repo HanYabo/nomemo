@@ -8,7 +8,9 @@
       "Bash(./gradlew compileDebugKotlin)",
       "Bash(adb logcat *)",
       "Bash(winget upgrade *)",
-      "Bash(./gradlew :app:compileDebugJavaWithJavac)"
+      "Bash(./gradlew :app:compileDebugJavaWithJavac)",
+      "Bash(./gradlew testDebugUnitTest --tests \"com.han.nomemo.MemoryDetailParserTest\")",
+      "Bash(./gradlew compileDebugJavaWithJavac)"
     ]
   }
 }

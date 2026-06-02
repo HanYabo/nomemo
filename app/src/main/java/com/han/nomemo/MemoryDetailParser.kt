@@ -102,26 +102,28 @@ object MemoryDetailParser {
         val company = extractCompanyName(sourceParts, source, isDelivery, trackingNumber)
 
         return if (isDelivery) {
+            val deliveryAddress = extractDeliveryAddress(sourceParts, source, lines)
             StructuredPickupInfo(
                 sectionTitle = "取件码",
                 code = code,
                 primaryLabel = "快递公司",
                 primaryValue = fallbackStructuredValue(company),
                 secondaryLabel = "取件地址",
-                secondaryValue = fallbackStructuredValue(extractDeliveryAddress(sourceParts, source, lines)),
-                locationText = extractDeliveryAddress(sourceParts, source, lines),
+                secondaryValue = fallbackStructuredValue(deliveryAddress),
+                locationText = deliveryAddress,
                 navigationLatitude = null,
                 navigationLongitude = null
             )
         } else {
+            val pickupLocation = extractPickupLocation(sourceParts, source, lines, company)
             StructuredPickupInfo(
                 sectionTitle = "取餐码",
                 code = code,
                 primaryLabel = "店铺",
-                primaryValue = fallbackStructuredValue(company),
+                primaryValue = fallbackStructuredValue(company ?: pickupLocation),
                 secondaryLabel = "商品",
                 secondaryValue = fallbackStructuredValue(extractPickupItem(sourceParts, source, lines, company)),
-                locationText = extractPickupLocation(sourceParts, source, lines, company),
+                locationText = pickupLocation,
                 navigationLatitude = null,
                 navigationLongitude = null
             )

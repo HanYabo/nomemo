@@ -282,10 +282,11 @@ internal fun NoMemoReminderSetupSheet(
             true
         }
     )
-    BackHandler(enabled = visible && (showCustomLeadSheet || showRepeatEndDateSheet)) {
+    BackHandler(enabled = visible) {
         when {
             showRepeatEndDateSheet -> showRepeatEndDateSheet = false
             showCustomLeadSheet -> showCustomLeadSheet = false
+            else -> onDismiss()
         }
     }
 

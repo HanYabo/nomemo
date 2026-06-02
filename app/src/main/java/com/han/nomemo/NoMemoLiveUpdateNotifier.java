@@ -18,8 +18,6 @@ import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
 import java.io.InputStream;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 public final class NoMemoLiveUpdateNotifier {
     public static final String ACTION_CANCEL_AI_ANALYSIS =
@@ -39,9 +37,6 @@ public final class NoMemoLiveUpdateNotifier {
     private static final String CHANNEL_DESCRIPTION = "AI 分析、后台整理等进行中状态";
     private static final String GROUP_ACTIVITY_ALBUM_EXTRA = "extra_open_album_id";
     private static final int BRAND_BLUE = 0xFF1677FF;
-    private static final Pattern PRODUCT_PATTERN = Pattern.compile(
-            "(?:商品|品名|餐品|物品|内容)(?:名称)?[：:\\s为]*([^，。；;\\n]{2,28})"
-    );
 
     private NoMemoLiveUpdateNotifier() {
     }
@@ -385,151 +380,23 @@ public final class NoMemoLiveUpdateNotifier {
         if (pickupInfo != null) {
             String code = pickupInfo.getCode();
             String title = firstNonBlank(code, headerTitle);
-            String primaryLine = labeledValueSkippingCode(
+            String primary = labeledValueSkippingCode(
                     pickupInfo.getPrimaryLabel(),
                     pickupInfo.getPrimaryValue(),
                     code
             );
-            String secondaryLine = labeledValueSkippingCode(
+            String secondary = labeledValueSkippingCode(
                     pickupInfo.getSecondaryLabel(),
-                    resolveSecondaryLiveValue(record, pickupInfo, code),
+                    pickupInfo.getSecondaryValue(),
                     code
             );
-            String locationLine = labeledValueSkippingCode("地点", pickupInfo.getLocationText(), code);
-            String content = firstNonBlank(
-                    joinLiveContentInline(primaryLine, secondaryLine),
-                    joinLiveContentInline(primaryLine, locationLine),
-                    cleanValueSkippingCode(record.getSummary(), code),
-                    cleanValueSkippingCode(record.getAnalysis(), code),
-                    headerTitle
-            );
-            String bigText = joinLiveBigText(content, locationLine);
+            String content = firstNonBlank(primary, secondary, headerTitle);
+            String bigText = joinLiveBigText(primary, secondary);
             return new MemoryLiveStatusPayload(headerTitle, title, content, bigText);
         }
         String title = firstNonBlank(record.getTitle(), record.getSummary(), record.getCategoryName(), "实时动态");
         String content = firstNonBlank(record.getSummary(), record.getAnalysis(), record.getMemory(), "这条记忆已设为实时动态");
         return new MemoryLiveStatusPayload(headerTitle, title, content, content);
-    }
-
-    private static String joinLiveContentInline(String... values) {
-        StringBuilder builder = new StringBuilder();
-        int count = 0;
-        for (String value : values) {
-            if (TextUtils.isEmpty(value) || TextUtils.isEmpty(value.trim())) {
-                continue;
-            }
-            if (count > 0) {
-                builder.append("｜");
-            }
-            builder.append(value.trim());
-            count++;
-            if (count >= 2) {
-                break;
-            }
-        }
-        return builder.toString();
-    }
-
-    private static String resolveSecondaryLiveValue(
-            MemoryRecord record,
-            StructuredPickupInfo pickupInfo,
-            String code
-    ) {
-        String explicit = cleanValueSkippingCode(pickupInfo.getSecondaryValue(), code);
-        if (!TextUtils.isEmpty(explicit)) {
-            return explicit;
-        }
-        MemoryStructuredFacts facts = MemoryStructuredFactsJson.parse(record.getStructuredFactsJson());
-        if (CategoryCatalog.CODE_LIFE_PICKUP.equals(record.getCategoryCode())) {
-            return firstNonBlank(
-                    cleanValueSkippingCode(facts == null ? null : facts.getItemName(), code),
-                    cleanValueSkippingCode(extractProductFromText(record.getSummary()), code),
-                    cleanValueSkippingCode(extractProductFromText(record.getAnalysis()), code),
-                    cleanValueSkippingCode(extractProductFromText(record.getMemory()), code),
-                    cleanValueSkippingCode(extractProductFromText(record.getSourceText()), code),
-                    cleanValueSkippingCode(extractProductFromText(record.getNote()), code),
-                    cleanValueSkippingCode(extractProductFromText(facts == null ? null : facts.getRawVisibleText()), code)
-            );
-        }
-        if (CategoryCatalog.CODE_LIFE_DELIVERY.equals(record.getCategoryCode())) {
-            return firstNonBlank(
-                    cleanValueSkippingCode(facts == null ? null : facts.getLocation(), code),
-                    cleanValueSkippingCode(pickupInfo.getLocationText(), code)
-            );
-        }
-        return "";
-    }
-
-    private static String extractProductFromText(String text) {
-        if (TextUtils.isEmpty(text)) {
-            return "";
-        }
-        String sectionValue = extractProductFromSection(text);
-        if (!TextUtils.isEmpty(sectionValue)) {
-            return sectionValue;
-        }
-        Matcher matcher = PRODUCT_PATTERN.matcher(text);
-        if (!matcher.find()) {
-            return "";
-        }
-        String value = matcher.group(1);
-        if (TextUtils.isEmpty(value)) {
-            return "";
-        }
-        return value
-                .replace("为", "")
-                .replace("是", "")
-                .trim();
-    }
-
-    private static String extractProductFromSection(String text) {
-        String[] lines = text.split("\\r?\\n");
-        boolean afterProductSection = false;
-        for (String rawLine : lines) {
-            String line = rawLine == null ? "" : rawLine.trim();
-            if (TextUtils.isEmpty(line)) {
-                continue;
-            }
-            if (line.contains("商品明细") || line.contains("商品详情") || line.contains("餐品明细")) {
-                afterProductSection = true;
-                continue;
-            }
-            if (!afterProductSection) {
-                continue;
-            }
-            String candidate = cleanupProductCandidate(line);
-            if (!TextUtils.isEmpty(candidate)) {
-                return candidate;
-            }
-        }
-        return "";
-    }
-
-    private static String cleanupProductCandidate(String value) {
-        if (TextUtils.isEmpty(value)) {
-            return "";
-        }
-        String cleaned = value
-                .replaceAll("[￥¥]\\s*\\d+(?:\\.\\d+)?", "")
-                .replaceAll("\\bx\\s*\\d+\\b", "")
-                .replaceAll("\\s{2,}", " ")
-                .trim();
-        if (cleaned.length() < 2 || cleaned.length() > 36) {
-            return "";
-        }
-        if (cleaned.contains("商品总价") ||
-                cleaned.contains("商品总计") ||
-                cleaned.contains("订单") ||
-                cleaned.contains("发票") ||
-                cleaned.contains("合计") ||
-                cleaned.contains("优惠") ||
-                cleaned.contains("积分")) {
-            return "";
-        }
-        if (cleaned.matches("^[\\d\\s.,，。:：;；/\\\\-]+$")) {
-            return "";
-        }
-        return cleaned;
     }
 
     private static String labeledValueSkippingCode(String label, String value, String code) {
