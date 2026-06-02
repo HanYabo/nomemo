@@ -122,4 +122,26 @@ public final class CategoryCatalog {
     public static boolean isReminderCategory(String categoryCode) {
         return CODE_WORK_TODO.equals(categoryCode) || CODE_WORK_SCHEDULE.equals(categoryCode);
     }
+
+    public static int getCategoryAccentColor(String categoryCode) {
+        if (CODE_LIFE_PICKUP.equals(categoryCode)) {
+            return 0xFFFFA157;
+        }
+        if (CODE_LIFE_DELIVERY.equals(categoryCode)) {
+            return 0xFF69A7FF;
+        }
+        if (CODE_LIFE_CARD.equals(categoryCode)) {
+            return 0xFFD2B37C;
+        }
+        if (CODE_LIFE_TICKET.equals(categoryCode)) {
+            return 0xFF9C7CFF;
+        }
+        if (CODE_WORK_TODO.equals(categoryCode)) {
+            return 0xFF58D89A;
+        }
+        if (CODE_WORK_SCHEDULE.equals(categoryCode)) {
+            return 0xFF4F8CFF;
+        }
+        return 0xFFF3C243;
+    }
 }

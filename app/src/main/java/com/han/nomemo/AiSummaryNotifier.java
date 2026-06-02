@@ -159,17 +159,11 @@ public final class AiSummaryNotifier {
                 return R.drawable.ic_nm_package_notification;
             }
         }
-        return R.drawable.ic_nm_memory;
+        return R.drawable.ic_nm_memory_notification;
     }
 
     private static int resolveResultColor(MemoryRecord record, StructuredPickupInfo pickupInfo) {
-        if (pickupInfo != null && CategoryCatalog.CODE_LIFE_PICKUP.equals(record.getCategoryCode())) {
-            return 0xFFFF8A2A;
-        }
-        if (pickupInfo != null && CategoryCatalog.CODE_LIFE_DELIVERY.equals(record.getCategoryCode())) {
-            return 0xFF1677FF;
-        }
-        return 0xFF1677FF;
+        return CategoryCatalog.getCategoryAccentColor(record.getCategoryCode());
     }
 
     private static String buildResultHeadline(

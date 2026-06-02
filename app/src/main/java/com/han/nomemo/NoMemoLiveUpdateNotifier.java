@@ -99,7 +99,7 @@ public final class NoMemoLiveUpdateNotifier {
 
         PendingIntent contentIntent = buildMemoryDetailPendingIntent(appContext, record.getRecordId());
         NotificationCompat.Builder builder = baseBuilder(appContext)
-                .setSmallIcon(R.drawable.ic_nm_memory)
+                .setSmallIcon(R.drawable.ic_nm_memory_notification)
                 .setContentTitle(title)
                 .setContentText(content)
                 .setStyle(new NotificationCompat.BigTextStyle()
@@ -370,14 +370,11 @@ public final class NoMemoLiveUpdateNotifier {
         if (pickupInfo != null && CategoryCatalog.CODE_LIFE_DELIVERY.equals(record.getCategoryCode())) {
             return R.drawable.ic_nm_package_notification;
         }
-        return R.drawable.ic_nm_memory;
+        return R.drawable.ic_nm_memory_notification;
     }
 
     private static int resolveMemoryLiveColor(MemoryRecord record, StructuredPickupInfo pickupInfo) {
-        if (pickupInfo != null && CategoryCatalog.CODE_LIFE_PICKUP.equals(record.getCategoryCode())) {
-            return 0xFFFF8A2A;
-        }
-        return BRAND_BLUE;
+        return CategoryCatalog.getCategoryAccentColor(record.getCategoryCode());
     }
 
     private static MemoryLiveStatusPayload buildMemoryLiveStatusPayload(
