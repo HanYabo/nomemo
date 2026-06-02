@@ -261,7 +261,7 @@ internal fun GroupPrimaryScreenRoute(
     }
     val hasGroupHomeContent = orderedAlbums.isNotEmpty()
     val density = LocalDensity.current
-    val groupHeaderCollapseDistancePx = with(density) { 84.dp.toPx() }
+    val groupHeaderCollapseDistancePx = with(density) { 56.dp.toPx() }
     val groupHeaderCollapseTarget by remember(
         hasGroupHomeContent,
         groupListState.firstVisibleItemIndex,
@@ -285,22 +285,22 @@ internal fun GroupPrimaryScreenRoute(
         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "primaryGroupHeaderCollapse"
     )
-    val groupExpandedTitleAlpha = (1f - (groupHeaderCollapseProgress / 0.42f)).coerceIn(0f, 1f)
-    val groupCollapsedTitleAlpha = ((groupHeaderCollapseProgress - 0.74f) / 0.22f).coerceIn(0f, 1f)
+    val groupExpandedTitleAlpha = (1f - (groupHeaderCollapseProgress / 0.28f)).coerceIn(0f, 1f)
+    val groupCollapsedTitleAlpha = ((groupHeaderCollapseProgress - 0.90f) / 0.08f).coerceIn(0f, 1f)
     val groupExpandedTitleTranslateY =
-        with(density) { (-20).dp.toPx() * groupHeaderCollapseProgress }
+        with(density) { (-12).dp.toPx() * (groupHeaderCollapseProgress / 0.28f).coerceIn(0f, 1f) }
     val groupExpandedTitleMaxHeight = if (adaptive.isNarrow) 44.dp else 50.dp
     val groupExpandedTitleHeight by animateDpAsState(
-        targetValue = lerp(groupExpandedTitleMaxHeight, 0.dp, groupHeaderCollapseProgress),
+        targetValue = lerp(
+            groupExpandedTitleMaxHeight,
+            0.dp,
+            (groupHeaderCollapseProgress / 0.24f).coerceIn(0f, 1f)
+        ),
         animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
         label = "primaryGroupExpandedTitleHeight"
     )
     val groupListSpacing = 14.dp
-    val groupListTopPadding by animateDpAsState(
-        targetValue = lerp(24.dp, 4.dp, groupHeaderCollapseProgress),
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "primaryGroupListTopPadding"
-    )
+    val groupListTopPadding = 8.dp
     val albumSortLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {

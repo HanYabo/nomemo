@@ -7,7 +7,8 @@
       "Bash(./gradlew :app:compileDebugKotlin)",
       "Bash(./gradlew compileDebugKotlin)",
       "Bash(adb logcat *)",
-      "Bash(winget upgrade *)"
+      "Bash(winget upgrade *)",
+      "Bash(./gradlew :app:compileDebugJavaWithJavac)"
     ]
   }
 }

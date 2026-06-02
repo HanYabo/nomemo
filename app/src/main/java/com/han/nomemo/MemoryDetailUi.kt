@@ -2,6 +2,7 @@
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
@@ -18,8 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -44,6 +47,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.res.painterResource
 
 data class StructuredPickupInfo(
     val sectionTitle: String,
@@ -391,10 +395,13 @@ fun NoMemoDetailSummaryBox(
 @Composable
 fun NoMemoPickupCodeCard(
     info: StructuredPickupInfo,
+    completed: Boolean,
+    onCompletedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val completedAlpha = if (completed) 0.46f else 1f
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = memoryDetailContentPanelShape,
@@ -402,31 +409,75 @@ fun NoMemoPickupCodeCard(
             containerColor = memoryDetailContentSurface(isDark, palette)
         )
     ) {
-        Column(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(
                     horizontal = memoryDetailContentHorizontalPadding,
                     vertical = memoryDetailContentVerticalPadding
-                )
+                ),
+            verticalAlignment = Alignment.Top
         ) {
-            Text(
-                text = info.code,
-                color = palette.textPrimary,
-                fontSize = 32.sp,
-                fontWeight = FontWeight.Bold
+            NoMemoLiveStatusCompletionToggle(
+                completed = completed,
+                onCompletedChange = onCompletedChange,
+                modifier = Modifier.padding(top = 5.dp)
             )
-            Text(
-                text = "${info.primaryLabel}：${info.primaryValue}",
-                color = palette.textSecondary,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(top = 10.dp)
-            )
-            Text(
-                text = "${info.secondaryLabel}：${info.secondaryValue}",
-                color = palette.textSecondary,
-                fontSize = 14.sp,
-                modifier = Modifier.padding(top = 4.dp)
+            Spacer(modifier = Modifier.width(12.dp))
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = info.code,
+                    color = palette.textPrimary.copy(alpha = completedAlpha),
+                    fontSize = 32.sp,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    text = "${info.primaryLabel}：${info.primaryValue}",
+                    color = palette.textSecondary.copy(alpha = if (completed) 0.58f else 1f),
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 10.dp)
+                )
+                Text(
+                    text = "${info.secondaryLabel}：${info.secondaryValue}",
+                    color = palette.textSecondary.copy(alpha = if (completed) 0.58f else 1f),
+                    fontSize = 14.sp,
+                    modifier = Modifier.padding(top = 4.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoMemoLiveStatusCompletionToggle(
+    completed: Boolean,
+    onCompletedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+    val accent = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
+    val ringColor = if (completed) {
+        accent
+    } else {
+        palette.glassStroke.copy(alpha = if (isDark) 0.72f else 0.52f)
+    }
+    val fillColor = if (completed) accent else Color.Transparent
+    Box(
+        modifier = modifier
+            .size(30.dp)
+            .clip(CircleShape)
+            .background(fillColor, CircleShape)
+            .border(width = 2.dp, color = ringColor, shape = CircleShape)
+            .clickable { onCompletedChange(!completed) },
+        contentAlignment = Alignment.Center
+    ) {
+        if (completed) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_sheet_check),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(16.dp)
             )
         }
     }

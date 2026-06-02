@@ -1047,12 +1047,18 @@ private fun DetailReminderCustomRepeatCard(
     onUnitChange: (ReminderCustomRepeatUnit) -> Unit
 ) {
     val isDark = isSystemInDarkTheme()
+    val palette = rememberNoMemoPalette()
     val maxInterval = customRepeatIntervalCap(unit)
-    val controlSurface = if (isDark) {
-        Color.White.copy(alpha = 0.07f)
-    } else {
-        Color.White.copy(alpha = 0.995f)
-    }
+    val controlSurface = noMemoThemeSyncedInsetSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = Color(0xFF20262E),
+        lightDefault = Color(0xFFF7F8FB),
+        darkLift = 0.10f,
+        lightMix = 0.44f,
+        darkAlpha = 0.98f,
+        lightAlpha = 1f
+    )
 
     DetailReminderNumberAdjustCard(
         title = "间隔",
@@ -1226,21 +1232,32 @@ private fun DetailReminderRepeatStepButton(
     onClick: () -> Unit
 ) {
     val isDark = isSystemInDarkTheme()
+    val palette = rememberNoMemoPalette()
     val interactionSource = remember { MutableInteractionSource() }
     val (tapOverlay, triggerHighlight) = rememberDetailReminderTapHighlightColor(
         interactionSource = interactionSource,
         isDark = isDark,
         label = "detailReminderStepButton_$text"
     )
+    val insetSurface = noMemoThemeSyncedInsetSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = Color(0xFF20262E),
+        lightDefault = Color(0xFFF7F8FB),
+        darkLift = 0.10f,
+        lightMix = 0.44f,
+        darkAlpha = 0.98f,
+        lightAlpha = 1f
+    )
     val backgroundColor = when {
-        !enabled -> Color.Transparent
-        emphasized -> accentColor.copy(alpha = if (isDark) 0.18f else 0.11f)
-        else -> Color.Black.copy(alpha = if (isDark) 0.16f else 0.045f)
+        !enabled -> if (isDark) Color(0xFF1A1F26) else Color(0xFFF9FAFC)
+        emphasized -> if (isDark) Color(0xFF183454) else Color(0xFFE6F0FF)
+        else -> insetSurface
     }
     val contentColor = when {
         !enabled -> secondaryTextColor.copy(alpha = if (isDark) 0.36f else 0.30f)
         emphasized -> accentColor
-        else -> textColor.copy(alpha = if (isDark) 0.82f else 0.54f)
+        else -> textColor.copy(alpha = if (isDark) 0.86f else 0.64f)
     }
 
     Box(
@@ -1482,11 +1499,16 @@ private fun DetailReminderCustomLeadSheet(
             onValueChange(safeValue)
         }
     }
-    val idleControlSurface = if (isDark) {
-        Color.White.copy(alpha = 0.07f)
-    } else {
-        Color.White.copy(alpha = 0.995f)
-    }
+    val idleControlSurface = noMemoThemeSyncedInsetSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = Color(0xFF20262E),
+        lightDefault = Color(0xFFF7F8FB),
+        darkLift = 0.10f,
+        lightMix = 0.44f,
+        darkAlpha = 0.98f,
+        lightAlpha = 1f
+    )
     val cancelSurface = if (isDark) Color.White else Color(0xFFE3E4E9)
     val cancelTextColor = if (isDark) Color.Black else palette.textPrimary
     val sheetShape = noMemoG2RoundedShape(topStart = 34.dp, topEnd = 34.dp)
@@ -1617,7 +1639,7 @@ private fun DetailReminderCustomUnitButton(
         ) {
             Text(
                 text = text,
-                color = if (selected) Color.White else textColor.copy(alpha = 0.62f),
+                color = if (selected) Color.White else textColor.copy(alpha = if (isDark) 0.78f else 0.70f),
                 fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1

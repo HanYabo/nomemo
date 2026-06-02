@@ -1570,6 +1570,12 @@ private fun saveRecord(
         initialVisualState
     )
     memoryStore.prependRecord(placeholder)
+    NoMemoLiveUpdateNotifier.notifyAiAnalysis(
+        context.applicationContext,
+        placeholder,
+        1,
+        initialPolicy.totalAttemptLimit
+    )
     Toast.makeText(context, "已创建记忆，AI 分析完成后会自动更新", Toast.LENGTH_SHORT).show()
     AiInitialAnalysisWorkScheduler.enqueue(context.applicationContext, placeholder.recordId)
 }

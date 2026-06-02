@@ -330,6 +330,7 @@ class GroupActivity : BaseComposeActivity() {
         var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
         var showEditAlbumDialog by remember { mutableStateOf(false) }
         var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
+        var organizeHistoryDialogAlbumId by remember { mutableStateOf<String?>(null) }
         var closingStandaloneDetail by remember { mutableStateOf(false) }
         var editingAlbumId by remember { mutableStateOf<String?>(null) }
         var albumNameInput by remember { mutableStateOf("") }
@@ -451,9 +452,16 @@ class GroupActivity : BaseComposeActivity() {
             albumSelectionModeActive = false
             showRemoveFromAlbumConfirm = false
             showDeleteSelectedConfirm = false
+            organizeHistoryDialogAlbumId = null
         }
-        LaunchedEffect(openedAlbum?.albumId, openedAlbum?.organizeStatus) {
+        LaunchedEffect(openedAlbum?.albumId, openedAlbum?.organizeStatus, organizeHistoryDialogAlbumId) {
             val currentAlbum = openedAlbum ?: return@LaunchedEffect
+            if (organizeHistoryDialogAlbumId != null &&
+                (currentAlbum.albumId != organizeHistoryDialogAlbumId ||
+                    currentAlbum.organizeStatus != GroupAlbumStore.ORGANIZE_STATUS_PROCESSING)
+            ) {
+                organizeHistoryDialogAlbumId = null
+            }
             if (currentAlbum.organizeStatus == GroupAlbumStore.ORGANIZE_STATUS_COMPLETED) {
                 if (albumStore.updateOrganizeStatus(currentAlbum.albumId, GroupAlbumStore.ORGANIZE_STATUS_IDLE)) {
                     albumList = albumStore.loadAlbums()
@@ -813,7 +821,9 @@ class GroupActivity : BaseComposeActivity() {
                                             if (albumStore.updateOrganizeStatus(currentAlbum.albumId, GroupAlbumStore.ORGANIZE_STATUS_PROCESSING)) {
                                                 albumList = albumStore.loadAlbums()
                                             }
+                                            NoMemoLiveUpdateNotifier.notifyGroupOrganizing(albumContext, currentAlbum)
                                             GroupAiOrganizeWorkScheduler.enqueue(albumContext, currentAlbum.albumId)
+                                            organizeHistoryDialogAlbumId = currentAlbum.albumId
                                         }
                                     )
                                 }
@@ -986,6 +996,7 @@ class GroupActivity : BaseComposeActivity() {
                                     if (albumAutoClassifyEnabledInput) GroupAlbumStore.ORGANIZE_STATUS_PROCESSING else GroupAlbumStore.ORGANIZE_STATUS_IDLE
                                 )
                                 if (albumAutoClassifyEnabledInput) {
+                                    NoMemoLiveUpdateNotifier.notifyGroupOrganizing(albumContext, createdAlbum)
                                     GroupAiOrganizeWorkScheduler.enqueue(albumContext, createdAlbum.albumId)
                                 }
                                 albumList = albumStore.loadAlbums()
@@ -1141,6 +1152,27 @@ class GroupActivity : BaseComposeActivity() {
                                 selectedAlbumRecordIds = emptySet()
                             },
                             onDismiss = { showDeleteSelectedConfirm = false }
+                        )
+                    }
+
+                    if (organizeHistoryDialogAlbumId != null &&
+                        openedAlbum != null &&
+                        openedAlbum.albumId == organizeHistoryDialogAlbumId &&
+                        openedAlbum.organizeStatus == GroupAlbumStore.ORGANIZE_STATUS_PROCESSING
+                    ) {
+                        GroupOrganizeHistoryDialog(
+                            albumName = openedAlbum.name,
+                            onDismiss = {
+                                organizeHistoryDialogAlbumId = null
+                            },
+                            onCancel = {
+                                GroupAiOrganizeWorkScheduler.cancel(albumContext, openedAlbum.albumId)
+                                albumList = albumStore.loadAlbums()
+                                organizeHistoryDialogAlbumId = null
+                            },
+                            onBackground = {
+                                organizeHistoryDialogAlbumId = null
+                            }
                         )
                     }
 
@@ -2308,11 +2340,11 @@ private tailrec fun Context.findActivity(): Activity? {
     ) {
         val palette = rememberNoMemoPalette()
         val isDark = isSystemInDarkTheme()
-        val primaryActionBlue = if (isDark) Color(0xFF4A9DFF) else Color(0xFF1677FF)
+        val primaryActionBlue = Color(0xFF1677FF)
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .offset(y = (-26).dp)
+                .offset(y = (-52).dp)
                 .padding(horizontal = 30.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
@@ -2321,47 +2353,69 @@ private tailrec fun Context.findActivity(): Activity? {
                 painter = painterResource(R.drawable.ic_nm_group_dock),
                 contentDescription = null,
                 tint = palette.textTertiary.copy(alpha = 0.72f),
-                modifier = Modifier.size(66.dp)
+                modifier = Modifier.size(58.dp)
             )
-            Spacer(modifier = Modifier.height(18.dp))
+            Spacer(modifier = Modifier.height(14.dp))
             Text(
                 text = "暂无记忆",
                 color = palette.textPrimary,
-                fontSize = 24.sp,
+                fontSize = 22.sp,
                 fontWeight = FontWeight.Bold
             )
-            Spacer(modifier = Modifier.height(10.dp))
+            Spacer(modifier = Modifier.height(8.dp))
             Text(
                 text = "该分组下暂无记忆",
                 color = palette.textTertiary,
-                fontSize = 16.sp,
+                fontSize = 15.sp,
                 fontWeight = FontWeight.Medium
             )
-            Spacer(modifier = Modifier.height(34.dp))
+            Spacer(modifier = Modifier.height(28.dp))
             GroupAlbumEmptyActionButton(
                 text = "添加记忆",
                 containerColor = primaryActionBlue,
                 contentColor = Color.White,
                 onClick = onAddMemoryClick
             )
-            Spacer(modifier = Modifier.height(14.dp))
+            Spacer(modifier = Modifier.height(12.dp))
             GroupAlbumEmptyActionButton(
                 text = if (organizeProcessing) "整理中" else "整理历史记忆",
-                containerColor = noMemoThemeSyncedContentSurface(
-                    palette = palette,
-                    isDark = isDark,
-                    darkDefault = noMemoCardSurfaceColor(true, Color(0xFF171A20)),
-                    lightDefault = Color.White.copy(alpha = 0.995f),
-                    darkLift = 0.05f,
-                    lightMix = 0.14f,
-                    darkAlpha = 0.96f,
-                    lightAlpha = 0.995f
-                ),
-                contentColor = palette.textPrimary,
+                containerColor = if (isDark) {
+                    noMemoThemeSyncedContentSurface(
+                        palette = palette,
+                        isDark = true,
+                        darkDefault = noMemoCardSurfaceColor(true, Color(0xFF171A20)),
+                        darkLift = 0.05f,
+                        darkAlpha = 0.96f
+                    )
+                } else {
+                    Color(0xFFE3E4E9)
+                },
+                contentColor = primaryActionBlue,
                 enabled = !organizeProcessing,
                 onClick = onOrganizeClick
             )
         }
+    }
+
+    @Composable
+    private fun GroupOrganizeHistoryDialog(
+        albumName: String,
+        onDismiss: () -> Unit,
+        onCancel: () -> Unit,
+        onBackground: () -> Unit
+    ) {
+        val isDark = isSystemInDarkTheme()
+        NoMemoConfirmDialog(
+            title = "正在整理记忆",
+            message = "正在分析历史记忆并匹配到「$albumName」分组",
+            confirmText = "后台整理",
+            dismissText = "取消",
+            confirmTextColor = if (isDark) Color(0xFF4A9DFF) else Color(0xFF1677FF),
+            processingBorder = true,
+            flowingTitle = true,
+            onConfirm = onBackground,
+            onDismiss = onCancel
+        )
     }
 
     @Composable
@@ -2380,38 +2434,41 @@ private tailrec fun Context.findActivity(): Activity? {
         )
         val interaction = remember { MutableInteractionSource() }
         val pressed by interaction.collectIsPressedAsState()
-        val shape = noMemoG2RoundedShape(26.dp)
-        val effectiveContainerColor = if (enabled && pressed) {
-            if (isDark) Color(0xFF2B2E34) else Color(0xFFE7E9EE)
+        val shape = NoMemoG2CapsuleShape
+        val pressOverlayAlpha by animateFloatAsState(
+            targetValue = if (enabled && pressed) 1f else 0f,
+            animationSpec = tween(durationMillis = 120),
+            label = "groupAlbumEmptyActionPressOverlay"
+        )
+        val pressOverlayColor = if (isDark) {
+            Color.White.copy(alpha = 0.06f * pressOverlayAlpha)
         } else {
-            containerColor
+            Color.Black.copy(alpha = 0.045f * pressOverlayAlpha)
         }
         val buttonContent: @Composable BoxScope.() -> Unit = {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = shape,
-                colors = CardDefaults.cardColors(containerColor = effectiveContainerColor)
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(46.dp)
+                    .clip(shape)
+                    .background(containerColor)
+                    .background(pressOverlayColor),
+                contentAlignment = Alignment.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(54.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = text,
-                        color = contentColor,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
+                Text(
+                    text = text,
+                    color = contentColor,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold
+                )
             }
         }
         if (enabled) {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.62f)
+                    .fillMaxWidth(0.54f)
                     .alpha(alpha)
+                    .clip(shape)
                     .clickable(
                         interactionSource = interaction,
                         indication = null,
@@ -2422,7 +2479,7 @@ private tailrec fun Context.findActivity(): Activity? {
         } else {
             Box(
                 modifier = Modifier
-                    .fillMaxWidth(0.62f)
+                    .fillMaxWidth(0.54f)
                     .alpha(alpha)
             ) {
                 buttonContent()

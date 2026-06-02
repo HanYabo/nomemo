@@ -27,12 +27,26 @@ object GroupAiOrganizeWorkScheduler {
     }
 
     @JvmStatic
+    fun cancel(context: Context, albumId: String) {
+        if (albumId.isBlank()) return
+        val appContext = context.applicationContext
+        WorkManager.getInstance(appContext)
+            .cancelUniqueWork(GROUP_AI_ORGANIZE_WORK_NAME_PREFIX + albumId)
+        GroupAlbumStore(appContext)
+            .updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_IDLE)
+        NoMemoLiveUpdateNotifier.cancelGroupOrganize(appContext, albumId)
+    }
+
+    @JvmStatic
     fun recoverProcessingAlbums(context: Context) {
         val appContext = context.applicationContext
         val albumStore = GroupAlbumStore(appContext)
         albumStore.loadAlbums()
             .filter { it.organizeStatus == GroupAlbumStore.ORGANIZE_STATUS_PROCESSING }
-            .forEach { enqueue(appContext, it.albumId) }
+            .forEach {
+                NoMemoLiveUpdateNotifier.notifyGroupOrganizing(appContext, it)
+                enqueue(appContext, it.albumId)
+            }
     }
 }
 
@@ -40,6 +54,20 @@ class GroupAiOrganizeWorker(
     appContext: Context,
     workerParams: WorkerParameters
 ) : Worker(appContext, workerParams) {
+
+    private fun isAlbumStillProcessing(
+        albumStore: GroupAlbumStore,
+        albumId: String
+    ): Boolean {
+        return albumStore.findAlbumById(albumId)?.organizeStatus == GroupAlbumStore.ORGANIZE_STATUS_PROCESSING
+    }
+
+    private fun shouldAbort(
+        albumStore: GroupAlbumStore,
+        albumId: String
+    ): Boolean {
+        return isStopped || !isAlbumStillProcessing(albumStore, albumId)
+    }
 
     override fun doWork(): Result {
         val albumId = inputData.getString(GROUP_AI_ORGANIZE_ALBUM_ID)?.trim().orEmpty()
@@ -52,16 +80,27 @@ class GroupAiOrganizeWorker(
         if (album.organizeStatus != GroupAlbumStore.ORGANIZE_STATUS_PROCESSING) {
             return Result.success()
         }
+        NoMemoLiveUpdateNotifier.notifyGroupOrganizing(appContext, album)
         if (album.description.isBlank()) {
             albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+            NoMemoLiveUpdateNotifier.cancelGroupOrganize(appContext, albumId)
             return Result.success()
         }
 
         return try {
+            if (shouldAbort(albumStore, albumId)) {
+                return Result.success()
+            }
             val candidateRecords = memoryStore.loadActiveRecords()
                 .filterNot { album.recordIds.contains(it.recordId) }
+            if (shouldAbort(albumStore, albumId)) {
+                return Result.success()
+            }
             if (candidateRecords.isEmpty()) {
-                albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_COMPLETED)
+                if (!shouldAbort(albumStore, albumId)) {
+                    albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_COMPLETED)
+                }
+                NoMemoLiveUpdateNotifier.cancelGroupOrganize(appContext, albumId)
                 return Result.success()
             }
 
@@ -71,26 +110,41 @@ class GroupAiOrganizeWorker(
                 album.description,
                 candidateRecords
             )
+            if (shouldAbort(albumStore, albumId)) {
+                return Result.success()
+            }
             if (selectedRecordIds.isEmpty()) {
                 Log.w(
                     "GroupAiOrganizeWorker",
                     "AI organize returned no matches albumId=$albumId name=${album.name}"
                 )
-                albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+                if (!shouldAbort(albumStore, albumId)) {
+                    albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+                }
+                NoMemoLiveUpdateNotifier.cancelGroupOrganize(appContext, albumId)
                 return Result.success()
             }
 
             val added = albumStore.addRecordIds(albumId, selectedRecordIds)
+            if (shouldAbort(albumStore, albumId)) {
+                return Result.success()
+            }
             if (!added) {
                 Log.w(
                     "GroupAiOrganizeWorker",
                     "AI organize selected records but addRecordIds failed albumId=$albumId selected=${selectedRecordIds.size}"
                 )
-                albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+                if (!shouldAbort(albumStore, albumId)) {
+                    albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+                }
+                NoMemoLiveUpdateNotifier.cancelGroupOrganize(appContext, albumId)
                 return Result.success()
             }
 
-            albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_COMPLETED)
+            if (!shouldAbort(albumStore, albumId)) {
+                albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_COMPLETED)
+            }
+            NoMemoLiveUpdateNotifier.cancelGroupOrganize(appContext, albumId)
             Result.success()
         } catch (exception: Exception) {
             Log.e(
@@ -98,7 +152,10 @@ class GroupAiOrganizeWorker(
                 "AI organize failed albumId=$albumId name=${album.name}",
                 exception
             )
-            albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+            if (!shouldAbort(albumStore, albumId)) {
+                albumStore.updateOrganizeStatus(albumId, GroupAlbumStore.ORGANIZE_STATUS_FAILED)
+            }
+            NoMemoLiveUpdateNotifier.cancelGroupOrganize(appContext, albumId)
             Result.success()
         }
     }

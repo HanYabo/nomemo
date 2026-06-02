@@ -1293,6 +1293,9 @@ fun NoMemoConfirmDialog(
     confirmText: String,
     dismissText: String,
     destructive: Boolean = false,
+    confirmTextColor: Color? = null,
+    processingBorder: Boolean = false,
+    flowingTitle: Boolean = false,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -1300,6 +1303,8 @@ fun NoMemoConfirmDialog(
         title = title,
         message = message,
         onDismissRequest = onDismiss,
+        processingBorder = processingBorder,
+        flowingTitle = flowingTitle,
         actions = listOf(
             NoMemoDialogActionSpec(
                 text = dismissText,
@@ -1310,6 +1315,7 @@ fun NoMemoConfirmDialog(
                 text = confirmText,
                 primary = true,
                 destructive = destructive,
+                textColorOverride = confirmTextColor,
                 onClick = onConfirm
             )
         )
@@ -1431,6 +1437,8 @@ private fun NoMemoDialogShell(
     message: String,
     onDismissRequest: () -> Unit,
     dismissible: Boolean = true,
+    processingBorder: Boolean = false,
+    flowingTitle: Boolean = false,
     actions: List<NoMemoDialogActionSpec>
 ) {
     val context = LocalContext.current
@@ -1601,15 +1609,31 @@ private fun NoMemoDialogShell(
                             .border(1.dp, panelStroke, panelShape)
                             .layerBackdrop(actionsBackdrop)
                     )
+                    if (processingBorder) {
+                        AiProcessingBorderOverlay(
+                            cornerRadius = 34.dp,
+                            isDark = isDark,
+                            modifier = Modifier.matchParentSize()
+                        )
+                    }
                     Column(
                         modifier = Modifier.padding(horizontal = 26.dp, vertical = 28.dp)
                     ) {
-                        Text(
-                            text = title,
-                            color = palette.textPrimary,
-                            fontSize = 18.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                        if (flowingTitle) {
+                            NoMemoFlowingText(
+                                text = title,
+                                color = palette.textPrimary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        } else {
+                            Text(
+                                text = title,
+                                color = palette.textPrimary,
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                         Text(
                             text = message,
                             color = palette.textSecondary,
@@ -1754,6 +1778,51 @@ fun NoMemoLiquidGlassCapsuleButton(
             modifier = Modifier.align(Alignment.Center)
         )
     }
+}
+
+@Composable
+fun NoMemoFlowingText(
+    text: String,
+    color: Color,
+    modifier: Modifier = Modifier,
+    fontSize: androidx.compose.ui.unit.TextUnit = 17.sp,
+    fontWeight: FontWeight = FontWeight.SemiBold,
+    textAlign: TextAlign = TextAlign.Start
+) {
+    val transition = rememberInfiniteTransition(label = "noMemoFlowingText")
+    val flowOffset by transition.animateFloat(
+        initialValue = -220f,
+        targetValue = 420f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1650, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "noMemoFlowingTextOffset"
+    )
+    val brush = remember(color, flowOffset) {
+        Brush.linearGradient(
+            colors = listOf(
+                color.copy(alpha = 0.72f),
+                color.copy(alpha = 0.96f),
+                Color.White.copy(alpha = 0.96f),
+                color.copy(alpha = 0.96f),
+                color.copy(alpha = 0.72f)
+            ),
+            start = Offset(flowOffset - 220f, 0f),
+            end = Offset(flowOffset + 220f, 0f)
+        )
+    }
+    Text(
+        text = text,
+        modifier = modifier,
+        style = TextStyle(
+            brush = brush,
+            fontSize = fontSize,
+            fontWeight = fontWeight,
+            textAlign = textAlign
+        ),
+        textAlign = textAlign
+    )
 }
 
 @Composable
@@ -2807,10 +2876,18 @@ fun RecordCard(
     val summaryText = remember(record.recordId, record.analysis, record.summary, record.memory, record.sourceText) {
         preferredCardSummaryText(record)
     }
-    val resolvedCategoryCode = remember(record.categoryCode, record.structuredFactsJson) {
-        MemoryFactReconciler.normalizeCategoryCode(record.categoryCode, record.structuredFactsJson)
+    val resolvedCategoryCode = remember(
+        record.categoryCode,
+        record.structuredFactsJson,
+        record.title,
+        record.summary,
+        record.memory,
+        record.analysis,
+        record.sourceText
+    ) {
+        MemoryFactReconciler.normalizeCategoryCodeForRecord(record)
     }
-    val categoryText = remember(record.categoryName, record.structuredFactsJson, context) {
+    val categoryText = remember(record.categoryName, record.structuredFactsJson, resolvedCategoryCode, context) {
         val normalizedCategoryName = CategoryCatalog.getCategoryName(resolvedCategoryCode)
         record.categoryName
             ?.takeIf { it.isNotBlank() && it != context.getString(R.string.tag_quick) }

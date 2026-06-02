@@ -89,7 +89,8 @@ public class MemoryStore {
                         r.isArchived(),
                         r.getStructuredFactsJson(),
                         r.getAiAnalysisStateJson(),
-                        normalizedVisualState
+                        normalizedVisualState,
+                        r.getLiveStatusState()
                 );
                 normalized.add(updated);
                 updatedAny = true;
@@ -138,6 +139,7 @@ public class MemoryStore {
         }
         persist(records, shouldPersistSynchronously(record));
         ReminderScheduler.schedule(appContext, record);
+        syncLiveStatusNotification(record);
         MemoryStoreNotifier.notifyChanged(appContext, record.getRecordId());
     }
 
@@ -157,6 +159,7 @@ public class MemoryStore {
         if (changed) {
             persist(records);
             ReminderScheduler.schedule(appContext, updatedRecord);
+            syncLiveStatusNotification(updatedRecord);
             MemoryStoreNotifier.notifyChanged(appContext, recordId);
         }
     }
@@ -177,6 +180,7 @@ public class MemoryStore {
         if (changed) {
             persist(records);
             ReminderScheduler.schedule(appContext, updatedRecord);
+            syncLiveStatusNotification(updatedRecord);
             MemoryStoreNotifier.notifyChanged(appContext, recordId);
         }
     }
@@ -194,6 +198,7 @@ public class MemoryStore {
         if (changed) {
             persist(records);
             ReminderScheduler.cancel(appContext, recordId);
+            NoMemoLiveUpdateNotifier.cancelMemoryLiveStatus(appContext, recordId);
             MemoryStoreNotifier.notifyChanged(appContext, recordId);
         }
         return changed;
@@ -215,6 +220,7 @@ public class MemoryStore {
         if (changed) {
             persist(records, shouldPersistSynchronously(updatedRecord));
             ReminderScheduler.schedule(appContext, updatedRecord);
+            syncLiveStatusNotification(updatedRecord);
             MemoryStoreNotifier.notifyChanged(appContext, updatedRecord.getRecordId());
         }
         return changed;
@@ -258,7 +264,8 @@ public class MemoryStore {
                         record.isArchived(),
                         record.getStructuredFactsJson(),
                         record.getAiAnalysisStateJson(),
-                        record.getAiVisualStateJson()
+                        record.getAiVisualStateJson(),
+                        record.getLiveStatusState()
                 ));
                 changed = true;
                 break;
@@ -292,6 +299,7 @@ public class MemoryStore {
         cachedRecords = new ArrayList<>();
         for (MemoryRecord record : records) {
             ReminderScheduler.cancel(appContext, record.getRecordId());
+            NoMemoLiveUpdateNotifier.cancelMemoryLiveStatus(appContext, record.getRecordId());
         }
         MemoryStoreNotifier.notifyChanged(appContext, null);
     }
@@ -328,6 +336,17 @@ public class MemoryStore {
             return true;
         }
         return AiAnalysisStateJson.isActive(record.getAiAnalysisStateJson());
+    }
+
+    private void syncLiveStatusNotification(MemoryRecord record) {
+        if (record == null) {
+            return;
+        }
+        if (record.isLiveStatusActive() && !record.isArchived()) {
+            NoMemoLiveUpdateNotifier.notifyMemoryLiveStatus(appContext, record);
+        } else {
+            NoMemoLiveUpdateNotifier.cancelMemoryLiveStatus(appContext, record.getRecordId());
+        }
     }
 
     private String normalizeAiVisualState(String rawVisualState, String rawAnalysisState) {

@@ -126,4 +126,5 @@
     <string name="ai_local_notification_big_text">当前结果来自本地兜底整理，可稍后再次尝试 AI 分析。</string>
     <string name="ai_local_notification_style_summary">本地兜底记忆已更新</string>
     <string name="ai_local_notification_front_title">本地兜底</string>
+    <string name="reminder_notification_front_title">提醒事项</string>
 </resources>

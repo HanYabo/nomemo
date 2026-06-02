@@ -804,6 +804,11 @@ public class AiMemoryService {
                 suggestedCategoryCode
         );
         suggestedCategoryCode = normalizeCategoryCodeSafely(suggestedCategoryCode, structuredFactsJson);
+        suggestedCategoryCode = normalizeInformationalCategoryCodeSafely(
+                suggestedCategoryCode,
+                effectiveText,
+                preparedRequest.getPromptSpec().getAnalysisStyleHint()
+        );
         summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
         return new CloudGenerationResult(
                 new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "cloud", structuredFactsJson),
@@ -1498,6 +1503,11 @@ public class AiMemoryService {
                 suggestedCategoryCode
         );
         suggestedCategoryCode = normalizeCategoryCodeSafely(suggestedCategoryCode, structuredFactsJson);
+        suggestedCategoryCode = normalizeInformationalCategoryCodeSafely(
+                suggestedCategoryCode,
+                effectiveText,
+                analysisStyleHint
+        );
         summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
         return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "local", structuredFactsJson);
     }
@@ -1542,6 +1552,11 @@ public class AiMemoryService {
         String normalizedCategoryCode = normalizeCategoryCodeSafely(
                 base.getSuggestedCategoryCode(),
                 structuredFactsJson
+        );
+        normalizedCategoryCode = normalizeInformationalCategoryCodeSafely(
+                normalizedCategoryCode,
+                effectiveText,
+                analysisStyleHint
         );
         String summary = stableSummarySafely(
                 normalizedCategoryCode,
@@ -1606,6 +1621,22 @@ public class AiMemoryService {
         }
     }
 
+    private String normalizeInformationalCategoryCodeSafely(
+            @Nullable String categoryCode,
+            @Nullable String effectiveText,
+            AiAnalysisStyleHint analysisStyleHint
+    ) {
+        try {
+            return MemoryFactReconciler.normalizeCategoryCodeForText(
+                    categoryCode,
+                    effectiveText,
+                    analysisStyleHint == AiAnalysisStyleHint.DOCUMENT_RICH
+            );
+        } catch (Exception ignored) {
+            return categoryCode == null ? "" : categoryCode;
+        }
+    }
+
     private GenerationResult buildEmergencyLocalResult(
             String userText,
             @Nullable Uri imageUri,
@@ -1644,6 +1675,11 @@ public class AiMemoryService {
                 suggestedCategoryCode
         );
         suggestedCategoryCode = normalizeCategoryCodeSafely(suggestedCategoryCode, structuredFactsJson);
+        suggestedCategoryCode = normalizeInformationalCategoryCodeSafely(
+                suggestedCategoryCode,
+                effectiveText,
+                analysisStyleHint
+        );
         summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
         return new GenerationResult(
                 title,

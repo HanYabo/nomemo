@@ -129,17 +129,20 @@ class MemoryDetailActivity : BaseComposeActivity() {
     companion object {
         private const val EXTRA_RECORD_ID = "extra_record_id"
         private const val EXTRA_OPENED_FROM_ARCHIVED_LIST = "extra_opened_from_archived_list"
+        private const val EXTRA_OPEN_IMAGE_PREVIEW = "extra_open_image_preview"
 
         @JvmStatic
         @JvmOverloads
         fun createIntent(
             context: Context,
             recordId: String,
-            openedFromArchivedList: Boolean = false
+            openedFromArchivedList: Boolean = false,
+            openImagePreview: Boolean = false
         ): Intent {
             return Intent(context, MemoryDetailActivity::class.java)
                 .putExtra(EXTRA_RECORD_ID, recordId)
                 .putExtra(EXTRA_OPENED_FROM_ARCHIVED_LIST, openedFromArchivedList)
+                .putExtra(EXTRA_OPEN_IMAGE_PREVIEW, openImagePreview)
         }
     }
 
@@ -181,6 +184,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 aiEnabled = aiEnabled,
                 reanalyzing = reanalyzing,
                 statusBarHeightPx = statusBarHeightPx,
+                openImagePreviewOnStart = intent.getBooleanExtra(EXTRA_OPEN_IMAGE_PREVIEW, false),
                 onBack = { finish() },
                 onToggleArchive = { currentRecord -> toggleArchive(currentRecord) },
                 onDelete = { currentRecord -> deleteRecord(currentRecord) },
@@ -330,10 +334,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     }
 
     private fun resolveCategoryOption(record: MemoryRecord): CategoryCatalog.CategoryOption {
-        val normalizedCategoryCode = MemoryFactReconciler.normalizeCategoryCode(
-            record.categoryCode,
-            record.structuredFactsJson
-        )
+        val normalizedCategoryCode = MemoryFactReconciler.normalizeCategoryCodeForRecord(record)
         return CategoryCatalog.getAllCategories().firstOrNull { it.categoryCode == normalizedCategoryCode }
             ?: CategoryCatalog.CategoryOption(
                 CategoryCatalog.getGroupByCategoryCode(normalizedCategoryCode),
@@ -428,7 +429,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             currentRecord.isArchived,
             updatedStructuredFactsJson,
             currentRecord.aiAnalysisStateJson,
-            currentRecord.aiVisualStateJson
+            currentRecord.aiVisualStateJson,
+            currentRecord.liveStatusState
         )
         val saved = memoryStore.updateRecord(updated)
         if (saved) {
@@ -462,11 +464,29 @@ class MemoryDetailActivity : BaseComposeActivity() {
             currentRecord.isArchived,
             currentRecord.structuredFactsJson,
             currentRecord.aiAnalysisStateJson,
-            currentRecord.aiVisualStateJson
+            currentRecord.aiVisualStateJson,
+            currentRecord.liveStatusState
         )
         val saved = memoryStore.updateRecord(updated)
         if (saved) {
             record = updated
+        }
+        return saved
+    }
+
+    private fun saveLiveStatusForRecord(
+        currentRecord: MemoryRecord,
+        state: String
+    ): Boolean {
+        val updated = currentRecord.withLiveStatusState(state)
+        val saved = memoryStore.updateRecord(updated)
+        if (saved) {
+            record = updated
+            if (updated.isLiveStatusActive) {
+                NoMemoLiveUpdateNotifier.notifyMemoryLiveStatus(applicationContext, updated)
+            } else {
+                NoMemoLiveUpdateNotifier.cancelMemoryLiveStatus(applicationContext, updated.recordId)
+            }
         }
         return saved
     }
@@ -504,6 +524,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
         )
         record = pendingRecord
         AiProcessingStateRegistry.markProcessing(recordId, attempt = 1, attemptLimit = initialAttemptLimit)
+        NoMemoLiveUpdateNotifier.notifyAiAnalysis(
+            appContext,
+            pendingRecord,
+            1,
+            initialAttemptLimit
+        )
         reanalyzing = true
         reanalyzeJob?.cancel()
         reanalyzeJob = MemoryDetailReanalyzeScope.scope.launch {
@@ -534,6 +560,12 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 attemptLimit = attemptLimit
                             )
                             memoryStore.updateRecord(progressRecord)
+                            NoMemoLiveUpdateNotifier.notifyAiAnalysis(
+                                appContext,
+                                progressRecord,
+                                attempt,
+                                attemptLimit
+                            )
                             runOnUiThread {
                                 if (isReanalyzeSessionActive(sessionId) && record?.recordId == recordId) {
                                     record = progressRecord
@@ -614,7 +646,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         previousRecord.isArchived,
                         resolvedFactsJson,
                         "",
-                        ""
+                        "",
+                        previousRecord.liveStatusState
                     )
                 }
                 ensureActiveReanalyzeSession(sessionId)
@@ -715,6 +748,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         reanalyzeJob = null
                     }
                     AiProcessingStateRegistry.clearProcessing(recordId)
+                    NoMemoLiveUpdateNotifier.cancelAiAnalysis(appContext, recordId)
                 }
             }
         }
@@ -737,6 +771,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         reanalyzing = false
         record = baseRecord
         AiProcessingStateRegistry.clearProcessing(baseRecord.recordId)
+        NoMemoLiveUpdateNotifier.cancelAiAnalysis(applicationContext, baseRecord.recordId)
         lifecycleScope.launch(Dispatchers.IO) {
             memoryStore.updateRecord(baseRecord)
         }
@@ -746,6 +781,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val canceledRecord = buildCanceledInitialAnalysisRecord(currentRecord)
         AiInitialAnalysisWorkScheduler.cancel(applicationContext, currentRecord.recordId)
         AiProcessingStateRegistry.clearProcessing(currentRecord.recordId)
+        NoMemoLiveUpdateNotifier.cancelAiAnalysis(applicationContext, currentRecord.recordId)
         record = canceledRecord
         lifecycleScope.launch(Dispatchers.IO) {
             memoryStore.updateRecord(canceledRecord)
@@ -958,7 +994,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             baseRecord.isArchived,
             baseRecord.structuredFactsJson,
             "",
-            ""
+            "",
+            baseRecord.liveStatusState
         )
     }
 
@@ -999,7 +1036,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             baseRecord.isArchived,
             baseRecord.structuredFactsJson,
             aiAnalysisStateJson,
-            aiVisualStateJson
+            aiVisualStateJson,
+            baseRecord.liveStatusState
         )
     }
 
@@ -1059,7 +1097,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             record.isArchived,
             record.structuredFactsJson,
             record.aiAnalysisStateJson,
-            record.aiVisualStateJson
+            record.aiVisualStateJson,
+            record.liveStatusState
         )
     }
 
@@ -1143,6 +1182,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
         aiEnabled: Boolean,
         reanalyzing: Boolean,
         statusBarHeightPx: Int,
+        openImagePreviewOnStart: Boolean,
         onBack: () -> Unit,
         onToggleArchive: (MemoryRecord) -> Unit,
         onDelete: (MemoryRecord) -> Unit,
@@ -1199,7 +1239,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             mutableStateOf(previewRequest == null)
         }
         var previewOpenPending by remember(previewRecord?.recordId, previewRecord?.imageUri) {
-            mutableStateOf(false)
+            mutableStateOf(openImagePreviewOnStart && previewRecord != null)
         }
         val previewTransition = updateTransition(
             targetState = showImagePreview && previewRecord != null,
@@ -1209,7 +1249,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val previewSourceCardHidden = previewOverlayVisible
         val notificationPermissionLauncher = rememberLauncherForActivityResult(
             ActivityResultContracts.RequestPermission()
-        ) {}
+        ) { granted ->
+            if (granted) {
+                record?.takeIf { it.isLiveStatusActive && !it.isArchived }?.let {
+                    NoMemoLiveUpdateNotifier.notifyMemoryLiveStatus(applicationContext, it)
+                }
+            }
+        }
         val previewImageReady = previewImagePrepared && previewImageMetadataResolved
 
         LaunchedEffect(previewRecord?.recordId, previewRecord?.imageUri) {
@@ -1770,6 +1816,30 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 )
                                 NoMemoPickupCodeCard(
                                     info = info,
+                                    completed = currentRecord.isLiveStatusCompleted,
+                                    onCompletedChange = { completed ->
+                                        val targetState = if (completed) {
+                                            MemoryRecord.LIVE_STATUS_COMPLETED
+                                        } else {
+                                            MemoryRecord.LIVE_STATUS_ACTIVE
+                                        }
+                                        if (saveLiveStatusForRecord(currentRecord, targetState)) {
+                                            if (!completed &&
+                                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                                                ContextCompat.checkSelfPermission(
+                                                    this@MemoryDetailActivity,
+                                                    android.Manifest.permission.POST_NOTIFICATIONS
+                                                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                                            ) {
+                                                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                            }
+                                            Toast.makeText(
+                                                this@MemoryDetailActivity,
+                                                if (completed) "已完成实时动态" else "已恢复实时动态",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        }
+                                    },
                                     modifier = Modifier.padding(
                                         start = detailTextStartPadding,
                                         end = detailTextStartPadding,
@@ -1871,6 +1941,36 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     onClick = {
                                         moreMenuExpanded = false
                                         onToggleArchive(currentRecord)
+                                    }
+                                ),
+                                NoMemoMenuActionItem(
+                                    iconRes = R.drawable.ic_nm_reminder,
+                                    label = if (currentRecord.isLiveStatusActive) "取消实时动态" else "设为实时动态",
+                                    onClick = {
+                                        moreMenuExpanded = false
+                                        val targetState = if (currentRecord.isLiveStatusActive) {
+                                            MemoryRecord.LIVE_STATUS_INACTIVE
+                                        } else {
+                                            MemoryRecord.LIVE_STATUS_ACTIVE
+                                        }
+                                        if (saveLiveStatusForRecord(currentRecord, targetState)) {
+                                            if (targetState == MemoryRecord.LIVE_STATUS_ACTIVE &&
+                                                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+                                                ContextCompat.checkSelfPermission(
+                                                    this@MemoryDetailActivity,
+                                                    android.Manifest.permission.POST_NOTIFICATIONS
+                                                ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                                            ) {
+                                                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                                            }
+                                            Toast.makeText(
+                                                this@MemoryDetailActivity,
+                                                if (targetState == MemoryRecord.LIVE_STATUS_ACTIVE) "已设为实时动态" else "已取消实时动态",
+                                                Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else {
+                                            Toast.makeText(this@MemoryDetailActivity, "实时动态设置失败", Toast.LENGTH_SHORT).show()
+                                        }
                                     }
                                 ),
                                 NoMemoMenuActionItem(

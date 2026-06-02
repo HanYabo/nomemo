@@ -8,6 +8,9 @@ import java.util.UUID;
 public class MemoryRecord {
     public static final String MODE_NORMAL = "NORMAL";
     public static final String MODE_AI = "AI";
+    public static final String LIVE_STATUS_INACTIVE = "inactive";
+    public static final String LIVE_STATUS_ACTIVE = "active";
+    public static final String LIVE_STATUS_COMPLETED = "completed";
 
     private final String recordId;
     private final long createdAt;
@@ -29,6 +32,7 @@ public class MemoryRecord {
     private final String structuredFactsJson;
     private final String aiAnalysisStateJson;
     private final String aiVisualStateJson;
+    private final String liveStatusState;
 
     public MemoryRecord(
             long createdAt,
@@ -358,6 +362,54 @@ public class MemoryRecord {
             String aiAnalysisStateJson,
             String aiVisualStateJson
     ) {
+        this(
+                recordId,
+                createdAt,
+                mode,
+                title,
+                summary,
+                sourceText,
+                note,
+                imageUri,
+                analysis,
+                memory,
+                engine,
+                categoryGroupCode,
+                categoryCode,
+                categoryName,
+                reminderAt,
+                reminderDone,
+                archived,
+                structuredFactsJson,
+                aiAnalysisStateJson,
+                aiVisualStateJson,
+                LIVE_STATUS_INACTIVE
+        );
+    }
+
+    public MemoryRecord(
+            String recordId,
+            long createdAt,
+            String mode,
+            String title,
+            String summary,
+            String sourceText,
+            String note,
+            String imageUri,
+            String analysis,
+            String memory,
+            String engine,
+            String categoryGroupCode,
+            String categoryCode,
+            String categoryName,
+            long reminderAt,
+            boolean reminderDone,
+            boolean archived,
+            String structuredFactsJson,
+            String aiAnalysisStateJson,
+            String aiVisualStateJson,
+            String liveStatusState
+    ) {
         this.recordId = recordId;
         this.createdAt = createdAt;
         this.mode = mode;
@@ -378,6 +430,7 @@ public class MemoryRecord {
         this.structuredFactsJson = structuredFactsJson == null ? "" : structuredFactsJson;
         this.aiAnalysisStateJson = aiAnalysisStateJson == null ? "" : aiAnalysisStateJson;
         this.aiVisualStateJson = aiVisualStateJson == null ? "" : aiVisualStateJson;
+        this.liveStatusState = normalizeLiveStatusState(liveStatusState);
     }
 
     public String getRecordId() {
@@ -460,6 +513,18 @@ public class MemoryRecord {
         return aiVisualStateJson;
     }
 
+    public String getLiveStatusState() {
+        return liveStatusState;
+    }
+
+    public boolean isLiveStatusActive() {
+        return LIVE_STATUS_ACTIVE.equals(liveStatusState);
+    }
+
+    public boolean isLiveStatusCompleted() {
+        return LIVE_STATUS_COMPLETED.equals(liveStatusState);
+    }
+
     public MemoryRecord withReminderDone(boolean done) {
         return new MemoryRecord(
                 recordId,
@@ -481,7 +546,8 @@ public class MemoryRecord {
                 archived,
                 structuredFactsJson,
                 aiAnalysisStateJson,
-                aiVisualStateJson
+                aiVisualStateJson,
+                liveStatusState
         );
     }
 
@@ -506,7 +572,34 @@ public class MemoryRecord {
                 archivedValue,
                 structuredFactsJson,
                 aiAnalysisStateJson,
-                aiVisualStateJson
+                aiVisualStateJson,
+                liveStatusState
+        );
+    }
+
+    public MemoryRecord withLiveStatusState(String state) {
+        return new MemoryRecord(
+                recordId,
+                createdAt,
+                mode,
+                title,
+                summary,
+                sourceText,
+                note,
+                imageUri,
+                analysis,
+                memory,
+                engine,
+                categoryGroupCode,
+                categoryCode,
+                categoryName,
+                reminderAt,
+                reminderDone,
+                archived,
+                structuredFactsJson,
+                aiAnalysisStateJson,
+                aiVisualStateJson,
+                state
         );
     }
 
@@ -532,6 +625,7 @@ public class MemoryRecord {
         json.put("structuredFactsJson", structuredFactsJson);
         json.put("aiAnalysisStateJson", aiAnalysisStateJson);
         json.put("aiVisualStateJson", aiVisualStateJson);
+        json.put("liveStatusState", liveStatusState);
         return json;
     }
 
@@ -576,8 +670,16 @@ public class MemoryRecord {
                 json.optBoolean("archived", false),
                 json.optString("structuredFactsJson", ""),
                 json.optString("aiAnalysisStateJson", ""),
-                json.optString("aiVisualStateJson", "")
+                json.optString("aiVisualStateJson", ""),
+                json.optString("liveStatusState", LIVE_STATUS_INACTIVE)
         );
+    }
+
+    private static String normalizeLiveStatusState(String value) {
+        if (LIVE_STATUS_ACTIVE.equals(value) || LIVE_STATUS_COMPLETED.equals(value)) {
+            return value;
+        }
+        return LIVE_STATUS_INACTIVE;
     }
 
     private static String deriveTitle(String memory, String sourceText, String fallbackCategoryName) {

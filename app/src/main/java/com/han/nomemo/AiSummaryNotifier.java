@@ -41,6 +41,7 @@ public final class AiSummaryNotifier {
     private static final String MIUI_FOCUS_PIC_IMAGE_TEXT = "miui.focus.pic_imageText";
     private static final String MIUI_FOCUS_PERMISSION_URI = "content://miui.statusbar.notification.public";
     private static final String SYSTEM_PROPERTY_SUPPORT_ISLAND = "persist.sys.feature.island";
+    private static final long RESULT_LIVE_TIMEOUT_MS = 60_000L;
 
     private AiSummaryNotifier() {
     }
@@ -75,35 +76,25 @@ public final class AiSummaryNotifier {
         }
 
         boolean localFallback = "local".equalsIgnoreCase(record.getEngine());
-        String displayTitle = context.getString(localFallback
-                ? R.string.ai_local_notification_title
-                : R.string.ai_notification_title);
-        String displaySummary = localFallback
-                ? context.getString(R.string.ai_local_notification_summary)
-                : firstNonBlank(
-                        record.getSummary(),
-                        record.getAnalysis(),
-                        record.getMemory(),
-                        context.getString(R.string.ai_notification_summary)
-                );
-        String displayBigText = localFallback
-                ? firstNonBlank(
-                        record.getAnalysis(),
-                        record.getMemory(),
-                        context.getString(R.string.ai_local_notification_big_text)
-                )
-                : firstNonBlank(
-                        record.getSummary(),
-                        record.getAnalysis(),
-                        record.getMemory(),
-                        context.getString(R.string.ai_notification_big_text)
-                );
-        String displayFrontTitle = context.getString(localFallback
-                ? R.string.ai_local_notification_front_title
-                : R.string.ai_notification_front_title);
-        String displayStyleSummary = context.getString(localFallback
-                ? R.string.ai_local_notification_style_summary
-                : R.string.ai_notification_style_summary);
+        StructuredPickupInfo pickupInfo = MemoryDetailParser.INSTANCE.parseStructuredPickupInfo(record);
+        String recordTitle = firstNonBlank(
+                record.getTitle(),
+                record.getCategoryName(),
+                localFallback
+                        ? context.getString(R.string.ai_local_notification_title)
+                        : context.getString(R.string.ai_notification_title)
+        );
+        String resultHeadline = buildResultHeadline(context, record, pickupInfo, localFallback);
+        String resultDetail = buildResultDetail(context, record, pickupInfo, localFallback);
+        String displayBigText = buildResultBigText(context, record, pickupInfo, localFallback);
+        String compactTitle = pickupInfo != null
+                ? firstNonBlank(pickupInfo.getCode(), resultHeadline, recordTitle)
+                : resultHeadline;
+        int notificationIcon = resolveResultIcon(record, pickupInfo);
+        int notificationColor = resolveResultColor(record, pickupInfo);
+        String displayStyleSummary = localFallback
+                ? context.getString(R.string.ai_local_notification_style_summary)
+                : context.getString(R.string.ai_notification_style_summary);
 
         Intent detailIntent = MemoryDetailActivity.createIntent(context, record.getRecordId())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -116,36 +107,163 @@ public final class AiSummaryNotifier {
                 pendingFlags
         );
 
+        int notificationId = record.getRecordId().hashCode();
         NotificationCompat.Builder builder = new NotificationCompat.Builder(context, CHANNEL_ID)
-                .setSmallIcon(R.drawable.ic_nm_memory)
-                .setContentTitle(displayTitle)
-                .setContentText(displaySummary)
+                .setSmallIcon(notificationIcon)
+                .setContentTitle(compactTitle)
+                .setContentText(resultDetail)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
-                .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+                .setCategory(NotificationCompat.CATEGORY_STATUS)
                 .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                .setAutoCancel(true)
+                .setOngoing(true)
+                .setAutoCancel(false)
                 .setDefaults(NotificationCompat.DEFAULT_ALL)
                 .setOnlyAlertOnce(false)
-                .setContentIntent(pendingIntent);
+                .setContentIntent(pendingIntent)
+                .setColor(notificationColor)
+                .setRequestPromotedOngoing(true)
+                .setTimeoutAfter(RESULT_LIVE_TIMEOUT_MS)
+                .addAction(
+                        R.drawable.ic_sheet_close,
+                        "完成",
+                        buildDismissPendingIntent(context, notificationId)
+                )
+                .addAction(
+                        R.drawable.ic_nm_memory,
+                        TextUtils.isEmpty(record.getImageUri()) ? "查看详情" : "查看图片",
+                        TextUtils.isEmpty(record.getImageUri())
+                                ? pendingIntent
+                                : buildImagePreviewPendingIntent(context, record.getRecordId(), pendingFlags)
+                );
 
         Bitmap previewBitmap = loadNotificationPreview(context, record.getImageUri());
         if (previewBitmap != null) {
-            builder.setStyle(new NotificationCompat.BigPictureStyle()
-                    .bigPicture(previewBitmap)
-                    .bigLargeIcon((Bitmap) null)
-                    .setBigContentTitle(displayTitle)
-                    .setSummaryText(displaySummary));
             builder.setLargeIcon(previewBitmap);
-        } else {
-            builder.setStyle(new NotificationCompat.BigTextStyle()
-                    .setBigContentTitle(displayTitle)
-                    .bigText(displayBigText)
-                    .setSummaryText(displayStyleSummary));
         }
+        builder.setStyle(new NotificationCompat.BigTextStyle()
+                .setBigContentTitle(recordTitle)
+                .bigText(displayBigText)
+                .setSummaryText(displayStyleSummary));
 
-        applyMiuiIslandExtras(context, builder, displayFrontTitle, displayTitle, displaySummary, displayBigText);
+        applyMiuiIslandExtras(context, builder, recordTitle, compactTitle, resultDetail, displayBigText, notificationIcon);
         NotificationManagerCompat.from(context)
-                .notify(record.getRecordId().hashCode(), builder.build());
+                .notify(notificationId, builder.build());
+    }
+
+    private static int resolveResultIcon(MemoryRecord record, StructuredPickupInfo pickupInfo) {
+        if (pickupInfo != null) {
+            if (CategoryCatalog.CODE_LIFE_PICKUP.equals(record.getCategoryCode())) {
+                return R.drawable.ic_nm_food_notification;
+            }
+            if (CategoryCatalog.CODE_LIFE_DELIVERY.equals(record.getCategoryCode())) {
+                return R.drawable.ic_nm_package_notification;
+            }
+        }
+        return R.drawable.ic_nm_memory;
+    }
+
+    private static int resolveResultColor(MemoryRecord record, StructuredPickupInfo pickupInfo) {
+        if (pickupInfo != null && CategoryCatalog.CODE_LIFE_PICKUP.equals(record.getCategoryCode())) {
+            return 0xFFFF8A2A;
+        }
+        if (pickupInfo != null && CategoryCatalog.CODE_LIFE_DELIVERY.equals(record.getCategoryCode())) {
+            return 0xFF1677FF;
+        }
+        return 0xFF1677FF;
+    }
+
+    private static String buildResultHeadline(
+            Context context,
+            MemoryRecord record,
+            StructuredPickupInfo pickupInfo,
+            boolean localFallback
+    ) {
+        if (pickupInfo != null && !TextUtils.isEmpty(pickupInfo.getCode())) {
+            return pickupInfo.getCode();
+        }
+        if (localFallback) {
+            return context.getString(R.string.ai_local_notification_title);
+        }
+        return firstNonBlank(
+                record.getSummary(),
+                record.getAnalysis(),
+                record.getMemory(),
+                context.getString(R.string.ai_notification_title)
+        );
+    }
+
+    private static String buildResultDetail(
+            Context context,
+            MemoryRecord record,
+            StructuredPickupInfo pickupInfo,
+            boolean localFallback
+    ) {
+        if (pickupInfo != null) {
+            String primary = labeledValue(pickupInfo.getPrimaryLabel(), pickupInfo.getPrimaryValue());
+            String secondary = labeledValue(pickupInfo.getSecondaryLabel(), pickupInfo.getSecondaryValue());
+            return firstNonBlank(primary, secondary, pickupInfo.getLocationText(), record.getSummary());
+        }
+        if (localFallback) {
+            return context.getString(R.string.ai_local_notification_summary);
+        }
+        return firstNonBlank(
+                record.getSummary(),
+                record.getAnalysis(),
+                record.getMemory(),
+                context.getString(R.string.ai_notification_summary)
+        );
+    }
+
+    private static String buildResultBigText(
+            Context context,
+            MemoryRecord record,
+            StructuredPickupInfo pickupInfo,
+            boolean localFallback
+    ) {
+        if (pickupInfo != null) {
+            StringBuilder builder = new StringBuilder();
+            appendLine(builder, pickupInfo.getCode());
+            appendLine(builder, labeledValue(pickupInfo.getPrimaryLabel(), pickupInfo.getPrimaryValue()));
+            appendLine(builder, labeledValue(pickupInfo.getSecondaryLabel(), pickupInfo.getSecondaryValue()));
+            appendLine(builder, labeledValue("地点", pickupInfo.getLocationText()));
+            String value = builder.toString().trim();
+            if (!TextUtils.isEmpty(value)) {
+                return value;
+            }
+        }
+        if (localFallback) {
+            return firstNonBlank(
+                    record.getAnalysis(),
+                    record.getMemory(),
+                    context.getString(R.string.ai_local_notification_big_text)
+            );
+        }
+        return firstNonBlank(
+                record.getSummary(),
+                record.getAnalysis(),
+                record.getMemory(),
+                context.getString(R.string.ai_notification_big_text)
+        );
+    }
+
+    private static String labeledValue(String label, String value) {
+        if (TextUtils.isEmpty(value) || "未识别".equals(value.trim())) {
+            return "";
+        }
+        if (TextUtils.isEmpty(label)) {
+            return value.trim();
+        }
+        return label.trim() + "：" + value.trim();
+    }
+
+    private static void appendLine(StringBuilder builder, String value) {
+        if (TextUtils.isEmpty(value) || TextUtils.isEmpty(value.trim())) {
+            return;
+        }
+        if (builder.length() > 0) {
+            builder.append('\n');
+        }
+        builder.append(value.trim());
     }
 
     private static void applyMiuiIslandExtras(
@@ -154,13 +272,14 @@ public final class AiSummaryNotifier {
             String frontTitle,
             String title,
             String summary,
-            String bigText
+            String bigText,
+            int iconRes
     ) {
         if (!supportsMiuiIsland(context) || !hasMiuiFocusPermission(context)) {
             return;
         }
         try {
-            Icon memoryIcon = Icon.createWithResource(context, R.drawable.ic_nm_memory);
+            Icon memoryIcon = Icon.createWithResource(context, iconRes);
 
             Bundle pics = new Bundle();
             pics.putParcelable(MIUI_FOCUS_PIC_TICKER, memoryIcon);
@@ -228,6 +347,12 @@ public final class AiSummaryNotifier {
             smallPicInfo.put("type", 1);
             smallPicInfo.put("pic", MIUI_FOCUS_PIC_IMAGE_TEXT);
             smallIslandArea.put("picInfo", smallPicInfo);
+            JSONObject smallTextInfo = new JSONObject();
+            smallTextInfo.put("frontTitle", frontTitle);
+            smallTextInfo.put("title", title);
+            smallTextInfo.put("content", summary);
+            smallTextInfo.put("useHighLight", false);
+            smallIslandArea.put("miui.focus.paramtextInfo", smallTextInfo);
             paramIsland.put("smallIslandArea", smallIslandArea);
 
             JSONObject shareData = new JSONObject();
@@ -316,6 +441,35 @@ public final class AiSummaryNotifier {
         int flags = PendingIntent.FLAG_UPDATE_CURRENT
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
         return PendingIntent.getActivity(context, 0, intent, flags);
+    }
+
+    private static PendingIntent buildImagePreviewPendingIntent(
+            Context context,
+            String recordId,
+            int pendingFlags
+    ) {
+        Intent intent = MemoryDetailActivity.createIntent(context, recordId, false, true)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return PendingIntent.getActivity(
+                context,
+                ("ai-summary-image:" + recordId).hashCode(),
+                intent,
+                pendingFlags
+        );
+    }
+
+    private static PendingIntent buildDismissPendingIntent(Context context, int notificationId) {
+        Intent intent = new Intent(context, NoMemoLiveUpdateActionReceiver.class)
+                .setAction(NoMemoLiveUpdateNotifier.ACTION_DISMISS_NOTIFICATION)
+                .putExtra(NoMemoLiveUpdateNotifier.EXTRA_NOTIFICATION_ID, notificationId);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        return PendingIntent.getBroadcast(
+                context,
+                ("ai-summary-dismiss:" + notificationId).hashCode(),
+                intent,
+                flags
+        );
     }
 
     private static Bitmap loadNotificationPreview(Context context, String imageUri) {

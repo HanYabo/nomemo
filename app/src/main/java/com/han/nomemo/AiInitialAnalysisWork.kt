@@ -32,6 +32,7 @@ object AiInitialAnalysisWorkScheduler {
         if (recordId.isBlank()) return
         WorkManager.getInstance(context.applicationContext)
             .cancelUniqueWork(AI_INITIAL_ANALYSIS_WORK_NAME_PREFIX + recordId)
+        NoMemoLiveUpdateNotifier.cancelAiAnalysis(context.applicationContext, recordId)
     }
 
     @JvmStatic
@@ -100,7 +101,8 @@ object AiInitialAnalysisWorkScheduler {
                         record.isArchived,
                         record.structuredFactsJson,
                         effectiveAnalysisState,
-                        normalizedVisualState
+                        normalizedVisualState,
+                        record.liveStatusState
                     )
                 } else {
                     record
@@ -108,6 +110,7 @@ object AiInitialAnalysisWorkScheduler {
                 if (normalized !== record) {
                     memoryStore.updateRecord(normalized)
                 }
+                NoMemoLiveUpdateNotifier.notifyAiAnalysis(appContext, normalized)
                 enqueue(appContext, normalized.recordId)
             }
     }
@@ -195,6 +198,7 @@ class AiInitialAnalysisWorker(
             return Result.success()
         } finally {
             AiProcessingStateRegistry.clearProcessing(recordId)
+            NoMemoLiveUpdateNotifier.cancelAiAnalysis(appContext, recordId)
         }
     }
 
@@ -249,7 +253,8 @@ class AiInitialAnalysisWorker(
                 operationKind = AiOperationKind.INITIAL_ANALYSIS,
                 attemptCount = attempt.coerceAtLeast(1),
                 attemptLimit = attemptLimit.coerceAtLeast(1)
-            )
+            ),
+            record.liveStatusState
         )
         AiProcessingStateRegistry.markProcessing(
             record.recordId,
@@ -257,6 +262,12 @@ class AiInitialAnalysisWorker(
             attemptLimit = attemptLimit.coerceAtLeast(1)
         )
         memoryStore.updateRecord(updated)
+        NoMemoLiveUpdateNotifier.notifyAiAnalysis(
+            applicationContext,
+            updated,
+            attempt.coerceAtLeast(1),
+            attemptLimit.coerceAtLeast(1)
+        )
     }
 
     private fun buildResolvedRecord(
@@ -291,7 +302,8 @@ class AiInitialAnalysisWorker(
                 rawVisualState = placeholder.aiVisualStateJson,
                 rawAnalysisState = placeholder.aiAnalysisStateJson,
                 fallbackOperationKind = AiOperationKind.INITIAL_ANALYSIS
-            )
+            ),
+            placeholder.liveStatusState
         )
     }
 
@@ -346,7 +358,8 @@ class AiInitialAnalysisWorker(
                 rawVisualState = placeholder.aiVisualStateJson,
                 rawAnalysisState = placeholder.aiAnalysisStateJson,
                 fallbackOperationKind = AiOperationKind.INITIAL_ANALYSIS
-            )
+            ),
+            placeholder.liveStatusState
         )
     }
 

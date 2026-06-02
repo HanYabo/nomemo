@@ -574,6 +574,46 @@ object MemoryFactReconciler {
         }
     }
 
+    @JvmStatic
+    fun normalizeCategoryCodeForText(
+        categoryCode: String?,
+        sourceText: String?,
+        documentRich: Boolean
+    ): String {
+        val normalizedCategory = categoryCode ?: CategoryCatalog.CODE_QUICK_NOTE
+        if (normalizedCategory != CategoryCatalog.CODE_LIFE_TICKET) {
+            return normalizedCategory
+        }
+        val source = normalizeVisibleText(sourceText).lowercase(Locale.ROOT)
+        if (source.isBlank() || hasStrongTicketSignal(source)) {
+            return normalizedCategory
+        }
+        return if (documentRich || looksLikeInformationalDocument(source)) {
+            CategoryCatalog.CODE_QUICK_NOTE
+        } else {
+            normalizedCategory
+        }
+    }
+
+    @JvmStatic
+    fun normalizeCategoryCodeForRecord(record: MemoryRecord): String {
+        val normalizedCategory = normalizeCategoryCode(record.categoryCode, record.structuredFactsJson)
+        val facts = MemoryStructuredFactsJson.parse(record.structuredFactsJson)
+        val source = listOf(
+            record.title,
+            record.summary,
+            record.memory,
+            record.analysis,
+            record.sourceText,
+            facts?.rawVisibleText
+        ).filterNotNull().joinToString("\n")
+        return normalizeCategoryCodeForText(
+            normalizedCategory,
+            source,
+            looksLikeInformationalDocument(normalizeVisibleText(source).lowercase(Locale.ROOT))
+        )
+    }
+
     fun structuredPickupInfo(categoryCode: String?, structuredFactsJson: String?): StructuredPickupInfo? {
         val facts = MemoryStructuredFactsJson.parse(structuredFactsJson) ?: return null
         val displayDomain = displayDomain(categoryCode, facts.domain)
@@ -719,6 +759,49 @@ object MemoryFactReconciler {
 
     private fun fallbackStructuredValue(value: String?): String {
         return value?.trim()?.takeIf { it.isNotEmpty() } ?: "未识别"
+    }
+
+    private fun hasStrongTicketSignal(source: String): Boolean {
+        return source.containsAny(
+            "票券",
+            "优惠券",
+            "折扣券",
+            "兑换券",
+            "券码",
+            "门票",
+            "车票",
+            "机票",
+            "电影票",
+            "演出票",
+            "入场券",
+            "电子票",
+            "票号",
+            "取票",
+            "购票",
+            "验票"
+        )
+    }
+
+    private fun looksLikeInformationalDocument(source: String): Boolean {
+        return source.containsAny(
+            "邮件",
+            "邮箱",
+            "发件人",
+            "收件人",
+            "主题",
+            "邀请邮件",
+            "邀请参与",
+            "活动邀请",
+            "计划背景",
+            "权益说明",
+            "使用说明",
+            "申请方式",
+            "详情如下",
+            "规则说明",
+            "通知",
+            "公告",
+            "说明"
+        )
     }
 }
 

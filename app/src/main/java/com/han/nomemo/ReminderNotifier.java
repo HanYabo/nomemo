@@ -1,25 +1,45 @@
 package com.han.nomemo;
 
 import android.Manifest;
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.drawable.Icon;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
+import android.provider.Settings;
 import android.text.TextUtils;
 
 import androidx.core.app.NotificationCompat;
 import androidx.core.app.NotificationManagerCompat;
 import androidx.core.content.ContextCompat;
 
+import org.json.JSONArray;
+import org.json.JSONObject;
+
+import java.lang.reflect.Method;
+
 public final class ReminderNotifier {
     private static final String CHANNEL_ID = "nomemo_reminders";
-    private static final String CHANNEL_NAME = "\u63d0\u9192\u901a\u77e5";
-    private static final String CHANNEL_DESCRIPTION = "\u8bb0\u5fc6\u63d0\u9192\u5230\u671f\u540e\u5f39\u51fa\u901a\u77e5";
-    private static final String FALLBACK_TITLE = "\u63d0\u9192\u4e8b\u9879";
-    private static final String FALLBACK_TEXT = "\u70b9\u51fb\u67e5\u770b\u8be6\u60c5";
+    private static final String CHANNEL_NAME = "提醒通知";
+    private static final String CHANNEL_DESCRIPTION = "记忆提醒到期后弹出通知";
+    private static final String FALLBACK_TITLE = "提醒事项";
+    private static final String FALLBACK_TEXT = "点击查看详情";
+
+    private static final String MIUI_FOCUS_PARAM_KEY = "miui.focus.param";
+    private static final String MIUI_FOCUS_PICS_KEY = "miui.focus.pics";
+    private static final String MIUI_FOCUS_ACTIONS_KEY = "miui.focus.actions";
+    private static final String MIUI_FOCUS_ACTION_OPEN = "miui.focus.action_open_detail";
+    private static final String MIUI_FOCUS_PIC_TICKER = "miui.focus.pic_ticker";
+    private static final String MIUI_FOCUS_PIC_AOD = "miui.focus.pic_aod";
+    private static final String MIUI_FOCUS_PIC_IMAGE_TEXT = "miui.focus.pic_imageText";
+    private static final String MIUI_FOCUS_PERMISSION_URI = "content://miui.statusbar.notification.public";
+    private static final String SYSTEM_PROPERTY_SUPPORT_ISLAND = "persist.sys.feature.island";
 
     private ReminderNotifier() {
     }
@@ -69,6 +89,7 @@ public final class ReminderNotifier {
                 record.getSourceText(),
                 FALLBACK_TEXT
         );
+        String frontTitle = appContext.getString(R.string.reminder_notification_front_title);
 
         Intent detailIntent = MemoryDetailActivity.createIntent(appContext, record.getRecordId())
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
@@ -100,9 +121,180 @@ public final class ReminderNotifier {
                 .setShowWhen(true)
                 .setColor(0xFF1677FF);
 
+        applyMiuiIslandExtras(appContext, builder, frontTitle, title, content, bigText, record.getRecordId());
         NotificationManagerCompat.from(appContext)
                 .notify(buildNotificationId(record), builder.build());
         return true;
+    }
+
+    private static void applyMiuiIslandExtras(
+            Context context,
+            NotificationCompat.Builder builder,
+            String frontTitle,
+            String title,
+            String summary,
+            String bigText,
+            String recordId
+    ) {
+        if (!supportsMiuiIsland(context) || !hasMiuiFocusPermission(context)) {
+            return;
+        }
+        try {
+            Icon reminderIcon = Icon.createWithResource(context, R.drawable.ic_nm_reminder);
+
+            Bundle pics = new Bundle();
+            pics.putParcelable(MIUI_FOCUS_PIC_TICKER, reminderIcon);
+            pics.putParcelable(MIUI_FOCUS_PIC_AOD, reminderIcon);
+            pics.putParcelable(MIUI_FOCUS_PIC_IMAGE_TEXT, reminderIcon);
+
+            Bundle extras = new Bundle();
+            extras.putBundle(MIUI_FOCUS_PICS_KEY, pics);
+
+            Notification.Action openAction = new Notification.Action.Builder(
+                    reminderIcon,
+                    "查看详情",
+                    buildIslandOpenPendingIntent(context, recordId)
+            ).build();
+            Bundle actions = new Bundle();
+            actions.putParcelable(MIUI_FOCUS_ACTION_OPEN, openAction);
+            extras.putBundle(MIUI_FOCUS_ACTIONS_KEY, actions);
+            builder.addExtras(extras);
+
+            JSONObject root = new JSONObject();
+            JSONObject paramV2 = new JSONObject();
+            root.put("param_v2", paramV2);
+
+            paramV2.put("protocol", 1);
+            paramV2.put("business", "nomemo_reminder");
+            paramV2.put("islandFirstFloat", true);
+            paramV2.put("enableFloat", true);
+            paramV2.put("updatable", true);
+            paramV2.put("filterWhenNoPermission", false);
+            paramV2.put("ticker", title);
+            paramV2.put("tickerPic", MIUI_FOCUS_PIC_TICKER);
+            paramV2.put("aodTitle", title);
+            paramV2.put("aodPic", MIUI_FOCUS_PIC_AOD);
+
+            JSONObject paramIsland = new JSONObject();
+            paramIsland.put("islandProperty", 1);
+            paramIsland.put("islandTimeout", 60);
+            paramIsland.put("islandOrder", true);
+
+            JSONObject bigIslandArea = new JSONObject();
+            JSONObject imageTextInfoLeft = new JSONObject();
+            imageTextInfoLeft.put("type", 1);
+
+            JSONObject leftPicInfo = new JSONObject();
+            leftPicInfo.put("type", 1);
+            leftPicInfo.put("pic", MIUI_FOCUS_PIC_IMAGE_TEXT);
+            imageTextInfoLeft.put("picInfo", leftPicInfo);
+
+            JSONObject leftTextInfo = new JSONObject();
+            leftTextInfo.put("frontTitle", frontTitle);
+            leftTextInfo.put("title", title);
+            leftTextInfo.put("content", summary);
+            leftTextInfo.put("useHighLight", false);
+            imageTextInfoLeft.put("miui.focus.paramtextInfo", leftTextInfo);
+            bigIslandArea.put("imageTextInfoLeft", imageTextInfoLeft);
+
+            JSONObject rightPicInfo = new JSONObject();
+            rightPicInfo.put("type", 1);
+            rightPicInfo.put("pic", MIUI_FOCUS_PIC_IMAGE_TEXT);
+            bigIslandArea.put("picInfo", rightPicInfo);
+            paramIsland.put("bigIslandArea", bigIslandArea);
+
+            JSONObject smallIslandArea = new JSONObject();
+            JSONObject smallPicInfo = new JSONObject();
+            smallPicInfo.put("type", 1);
+            smallPicInfo.put("pic", MIUI_FOCUS_PIC_IMAGE_TEXT);
+            smallIslandArea.put("picInfo", smallPicInfo);
+            paramIsland.put("smallIslandArea", smallIslandArea);
+
+            JSONObject shareData = new JSONObject();
+            shareData.put("pic", MIUI_FOCUS_PIC_IMAGE_TEXT);
+            shareData.put("title", title);
+            shareData.put("content", summary);
+            shareData.put("shareContent", bigText);
+            paramIsland.put("shareData", shareData);
+            paramV2.put("param_island", paramIsland);
+
+            JSONObject baseInfo = new JSONObject();
+            baseInfo.put("type", 2);
+            baseInfo.put("title", title);
+            baseInfo.put("content", bigText);
+            paramV2.put("baseInfo", baseInfo);
+
+            JSONObject hintInfo = new JSONObject();
+            hintInfo.put("type", 1);
+            hintInfo.put("title", frontTitle);
+            JSONObject actionInfo = new JSONObject();
+            actionInfo.put("action", MIUI_FOCUS_ACTION_OPEN);
+            hintInfo.put("actionInfo", actionInfo);
+            paramV2.put("hintInfo", hintInfo);
+
+            JSONArray actionsArray = new JSONArray();
+            JSONObject openActionInfo = new JSONObject();
+            openActionInfo.put("action", MIUI_FOCUS_ACTION_OPEN);
+            actionsArray.put(openActionInfo);
+            paramV2.put("actions", actionsArray);
+
+            Bundle builderExtras = builder.getExtras();
+            if (builderExtras != null) {
+                builderExtras.putString(MIUI_FOCUS_PARAM_KEY, root.toString());
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static boolean supportsMiuiIsland(Context context) {
+        if (!isSupportIslandSystemProperty()) {
+            return false;
+        }
+        try {
+            int protocol = Settings.System.getInt(
+                    context.getContentResolver(),
+                    "notification_focus_protocol",
+                    0
+            );
+            return protocol >= 3;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean hasMiuiFocusPermission(Context context) {
+        try {
+            Bundle extras = new Bundle();
+            extras.putString("package", context.getPackageName());
+            Bundle result = context.getContentResolver().call(
+                    Uri.parse(MIUI_FOCUS_PERMISSION_URI),
+                    "canShowFocus",
+                    null,
+                    extras
+            );
+            return result != null && result.getBoolean("canShowFocus", false);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isSupportIslandSystemProperty() {
+        try {
+            Class<?> clazz = Class.forName("android.os.SystemProperties");
+            Method method = clazz.getDeclaredMethod("getBoolean", String.class, boolean.class);
+            Object value = method.invoke(null, SYSTEM_PROPERTY_SUPPORT_ISLAND, false);
+            return value instanceof Boolean && (Boolean) value;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static PendingIntent buildIslandOpenPendingIntent(Context context, String recordId) {
+        Intent intent = MemoryDetailActivity.createIntent(context, recordId)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        int flags = PendingIntent.FLAG_UPDATE_CURRENT
+                | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
+        return PendingIntent.getActivity(context, recordId.hashCode(), intent, flags);
     }
 
     private static int buildNotificationId(MemoryRecord record) {

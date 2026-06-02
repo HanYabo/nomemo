@@ -262,4 +262,36 @@ class MemoryFactExtractorTest {
             MemoryFactReconciler.stableSummary(CategoryCatalog.CODE_LIFE_PICKUP, "", factsJson)
         )
     }
+
+    @Test
+    fun documentRichEmail_doesNotStayTicketCategory() {
+        val source = """
+            邮件标题：你已受邀参与 Xiaomi MiMo Orbit-百万亿 Token 创造者激励计划
+            发件人：Xiaomi MiMo
+            这是一封活动邀请邮件，主要介绍计划背景、申请权益、时间安排和使用说明。
+        """.trimIndent()
+
+        assertEquals(
+            CategoryCatalog.CODE_QUICK_NOTE,
+            MemoryFactReconciler.normalizeCategoryCodeForText(
+                CategoryCatalog.CODE_LIFE_TICKET,
+                source,
+                true
+            )
+        )
+    }
+
+    @Test
+    fun realCouponTicket_keepsTicketCategory() {
+        val source = "优惠券 券码 A88B88 到店核销后可抵扣"
+
+        assertEquals(
+            CategoryCatalog.CODE_LIFE_TICKET,
+            MemoryFactReconciler.normalizeCategoryCodeForText(
+                CategoryCatalog.CODE_LIFE_TICKET,
+                source,
+                true
+            )
+        )
+    }
 }
