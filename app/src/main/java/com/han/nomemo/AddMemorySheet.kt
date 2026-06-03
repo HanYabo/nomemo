@@ -26,6 +26,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -1091,7 +1092,7 @@ private fun SheetSectionLabel(
     Text(
         text = text,
         color = palette.textSecondary.copy(alpha = 0.84f),
-        fontSize = 14.sp,
+        fontSize = 15.sp,
         fontWeight = FontWeight.Bold,
         modifier = modifier
             .fillMaxWidth()
@@ -1172,7 +1173,7 @@ private fun SheetFormRow(
             Text(
                 text = title,
                 color = titleColor ?: palette.textPrimary,
-                fontSize = 16.sp,
+                fontSize = 17.sp,
                 fontWeight = FontWeight.Bold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -1190,11 +1191,23 @@ private fun SheetFormRow(
                 )
             }
             if (checked != null) {
+                val checkColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
                 Box(
                     modifier = Modifier
-                        .size(34.dp)
+                        .size(28.dp)
                         .clip(CircleShape)
-                        .background(if (checked) palette.accent else palette.textTertiary.copy(alpha = 0.18f)),
+                        .then(
+                            if (checked) {
+                                Modifier.background(checkColor)
+                            } else {
+                                Modifier.background(Color.Transparent)
+                            }
+                        )
+                        .border(
+                            width = if (checked) 1.8.dp else 2.4.dp,
+                            color = if (checked) checkColor else palette.textTertiary.copy(alpha = 0.36f),
+                            shape = CircleShape
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     if (checked) {
@@ -1202,7 +1215,7 @@ private fun SheetFormRow(
                             painter = painterResource(R.drawable.ic_sheet_check),
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(17.dp)
+                            modifier = Modifier.size(22.dp)
                         )
                     }
                 }
