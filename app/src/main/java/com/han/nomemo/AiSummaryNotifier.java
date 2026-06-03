@@ -151,15 +151,7 @@ public final class AiSummaryNotifier {
     }
 
     private static int resolveResultIcon(MemoryRecord record, StructuredPickupInfo pickupInfo) {
-        if (pickupInfo != null) {
-            if (CategoryCatalog.CODE_LIFE_PICKUP.equals(record.getCategoryCode())) {
-                return R.drawable.ic_nm_food_notification;
-            }
-            if (CategoryCatalog.CODE_LIFE_DELIVERY.equals(record.getCategoryCode())) {
-                return R.drawable.ic_nm_package_notification;
-            }
-        }
-        return R.drawable.ic_nm_memory_notification;
+        return NotificationIconResolver.forCategory(record.getCategoryCode());
     }
 
     private static int resolveResultColor(MemoryRecord record, StructuredPickupInfo pickupInfo) {

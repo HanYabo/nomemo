@@ -359,13 +359,7 @@ public final class NoMemoLiveUpdateNotifier {
     }
 
     private static int resolveMemoryLiveIcon(MemoryRecord record, StructuredPickupInfo pickupInfo) {
-        if (pickupInfo != null && CategoryCatalog.CODE_LIFE_PICKUP.equals(record.getCategoryCode())) {
-            return R.drawable.ic_nm_food_notification;
-        }
-        if (pickupInfo != null && CategoryCatalog.CODE_LIFE_DELIVERY.equals(record.getCategoryCode())) {
-            return R.drawable.ic_nm_package_notification;
-        }
-        return R.drawable.ic_nm_memory_notification;
+        return NotificationIconResolver.forCategory(record.getCategoryCode());
     }
 
     private static int resolveMemoryLiveColor(MemoryRecord record, StructuredPickupInfo pickupInfo) {

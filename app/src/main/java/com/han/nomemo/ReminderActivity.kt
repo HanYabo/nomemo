@@ -608,6 +608,14 @@ class ReminderActivity : BaseComposeActivity() {
                                 }
                             ),
                             NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_ai_assistant,
+                                label = "AI助手",
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    startActivity(AiAssistantActivity.createIntent(this@ReminderActivity))
+                                }
+                            ),
+                            NoMemoMenuActionItem(
                                 iconRes = R.drawable.ic_nm_settings,
                                 label = stringResource(R.string.action_settings),
                                 onClick = {

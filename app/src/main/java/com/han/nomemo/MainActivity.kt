@@ -1401,6 +1401,14 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             ),
                             NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_ai_assistant,
+                                label = "AI助手",
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    startActivity(AiAssistantActivity.createIntent(this@MainActivity))
+                                }
+                            ),
+                            NoMemoMenuActionItem(
                                 iconRes = R.drawable.ic_nm_settings,
                                 label = stringResource(R.string.action_settings),
                                 onClick = {

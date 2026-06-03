@@ -248,6 +248,7 @@ private fun ReminderPrimaryScreen(
     val adaptive = rememberNoMemoAdaptiveSpec()
     val palette = rememberNoMemoPalette()
     val density = LocalDensity.current
+    val context = LocalContext.current
     val titleBlockHeight = if (adaptive.isNarrow) 44.dp else 52.dp
     var selectedRecordIds by remember { mutableStateOf(setOf<String>()) }
     var selectionModeActive by remember { mutableStateOf(false) }
@@ -603,6 +604,14 @@ private fun ReminderPrimaryScreen(
                             onClick = {
                                 moreMenuExpanded = false
                                 onOpenArchivedMemory()
+                            }
+                        ),
+                        NoMemoMenuActionItem(
+                            iconRes = R.drawable.ic_nm_ai_assistant,
+                            label = "AI助手",
+                            onClick = {
+                                moreMenuExpanded = false
+                                context.startActivity(AiAssistantActivity.createIntent(context))
                             }
                         ),
                         NoMemoMenuActionItem(
