@@ -425,7 +425,7 @@ fun AddMemorySheet(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(horizontal = 24.dp, vertical = 24.dp)
-                                    .heightIn(min = 106.dp)
+                                    .height(106.dp)
                             ) { inner ->
                                 Box(Modifier.fillMaxWidth()) {
                                     Box(

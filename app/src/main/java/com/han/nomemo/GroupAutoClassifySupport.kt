@@ -40,9 +40,10 @@ internal fun GroupAutoClassifyToggleRow(
     val isDark = isSystemInDarkTheme()
     val interactionSource = remember { MutableInteractionSource() }
     val pressed by interactionSource.collectIsPressedAsState()
-    val accent = Color(0xFF4A9DFF)
+    val accent = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
+    val uncheckedBorderColor = palette.textTertiary.copy(alpha = 0.36f)
     val ringColor by animateColorAsState(
-        targetValue = if (checked) accent else palette.glassStroke.copy(alpha = if (isDark) 0.46f else 0.22f),
+        targetValue = if (checked) accent else uncheckedBorderColor,
         animationSpec = tween(durationMillis = 180),
         label = "groupAutoClassifyRing"
     )
@@ -76,10 +77,14 @@ internal fun GroupAutoClassifyToggleRow(
     ) {
         Box(
             modifier = Modifier
-                .size(22.dp)
+                .size(26.dp)
                 .clip(CircleShape)
                 .background(fillColor, CircleShape)
-                .border(width = 1.5.dp, color = ringColor, shape = CircleShape),
+                .border(
+                    width = if (checked) 1.8.dp else 2.2.dp,
+                    color = ringColor,
+                    shape = CircleShape
+                ),
             contentAlignment = Alignment.Center
         ) {
             if (checked) {
@@ -87,7 +92,7 @@ internal fun GroupAutoClassifyToggleRow(
                     painter = painterResource(id = R.drawable.ic_sheet_check),
                     contentDescription = null,
                     tint = Color.White,
-                    modifier = Modifier.size(12.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
         }
