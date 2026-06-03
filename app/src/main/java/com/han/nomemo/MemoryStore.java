@@ -342,9 +342,11 @@ public class MemoryStore {
         if (record == null) {
             return;
         }
-        if (record.isLiveStatusActive() && !record.isArchived()) {
+        if (record.isLiveStatusActive()
+                && !record.isArchived()
+                && !AiAnalysisStateJson.isActive(record.getAiAnalysisStateJson())) {
             NoMemoLiveUpdateNotifier.notifyMemoryLiveStatus(appContext, record);
-        } else {
+        } else if (!record.isLiveStatusActive() || record.isArchived()) {
             NoMemoLiveUpdateNotifier.cancelMemoryLiveStatus(appContext, record.getRecordId());
         }
     }

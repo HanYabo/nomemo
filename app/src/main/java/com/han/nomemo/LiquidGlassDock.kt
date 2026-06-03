@@ -52,6 +52,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
@@ -625,6 +627,9 @@ private fun LiquidGlassAddButton(
     Box(
         modifier = Modifier
             .size(buttonSize)
+            .onGloballyPositioned { coordinates ->
+                AddMemoryLaunchOriginStore.lastBounds = coordinates.boundsInWindow()
+            }
             .drawBackdrop(
                 backdrop = backdrop,
                 shape = { DockShape },
@@ -660,6 +665,7 @@ private fun LiquidGlassAddButton(
                 onDrawSurface = { drawRect(surfaceColor) }
             )
             .clip(DockShape)
+            .then(interactiveHighlight.modifier)
             .clickable(
                 enabled = enabled,
                 interactionSource = null,
@@ -669,9 +675,7 @@ private fun LiquidGlassAddButton(
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                     onAddClick()
                 }
-            )
-            .then(interactiveHighlight.modifier)
-            .then(if (enabled) interactiveHighlight.gestureModifier else Modifier),
+            ),
         contentAlignment = Alignment.Center
     ) {
         androidx.compose.material3.Icon(

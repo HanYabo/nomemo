@@ -10,7 +10,17 @@
       "Bash(winget upgrade *)",
       "Bash(./gradlew :app:compileDebugJavaWithJavac)",
       "Bash(./gradlew testDebugUnitTest --tests \"com.han.nomemo.MemoryDetailParserTest\")",
-      "Bash(./gradlew compileDebugJavaWithJavac)"
+      "Bash(./gradlew compileDebugJavaWithJavac)",
+      "Bash(where adb *)",
+      "Read(//c/Users/**)",
+      "Bash(C:/Users/MuY1eee/AppData/Local/Android/Sdk/platform-tools/adb.exe logcat *)",
+      "Bash(C:/Users/MuY1eee/AppData/Local/Android/Sdk/platform-tools/adb.exe shell *)",
+      "Bash(./gradlew :app:installDebug)",
+      "Bash(./gradlew :app:compileDebugKotlin --stacktrace)",
+      "Bash(git checkout *)",
+      "Bash(adb shell *)",
+      "Bash(/c/Users/MuY1eee/AppData/Local/Android/Sdk/platform-tools/adb.exe shell *)",
+      "Bash(pidof com.han.nomemo)"
     ]
   }
 }

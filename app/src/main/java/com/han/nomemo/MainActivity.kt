@@ -24,13 +24,10 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -91,6 +88,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -102,6 +100,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.jvm.java
+import kotlin.math.roundToInt
 
 internal sealed interface PrimaryHostOverlay {
     data class AddMemory(
@@ -160,7 +159,6 @@ class MainActivity : BaseComposeActivity() {
         val ai: Int = 0,
         val archived: Int = 0
     )
-
 
     private lateinit var memoryStore: MemoryStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
@@ -341,7 +339,11 @@ class MainActivity : BaseComposeActivity() {
                     onArchiveRecords = { selectedRecords -> toggleArchive(selectedRecords) },
                     onOpenDetail = { record -> openDetailPage(record.recordId) },
                     showAddSheet = showAddSheet,
-                    onAddClick = { showAddSheet = true },
+                    onAddClick = {
+                        if (!showAddSheet) {
+                            showAddSheet = true
+                        }
+                    },
                     onDismissAddSheet = { showAddSheet = false },
                     onOpenGroup = { openGroupPage() },
                     onOpenReminder = { openReminderPage() },

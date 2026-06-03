@@ -18,16 +18,17 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,8 +39,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
@@ -55,15 +60,20 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -71,13 +81,26 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.util.lerp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.content.ContextCompat
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Locale
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
+
+data class AddMemoryEditorPreviewState(
+    val inputText: String = "",
+    val imageUri: String? = null,
+    val aiMode: Boolean = true,
+    val liveStatusEnabled: Boolean = true,
+    val reminderText: String? = null
+)
 
 @Composable
 fun AddMemorySheet(
@@ -102,6 +125,7 @@ fun AddMemorySheet(
     var reminderAt by remember { mutableStateOf(0L) }
     var showReminderPicker by remember { mutableStateOf(false) }
     var reminderPickerAt by remember { mutableStateOf(defaultReminderPickerTime()) }
+    var liveStatusEnabled by remember { mutableStateOf(true) }
     var saving by remember { mutableStateOf(false) }
     var pendingNotificationSave by remember { mutableStateOf<PendingAddMemorySave?>(null) }
     var visible by remember { mutableStateOf(false) }
@@ -139,22 +163,29 @@ fun AddMemorySheet(
             showReminderPicker = true
         }
     }
+    val capturePreviewState = {
+        AddMemoryEditorPreviewState(
+            inputText = inputText.trim(),
+            imageUri = selectedImageUri?.toString(),
+            aiMode = aiMode,
+            liveStatusEnabled = liveStatusEnabled,
+            reminderText = if (reminderEnabled && reminderAt > 0L) reminderLabel(reminderAt) else null
+        )
+    }
     val dismissAfterSave = remember {
         {
             visible = false
         }
     }
-    val tryDismiss = remember(saving, hasDraftChanges) {
-        {
-            if (saving) {
-                false
-            } else if (hasDraftChanges) {
-                showExitConfirm = true
-                false
-            } else {
-                visible = false
-                true
-            }
+    val tryDismiss = {
+        if (saving) {
+            false
+        } else if (hasDraftChanges) {
+            showExitConfirm = true
+            false
+        } else {
+            visible = false
+            true
         }
     }
     val sheetDrag = rememberNoMemoSheetDragController(onDismissRequest = tryDismiss)
@@ -223,7 +254,8 @@ fun AddMemorySheet(
             aiMode = pendingSave.aiMode,
             category = pendingSave.category,
             reminderEnabled = reminderEnabled && reminderAt > 0L,
-            reminderAt = reminderAt
+            reminderAt = reminderAt,
+            liveStatusEnabled = pendingSave.liveStatusEnabled
         )
         onSaved?.invoke()
         dismissAfterSave()
@@ -239,12 +271,13 @@ fun AddMemorySheet(
         val finalAiMode = aiMode
         val finalCategory = if (finalAiMode) defaultCategory else selectedCategory
         val needsNotificationPermission =
-            finalAiMode || (reminderEnabled && reminderAt > 0L)
+            finalAiMode || liveStatusEnabled || (reminderEnabled && reminderAt > 0L)
         if (needsNotificationPermission && shouldRequestNotificationPermission(context)) {
             pendingNotificationSave = PendingAddMemorySave(
                 input = input,
                 aiMode = finalAiMode,
-                category = finalCategory
+                category = finalCategory,
+                liveStatusEnabled = liveStatusEnabled
             )
             permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
@@ -256,7 +289,8 @@ fun AddMemorySheet(
                 aiMode = finalAiMode,
                 category = finalCategory,
                 reminderEnabled = reminderEnabled && reminderAt > 0L,
-                reminderAt = reminderAt
+                reminderAt = reminderAt,
+                liveStatusEnabled = liveStatusEnabled
             )
             onSaved?.invoke()
             dismissAfterSave()
@@ -267,138 +301,130 @@ fun AddMemorySheet(
         tryDismiss()
     }
 
+    val progress by animateFloatAsState(
+        targetValue = if (visible) 1f else 0f,
+        animationSpec = tween(
+            durationMillis = if (visible) 250 else 200,
+            easing = FastOutSlowInEasing
+        ),
+        label = "addMemorySheetProgress"
+    )
+    val sheetAlpha = progress
+    val sheetScale = lerp(0.92f, 1f, progress)
+    val scrimAlpha = 0.16f * progress
+
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .clipToBounds()
             .zIndex(40f)
     ) {
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(animationSpec = tween(durationMillis = 180)),
-            exit = fadeOut(animationSpec = tween(durationMillis = 180))
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = scrimAlpha }
+                .background(Color.Black)
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    alpha = sheetAlpha
+                    scaleX = sheetScale
+                    scaleY = sheetScale
+                }
+                .background(sheetSurface)
+                .zIndex(1f)
         ) {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(
-                        Color.Black.copy(
-                            alpha = (if (isDark) 0.56f else 0.28f) * sheetDrag.scrimAlphaFraction
-                        )
-                    )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = { tryDismiss() }
-                    )
-            )
-        }
-        AnimatedVisibility(
-            visible = visible,
-            enter = slideInVertically(
-                initialOffsetY = { fullHeight -> fullHeight },
-                animationSpec = tween(durationMillis = 260)
-            ) + fadeIn(animationSpec = tween(durationMillis = 180)),
-            exit = slideOutVertically(
-                targetOffsetY = { fullHeight -> fullHeight },
-                animationSpec = tween(durationMillis = 220)
-            ) + fadeOut(animationSpec = tween(durationMillis = 150)),
-            modifier = Modifier.align(Alignment.BottomCenter)
-        ) {
-            Card(
-                modifier = Modifier
-                    .noMemoSheetDragOffset(sheetDrag)
-                    .fillMaxWidth()
-                    .shadow(
-                        elevation = if (adaptive.isNarrow) 18.dp else 24.dp,
-                        shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp)
-                    ),
-                shape = noMemoG2RoundedShape(topStart = 36.dp, topEnd = 36.dp),
-                colors = CardDefaults.cardColors(containerColor = sheetSurface)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
             ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    SheetHeaderButton(
+                        iconRes = R.drawable.ic_sheet_close,
+                        contentDescription = "关闭",
+                        onClick = { tryDismiss() },
+                        size = adaptive.topActionButtonSize
+                    )
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "新建记忆",
+                            color = palette.textPrimary,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                    SheetHeaderButton(
+                        iconRes = R.drawable.ic_sheet_check,
+                        contentDescription = "确认",
+                        onClick = performSaveAndDismiss,
+                        size = adaptive.topActionButtonSize
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
+                ) {
+                    SheetModeSwitch(
+                        aiMode = aiMode,
+                        aiEnabled = aiEnabled,
+                        modifier = Modifier.fillMaxWidth(),
+                        onSelectNormal = { aiMode = false },
+                        onSelectAi = { if (aiEnabled) aiMode = true }
+                    )
+                }
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .heightIn(max = sheetBodyHeight)
-                        .padding(start = 14.dp, top = 10.dp, end = 14.dp, bottom = 0.dp)
+                        .weight(1f)
+                        .verticalScroll(rememberScrollState())
+                        .imePadding()
+                        .padding(start = 16.dp, top = 20.dp, end = 16.dp, bottom = 0.dp)
                 ) {
-                    NoMemoSheetDragHandle(
-                        color = dragHandleColor,
-                        controller = sheetDrag,
-                        modifier = Modifier.align(Alignment.CenterHorizontally)
-                    )
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 12.dp, bottom = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        SheetHeaderButton(
-                            iconRes = R.drawable.ic_sheet_close,
-                            contentDescription = "关闭",
-                            onClick = { tryDismiss() },
-                            size = adaptive.topActionButtonSize
-                        )
-                        Box(
-                            modifier = Modifier.weight(1f),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            SheetModeSwitch(
-                                aiMode = aiMode,
-                                aiEnabled = aiEnabled,
-                                modifier = Modifier.fillMaxWidth(if (adaptive.isNarrow) 0.52f else 0.46f),
-                                onSelectNormal = { aiMode = false },
-                                onSelectAi = { if (aiEnabled) aiMode = true }
-                            )
-                        }
-                        SheetHeaderButton(
-                            iconRes = R.drawable.ic_sheet_check,
-                            contentDescription = "确认",
-                            onClick = performSaveAndDismiss,
-                            size = adaptive.topActionButtonSize
-                        )
-                    }
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f)
-                            .verticalScroll(rememberScrollState())
-                            .padding(top = 16.dp)
-                    ) {
-                        if (!(aiMode && aiEnabled)) {
-                            SheetCategorySection(
-                                categories = allCategories,
-                                selectedCategory = selectedCategory,
-                                expanded = categoryMenuExpanded,
-                                modifier = Modifier,
-                                onToggleExpanded = { categoryMenuExpanded = !categoryMenuExpanded },
-                                onSelectCategory = { item ->
-                                    selectedCategory = item
-                                    categoryMenuExpanded = false
-                                }
-                            )
-                        }
+                    SheetSectionLabel(text = "内容")
 
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(
-                                    top = if (aiMode) 0.dp else 18.dp
-                                ),
-                            shape = noMemoG2RoundedShape(24.dp),
-                            colors = CardDefaults.cardColors(containerColor = inputSurface)
-                        ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(
+                                elevation = if (isDark) 0.dp else 2.dp,
+                                shape = noMemoG2RoundedShape(22.dp),
+                                ambientColor = Color.Black.copy(alpha = 0.035f),
+                                spotColor = Color.Black.copy(alpha = 0.035f)
+                            ),
+                        shape = noMemoG2RoundedShape(22.dp),
+                        colors = CardDefaults.cardColors(containerColor = inputSurface)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
                             BasicTextField(
                                 value = inputText,
                                 onValueChange = { inputText = it },
                                 textStyle = TextStyle(
                                     color = inputTextColor,
-                                    fontSize = 17.sp,
-                                    lineHeight = 25.sp
+                                    fontSize = 16.sp,
+                                    lineHeight = 24.sp
                                 ),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 18.dp, vertical = 18.dp)
-                                    .height(adaptive.addInputHeight)
+                                    .padding(horizontal = 24.dp, vertical = 24.dp)
+                                    .heightIn(min = 106.dp)
                             ) { inner ->
                                 Box(Modifier.fillMaxWidth()) {
                                     Box(
@@ -408,11 +434,7 @@ fun AddMemorySheet(
                                     ) {
                                         if (inputText.isBlank()) {
                                             Text(
-                                                text = if (aiMode) {
-                                                    "输入文字，或结合剪贴板、截图进行 AI 分析"
-                                                } else {
-                                                    "输入你要记下的内容"
-                                                },
+                                                text = "输入或粘贴记忆内容...",
                                                 color = inputHintColor,
                                                 fontSize = 16.sp,
                                                 lineHeight = 24.sp
@@ -433,68 +455,11 @@ fun AddMemorySheet(
                                     }
                                 }
                             }
-                        }
-
-                        if (aiMode) {
-                            SheetActionCard(
+                            SheetFormDivider()
+                            SheetFormRow(
                                 title = "粘贴剪贴板",
-                                surfaceColor = actionSurface,
-                                onClick = {
-                                    val clip = context.getSystemService(ClipboardManager::class.java)
-                                        ?.primaryClip
-                                        ?.takeIf { it.itemCount > 0 }
-                                        ?.getItemAt(0)
-                                        ?.coerceToText(context)
-                                        ?.toString()
-                                        ?.trim()
-                                        .orEmpty()
-                                    if (clip.isBlank()) {
-                                        Toast.makeText(context, "剪贴板没有可用内容", Toast.LENGTH_SHORT).show()
-                                    } else {
-                                        inputText = if (inputText.isBlank()) clip else "$inputText\n$clip"
-                                    }
-                                }
-                            )
-                            val selectedImage = selectedImageUri
-                            if (selectedImage != null) {
-                                SheetImagePreviewCard(
-                                    imageUri = selectedImage,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 18.dp),
-                                    previewHeight = adaptive.addPreviewHeight,
-                                    surfaceColor = panelSurface,
-                                    onRemove = { selectedImageUri = null }
-                                )
-                            } else {
-                                SheetActionCard(
-                                    title = "添加图片",
-                                    surfaceColor = actionSurface,
-                                    onClick = { pickImageLauncher.launch(arrayOf("image/*")) }
-                                )
-                            }
-                        } else {
-                            val selectedImage = selectedImageUri
-                            if (selectedImage != null) {
-                                SheetImagePreviewCard(
-                                    imageUri = selectedImage,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(top = 18.dp),
-                                    previewHeight = adaptive.addPreviewHeight,
-                                    surfaceColor = panelSurface,
-                                    onRemove = { selectedImageUri = null }
-                                )
-                            } else {
-                                SheetActionCard(
-                                    title = "添加图片",
-                                    surfaceColor = actionSurface,
-                                    onClick = { pickImageLauncher.launch(arrayOf("image/*")) }
-                                )
-                            }
-                            SheetActionCard(
-                                title = "粘贴剪贴板",
-                                surfaceColor = actionSurface,
+                                titleColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF),
+                                showChevron = true,
                                 onClick = {
                                     val clip = context.getSystemService(ClipboardManager::class.java)
                                         ?.primaryClip
@@ -512,21 +477,89 @@ fun AddMemorySheet(
                                 }
                             )
                         }
-
-                        SheetInlineButton(
-                            text = if (reminderEnabled && reminderAt > 0L) {
-                                "提醒时间  ${reminderLabel(reminderAt)}"
-                            } else {
-                                "提醒时间"
-                            },
-                            surfaceColor = actionSurface,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 18.dp),
-                            onClick = { openReminderPicker(reminderAt) }
-                        )
-                        Spacer(modifier = Modifier.height(if (adaptive.isNarrow) 28.dp else 36.dp))
                     }
+
+                    if (!aiMode) {
+                        SheetSectionLabel(
+                            text = "分类",
+                            modifier = Modifier.padding(top = 24.dp)
+                        )
+                        SheetCategorySection(
+                            categories = allCategories,
+                            selectedCategory = selectedCategory,
+                            expanded = categoryMenuExpanded,
+                            onToggleExpanded = { categoryMenuExpanded = !categoryMenuExpanded },
+                            onSelectCategory = { selectedCategory = it }
+                        )
+                    }
+
+                    SheetSectionLabel(
+                        text = "图片",
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+
+                    val selectedImage = selectedImageUri
+                    if (selectedImage != null) {
+                        SheetImagePreviewCard(
+                            imageUri = selectedImage,
+                            modifier = Modifier.fillMaxWidth(),
+                            previewHeight = adaptive.addPreviewHeight,
+                            surfaceColor = panelSurface,
+                            onRemove = { selectedImageUri = null }
+                        )
+                    } else {
+                        SheetActionCard(
+                            title = "添加图片",
+                            surfaceColor = actionSurface,
+                            titleColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF),
+                            onClick = { pickImageLauncher.launch(arrayOf("image/*")) }
+                        )
+                    }
+
+                    SheetSectionLabel(
+                        text = "选项",
+                        modifier = Modifier.padding(top = 24.dp)
+                    )
+
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .shadow(
+                                elevation = if (isDark) 0.dp else 2.dp,
+                                shape = noMemoG2RoundedShape(22.dp),
+                                ambientColor = Color.Black.copy(alpha = 0.035f),
+                                spotColor = Color.Black.copy(alpha = 0.035f)
+                            ),
+                        shape = noMemoG2RoundedShape(22.dp),
+                        colors = CardDefaults.cardColors(containerColor = actionSurface)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            SheetFormRow(
+                                title = "实时动态",
+                                checked = liveStatusEnabled,
+                                onClick = { liveStatusEnabled = !liveStatusEnabled }
+                            )
+                            SheetFormDivider()
+                            SheetFormRow(
+                                title = "提醒时间",
+                                trailingText = if (reminderEnabled && reminderAt > 0L) reminderLabel(reminderAt) else null,
+                                showChevron = true,
+                                onClick = { openReminderPicker(reminderAt) }
+                            )
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(22.dp))
+
+                    Text(
+                        text = if (aiMode) "点击保存后，AI 将自动分析内容生成记忆" else "点击保存后，将直接保存为本地记忆",
+                        color = palette.textTertiary,
+                        fontSize = 12.sp,
+                        textAlign = TextAlign.Start,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 4.dp, bottom = 16.dp)
+                    )
                 }
             }
         }
@@ -559,6 +592,153 @@ fun AddMemorySheet(
 }
 
 @Composable
+internal fun AddMemoryEditorPreview(
+    state: AddMemoryEditorPreviewState,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    val adaptive = rememberNoMemoAdaptiveSpec()
+    val isDark = isSystemInDarkTheme()
+    val sheetSurface = addSheetBaseSurface(isDark, palette)
+    val inputSurface = addSheetInputSurface(isDark, palette)
+    val actionSurface = addSheetInputSurface(isDark, palette)
+    val displayText = state.inputText.ifBlank { "输入或粘贴记忆内容..." }
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(sheetSurface)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 8.dp, top = 8.dp, end = 8.dp, bottom = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(adaptive.topActionButtonSize)
+                        .clip(CircleShape)
+                        .background(inputSurface),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_sheet_close),
+                        contentDescription = null,
+                        tint = palette.textPrimary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Text(
+                    text = "新建记忆",
+                    color = palette.textPrimary,
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f)
+                )
+                Box(
+                    modifier = Modifier
+                        .size(adaptive.topActionButtonSize)
+                        .clip(CircleShape)
+                        .background(inputSurface),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(id = R.drawable.ic_sheet_check),
+                        contentDescription = null,
+                        tint = palette.textSecondary,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            SheetModeSwitch(
+                aiMode = state.aiMode,
+                aiEnabled = true,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                onSelectNormal = {},
+                onSelectAi = {}
+            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, top = 20.dp, end = 16.dp)
+            ) {
+                SheetSectionLabel(text = "内容")
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = noMemoG2RoundedShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = inputSurface)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = displayText,
+                            color = if (state.inputText.isBlank()) palette.textTertiary else palette.textPrimary,
+                            fontSize = 16.sp,
+                            lineHeight = 24.sp,
+                            maxLines = 4,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(min = 106.dp)
+                                .padding(horizontal = 24.dp, vertical = 24.dp)
+                        )
+                        SheetFormDivider()
+                        SheetFormRow(
+                            title = "粘贴剪贴板",
+                            titleColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF),
+                            showChevron = true,
+                            onClick = {}
+                        )
+                    }
+                }
+                SheetSectionLabel(
+                    text = "图片",
+                    modifier = Modifier.padding(top = 24.dp)
+                )
+                SheetActionCard(
+                    title = if (state.imageUri.isNullOrBlank()) "添加图片" else "已添加图片",
+                    surfaceColor = actionSurface,
+                    titleColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF),
+                    onClick = {}
+                )
+                SheetSectionLabel(
+                    text = "选项",
+                    modifier = Modifier.padding(top = 24.dp)
+                )
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = noMemoG2RoundedShape(22.dp),
+                    colors = CardDefaults.cardColors(containerColor = actionSurface)
+                ) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        SheetFormRow(
+                            title = "实时动态",
+                            checked = state.liveStatusEnabled,
+                            onClick = {}
+                        )
+                        SheetFormDivider()
+                        SheetFormRow(
+                            title = "提醒时间",
+                            trailingText = state.reminderText,
+                            showChevron = true,
+                            onClick = {}
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun SheetHeaderButton(
     iconRes: Int,
     contentDescription: String,
@@ -583,36 +763,57 @@ private fun SheetModeSwitch(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val shape = noMemoG2RoundedShape(32.dp)
-    val switchSurface = addSheetInputSurface(isDark, palette)
+    val shape = noMemoG2RoundedShape(16.dp)
+    val switchSurface = addSheetModeSwitchSurface(isDark, palette)
+    val indicatorSurface = if (isDark) {
+        Color.White.copy(alpha = 0.12f)
+    } else {
+        Color.White
+    }
+    val density = LocalDensity.current
+    var containerWidth by remember { mutableStateOf(0f) }
+    val fraction by animateFloatAsState(
+        targetValue = if (aiMode) 0f else 1f,
+        animationSpec = tween(
+            durationMillis = 320,
+            easing = CubicBezierEasing(0.34f, 1.2f, 0.34f, 1f)
+        ),
+        label = "modeSwitchFraction"
+    )
     Box(
         modifier = modifier
             .height(44.dp)
-            .shadow(
-                elevation = 6.dp,
-                shape = shape,
-                ambientColor = if (isDark) Color.Black.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.08f),
-                spotColor = if (isDark) Color.Black.copy(alpha = 0.18f) else Color.Black.copy(alpha = 0.08f)
-            )
             .clip(shape)
             .background(switchSurface)
+            .onSizeChanged { containerWidth = it.width.toFloat() }
     ) {
+        if (containerWidth > 0f) {
+            val insetPx = with(density) { 4.dp.toPx() }
+            val chipWidth = (containerWidth - insetPx * 2f) / 2f
+            val chipHeight = 44.dp - 8.dp
+            Box(
+                modifier = Modifier
+                    .offset {
+                        IntOffset(
+                            (insetPx + fraction * chipWidth).roundToInt(),
+                            insetPx.roundToInt()
+                        )
+                    }
+                    .size(
+                        width = with(density) { chipWidth.toDp() },
+                        height = chipHeight
+                    )
+                    .clip(noMemoG2RoundedShape(12.dp))
+                    .background(indicatorSurface)
+            )
+        }
         Row(
             modifier = Modifier
                 .matchParentSize()
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(4.dp),
+            horizontalArrangement = Arrangement.spacedBy(0.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            SheetModeChip(
-                text = "普通",
-                selected = !aiMode,
-                enabled = true,
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight(),
-                onClick = onSelectNormal
-            )
             SheetModeChip(
                 text = "AI",
                 selected = aiMode,
@@ -621,6 +822,15 @@ private fun SheetModeSwitch(
                     .weight(1f)
                     .fillMaxHeight(),
                 onClick = onSelectAi
+            )
+            SheetModeChip(
+                text = "本地",
+                selected = !aiMode,
+                enabled = true,
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                onClick = onSelectNormal
             )
         }
     }
@@ -636,30 +846,16 @@ private fun SheetModeChip(
 ) {
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
-    val shape = noMemoG2RoundedShape(28.dp)
-    val selectedSurface = if (isDark) {
-        palette.accent.copy(alpha = 0.22f)
-    } else {
-        palette.accent.copy(alpha = 0.12f)
-    }
-    val selectedTextColor = palette.textPrimary
+    val selectedTextColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
     PressScaleBox(
         onClick = { if (enabled) onClick() },
-        modifier = modifier
-            .clip(shape),
+        modifier = modifier,
         pressedScale = 1f
     ) {
-        if (selected) {
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .background(selectedSurface)
-            )
-        }
         Text(
             text = text,
             color = if (!enabled) palette.textTertiary else if (selected) selectedTextColor else palette.textSecondary,
-            fontSize = 13.sp,
+            fontSize = 15.sp,
             fontWeight = FontWeight.Bold,
             modifier = Modifier
                 .align(Alignment.Center)
@@ -887,36 +1083,171 @@ private fun SheetCategoryListItem(
 }
 
 @Composable
-private fun SheetActionCard(
-    title: String,
-    surfaceColor: Color,
-    onClick: () -> Unit
+private fun SheetSectionLabel(
+    text: String,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    Text(
+        text = text,
+        color = palette.textSecondary.copy(alpha = 0.84f),
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(start = 24.dp, bottom = 9.dp)
+    )
+}
+
+@Composable
+private fun SheetFormDivider(
+    modifier: Modifier = Modifier
 ) {
     val isDark = isSystemInDarkTheme()
-    val titleColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
-    PressScaleBox(
-        onClick = onClick,
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(horizontal = 24.dp)
+            .height(1.dp)
+            .background(if (isDark) Color.White.copy(alpha = 0.10f) else Color.Black.copy(alpha = 0.075f))
+    )
+}
+
+@Composable
+private fun SheetFormRow(
+    title: String,
+    titleColor: Color? = null,
+    trailingText: String? = null,
+    showChevron: Boolean = false,
+    checked: Boolean? = null,
+    onClick: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val scope = rememberCoroutineScope()
+    var holdHighlight by remember { mutableStateOf(false) }
+    var holdJob by remember { mutableStateOf<Job?>(null) }
+    val highlightActive = pressed || holdHighlight
+    val highlightFactor by animateFloatAsState(
+        targetValue = if (highlightActive) 1f else 0f,
+        animationSpec = if (highlightActive) {
+            tween(durationMillis = 75)
+        } else {
+            tween(durationMillis = 220, easing = FastOutSlowInEasing)
+        },
+        label = "formRowHighlight"
+    )
+    val highlightColor = if (isDark) {
+        Color.White.copy(alpha = 0.055f * highlightFactor)
+    } else {
+        Color.Black.copy(alpha = 0.04f * highlightFactor)
+    }
+    Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(top = 18.dp),
-        pressedScale = 1f
+            .height(62.dp)
+            .background(highlightColor)
+            .clickable(
+                interactionSource = interactionSource,
+                indication = null,
+                onClick = {
+                    holdJob?.cancel()
+                    holdHighlight = true
+                    holdJob = scope.launch {
+                        delay(150)
+                        holdHighlight = false
+                    }
+                    onClick()
+                }
+            )
     ) {
-        Box(
+        Row(
             modifier = Modifier
-                .fillMaxWidth()
-                .clip(noMemoG2RoundedShape(20.dp))
-                .background(surfaceColor)
-                .padding(horizontal = 20.dp, vertical = 17.dp),
-            contentAlignment = Alignment.Center
+                .matchParentSize()
+                .padding(horizontal = 24.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = title,
-                color = titleColor,
-                fontSize = 17.sp,
-                fontWeight = FontWeight.SemiBold,
-                textAlign = TextAlign.Center
+                color = titleColor ?: palette.textPrimary,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
             )
+            if (!trailingText.isNullOrBlank()) {
+                Text(
+                    text = trailingText,
+                    color = palette.textSecondary,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(start = 12.dp, end = if (showChevron) 8.dp else 0.dp)
+                )
+            }
+            if (checked != null) {
+                Box(
+                    modifier = Modifier
+                        .size(34.dp)
+                        .clip(CircleShape)
+                        .background(if (checked) palette.accent else palette.textTertiary.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (checked) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_sheet_check),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(17.dp)
+                        )
+                    }
+                }
+            } else if (showChevron) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_sheet_chevron_down),
+                    contentDescription = null,
+                    tint = palette.textTertiary,
+                    modifier = Modifier
+                        .size(19.dp)
+                        .rotate(-90f)
+                )
+            }
         }
+    }
+}
+
+@Composable
+private fun SheetActionCard(
+    title: String,
+    surfaceColor: Color,
+    titleColor: Color = Color.Unspecified,
+    onClick: () -> Unit
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val resolvedTitleColor = if (titleColor != Color.Unspecified) titleColor else palette.accent
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .shadow(
+                elevation = if (isDark) 0.dp else 2.dp,
+                shape = noMemoG2RoundedShape(22.dp),
+                ambientColor = Color.Black.copy(alpha = 0.035f),
+                spotColor = Color.Black.copy(alpha = 0.035f)
+            ),
+        shape = noMemoG2RoundedShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = surfaceColor)
+    ) {
+        SheetFormRow(
+            title = title,
+            titleColor = resolvedTitleColor,
+            showChevron = true,
+            onClick = onClick
+        )
     }
 }
 
@@ -1416,8 +1747,22 @@ private fun addSheetInputSurface(isDark: Boolean, palette: NoMemoPalette): Color
         palette = palette,
         isDark = isDark,
         darkDefault = noMemoCardSurfaceColor(true, palette.glassFillSoft.copy(alpha = 0.96f)),
-        lightDefault = Color.White,
-        lightMix = 0.22f
+        lightDefault = Color.White.copy(alpha = 0.998f),
+        lightMix = 0.10f,
+        lightAlpha = 0.998f
+    )
+}
+
+private fun addSheetModeSwitchSurface(isDark: Boolean, palette: NoMemoPalette): Color {
+    return noMemoThemeSyncedInsetSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = Color.White.copy(alpha = 0.08f),
+        lightDefault = Color(0xFFE4E6EB),
+        darkLift = 0.12f,
+        lightMix = 0.58f,
+        darkAlpha = 0.78f,
+        lightAlpha = 0.98f
     )
 }
 
@@ -1474,7 +1819,8 @@ private fun addSheetSubtleSurface(isDark: Boolean, palette: NoMemoPalette): Colo
 private data class PendingAddMemorySave(
     val input: String,
     val aiMode: Boolean,
-    val category: CategoryCatalog.CategoryOption
+    val category: CategoryCatalog.CategoryOption,
+    val liveStatusEnabled: Boolean
 )
 
 private fun saveRecord(
@@ -1485,7 +1831,8 @@ private fun saveRecord(
     aiMode: Boolean,
     category: CategoryCatalog.CategoryOption,
     reminderEnabled: Boolean,
-    reminderAt: Long
+    reminderAt: Long,
+    liveStatusEnabled: Boolean
 ) {
     val imageUriText = imageUri?.toString().orEmpty()
     val aiEnabled = SettingsStore(context).isAiAvailable()
@@ -1494,6 +1841,11 @@ private fun saveRecord(
         if (reminderAt > 0L) reminderAt else System.currentTimeMillis() + 60L * 60L * 1000L
     } else {
         0L
+    }
+    val liveStatusState = if (liveStatusEnabled) {
+        MemoryRecord.LIVE_STATUS_ACTIVE
+    } else {
+        MemoryRecord.LIVE_STATUS_INACTIVE
     }
 
     if (!(aiMode && aiEnabled)) {
@@ -1529,7 +1881,7 @@ private fun saveRecord(
                 false,
                 false,
                 structuredFactsJson
-            )
+            ).withLiveStatusState(liveStatusState)
         )
         Toast.makeText(context, "已保存", Toast.LENGTH_SHORT).show()
         return
@@ -1568,7 +1920,7 @@ private fun saveRecord(
             initialPolicy.totalAttemptLimit
         ),
         initialVisualState
-    )
+    ).withLiveStatusState(liveStatusState)
     memoryStore.prependRecord(placeholder)
     NoMemoLiveUpdateNotifier.notifyAiAnalysis(
         context.applicationContext,
