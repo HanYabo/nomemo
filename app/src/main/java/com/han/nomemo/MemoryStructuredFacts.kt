@@ -559,6 +559,14 @@ object MemoryFactReconciler {
     }
 
     @JvmStatic
+    fun alignDomainToCategory(categoryCode: String?, structuredFactsJson: String?): String {
+        val facts = MemoryStructuredFactsJson.parse(structuredFactsJson)
+            ?: return structuredFactsJson?.trim().orEmpty()
+        val alignedDomain = domainForCategory(categoryCode)
+        return MemoryStructuredFactsJson.toJson(facts.copy(domain = alignedDomain))
+    }
+
+    @JvmStatic
     fun normalizeCategoryCode(categoryCode: String?, structuredFactsJson: String?): String {
         val facts = MemoryStructuredFactsJson.parse(structuredFactsJson)
         val domain = facts?.domain
@@ -571,6 +579,18 @@ object MemoryFactReconciler {
             domain == DOMAIN_DELIVERY && (hasReliableCode || hasReliableDeliveryContext) ->
                 CategoryCatalog.CODE_LIFE_DELIVERY
             else -> categoryCode ?: CategoryCatalog.CODE_QUICK_NOTE
+        }
+    }
+
+    private fun domainForCategory(categoryCode: String?): String {
+        return when (categoryCode) {
+            CategoryCatalog.CODE_LIFE_PICKUP -> DOMAIN_PICKUP
+            CategoryCatalog.CODE_LIFE_DELIVERY -> DOMAIN_DELIVERY
+            CategoryCatalog.CODE_LIFE_TICKET -> DOMAIN_TICKET
+            CategoryCatalog.CODE_LIFE_CARD -> DOMAIN_CARD
+            CategoryCatalog.CODE_WORK_SCHEDULE -> DOMAIN_SCHEDULE
+            CategoryCatalog.CODE_WORK_TODO -> DOMAIN_TODO
+            else -> DOMAIN_NOTE
         }
     }
 

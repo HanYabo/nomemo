@@ -14,6 +14,8 @@ import androidx.core.content.ContextCompat
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
@@ -28,8 +30,10 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -75,10 +79,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -131,6 +143,13 @@ internal sealed interface PrimaryHostOverlay {
     ) : PrimaryHostOverlay
 }
 
+private enum class AddMemoryFlowPhase {
+    List,
+    Opening,
+    Editor,
+    Closing
+}
+
 class MainActivity : BaseComposeActivity() {
     companion object {
         private const val FILTER_ALL = "ALL"
@@ -165,7 +184,6 @@ class MainActivity : BaseComposeActivity() {
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
     private var filterChipCounts by mutableStateOf(FilterChipCounts())
     private var hasLoadedRecords by mutableStateOf(false)
-    private var showAddSheet by mutableStateOf(false)
     private var memoryChangeRegistered = false
     private var refreshJob: Job? = null
     private var hasHandledInitialResume = false
@@ -324,6 +342,25 @@ class MainActivity : BaseComposeActivity() {
             NoMemoDockTab.GROUP -> groupBackdrop
             NoMemoDockTab.REMINDER -> reminderBackdrop
         }
+        var addMemoryPhase by remember { mutableStateOf(AddMemoryFlowPhase.List) }
+        var addMemoryOriginBounds by remember { mutableStateOf<Rect?>(null) }
+        var addMemoryTransitionKey by remember { mutableStateOf(0) }
+        val addMemoryTransitioning =
+            addMemoryPhase == AddMemoryFlowPhase.Opening || addMemoryPhase == AddMemoryFlowPhase.Closing
+        val startAddMemoryOpening = {
+            if (addMemoryPhase == AddMemoryFlowPhase.List) {
+                addMemoryOriginBounds = AddMemoryLaunchOriginStore.lastBounds
+                addMemoryTransitionKey += 1
+                addMemoryPhase = AddMemoryFlowPhase.Opening
+            }
+        }
+        val startAddMemoryClosing = {
+            if (addMemoryPhase == AddMemoryFlowPhase.Editor) {
+                addMemoryOriginBounds = AddMemoryLaunchOriginStore.lastBounds ?: addMemoryOriginBounds
+                addMemoryTransitionKey += 1
+                addMemoryPhase = AddMemoryFlowPhase.Closing
+            }
+        }
         Box(modifier = Modifier.fillMaxSize()) {
             PrimaryStage(visible = currentPrimaryTab == NoMemoDockTab.MEMORY) {
                 MainContent(
@@ -338,13 +375,7 @@ class MainActivity : BaseComposeActivity() {
                     onDeleteRecords = { recordIds -> deleteRecords(recordIds) },
                     onArchiveRecords = { selectedRecords -> toggleArchive(selectedRecords) },
                     onOpenDetail = { record -> openDetailPage(record.recordId) },
-                    showAddSheet = showAddSheet,
-                    onAddClick = {
-                        if (!showAddSheet) {
-                            showAddSheet = true
-                        }
-                    },
-                    onDismissAddSheet = { showAddSheet = false },
+                    onAddClick = startAddMemoryOpening,
                     onOpenGroup = { openGroupPage() },
                     onOpenReminder = { openReminderPage() },
                     onOpenSearch = { openSearchPage() },
@@ -399,7 +430,7 @@ class MainActivity : BaseComposeActivity() {
             if (primaryDockVisible) {
                 LiquidGlassDock(
                     selectedTab = currentPrimaryTab,
-                    enabled = true,
+                    enabled = addMemoryPhase == AddMemoryFlowPhase.List && !addMemoryTransitioning,
                     spec = spec,
                     modifier = Modifier
                         .zIndex(20f)
@@ -413,7 +444,11 @@ class MainActivity : BaseComposeActivity() {
                     onOpenMemory = { openMemoryPage() },
                     onOpenGroup = { openGroupPage() },
                     onOpenReminder = { openReminderPage() },
-                    onAddClick = { primaryDockAddAction?.invoke() },
+                    onAddClick = {
+                        if (addMemoryPhase == AddMemoryFlowPhase.List) {
+                            primaryDockAddAction?.invoke()
+                        }
+                    },
                     sharedBackdrop = currentDockBackdrop
                 )
             }
@@ -451,6 +486,32 @@ class MainActivity : BaseComposeActivity() {
                 }
                 null -> Unit
             }
+
+            if (addMemoryPhase != AddMemoryFlowPhase.List) {
+                AddMemoryTransitionOverlay(
+                    transitionKey = addMemoryTransitionKey,
+                    phase = addMemoryPhase,
+                    originBounds = addMemoryOriginBounds,
+                    modifier = Modifier.zIndex(50f),
+                    onFinished = {
+                        if (addMemoryPhase == AddMemoryFlowPhase.Opening) {
+                            addMemoryPhase = AddMemoryFlowPhase.Editor
+                        } else if (addMemoryPhase == AddMemoryFlowPhase.Closing) {
+                            addMemoryPhase = AddMemoryFlowPhase.List
+                            addMemoryOriginBounds = null
+                        }
+                    }
+                ) {
+                    AddMemorySheet(
+                        onDismiss = { startAddMemoryClosing() },
+                        onSaved = {
+                            refreshRecords()
+                            startAddMemoryClosing()
+                        },
+                        useInternalTransition = false
+                    )
+                }
+            }
         }
     }
 
@@ -473,6 +534,229 @@ class MainActivity : BaseComposeActivity() {
         ) {
             content()
         }
+    }
+
+    @Composable
+    private fun AddMemoryTransitionOverlay(
+        transitionKey: Int,
+        phase: AddMemoryFlowPhase,
+        originBounds: Rect?,
+        modifier: Modifier = Modifier,
+        onFinished: () -> Unit,
+        content: @Composable BoxScope.() -> Unit
+    ) {
+        val density = LocalDensity.current
+        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
+        val palette = rememberNoMemoPalette()
+        val sheetSurface = noMemoThemeSyncedSheetSurface(palette, isDark)
+        val progress = remember(transitionKey) {
+            Animatable(if (phase == AddMemoryFlowPhase.Opening) 0f else 1f)
+        }
+        LaunchedEffect(transitionKey, phase) {
+            when (phase) {
+                AddMemoryFlowPhase.Opening -> {
+                    progress.snapTo(0f)
+                    progress.animateTo(
+                        targetValue = 1f,
+                        animationSpec = tween(
+                            durationMillis = 320,
+                            easing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
+                        )
+                    )
+                    onFinished()
+                }
+                AddMemoryFlowPhase.Closing -> {
+                    progress.snapTo(1f)
+                    progress.animateTo(
+                        targetValue = 0f,
+                        animationSpec = tween(
+                            durationMillis = 260,
+                            easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
+                        )
+                    )
+                    onFinished()
+                }
+                AddMemoryFlowPhase.Editor -> progress.snapTo(1f)
+                AddMemoryFlowPhase.List -> Unit
+            }
+        }
+
+        BoxWithConstraints(
+            modifier = modifier
+                .fillMaxSize()
+                .clipToBounds()
+                .clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null,
+                    onClick = {}
+                )
+        ) {
+            val viewportWidth = maxWidth
+            val viewportHeight = maxHeight
+            val screenWidthPx = with(density) { maxWidth.toPx() }
+            val screenHeightPx = with(density) { maxHeight.toPx() }
+            if (screenWidthPx <= 0f || screenHeightPx <= 0f) {
+                return@BoxWithConstraints
+            }
+            val marginPx = with(density) { 16.dp.toPx() }
+            val defaultFabSizePx = with(density) { 56.dp.toPx() }
+            val origin = remember(originBounds, screenWidthPx, screenHeightPx, marginPx, defaultFabSizePx) {
+                addMemoryTransitionOriginRect(
+                    originBounds = originBounds,
+                    screenWidthPx = screenWidthPx,
+                    screenHeightPx = screenHeightPx,
+                    marginPx = marginPx,
+                    defaultFabSizePx = defaultFabSizePx
+                )
+            }
+            val value = progress.value.coerceIn(0f, 1f)
+            val rect = addMemoryTransitionRect(
+                progress = value,
+                origin = origin,
+                screenWidthPx = screenWidthPx,
+                screenHeightPx = screenHeightPx
+            )
+            val settleProgress = ((value - 0.25f) / 0.75f).coerceIn(0f, 1f)
+            val contentAlpha = (value / 0.18f).coerceIn(0f, 1f)
+            val scrimAlpha = if (value <= 0.25f) {
+                0.24f * (value / 0.25f).coerceIn(0f, 1f)
+            } else {
+                0.24f * (1f - settleProgress)
+            }
+            val cornerRadiusPx = addMemoryTransitionCornerRadiusPx(value, origin)
+            val fabIconAlpha = (1f - value / 0.18f).coerceIn(0f, 1f)
+            val fabIconHalfPx = with(density) { 11.dp.toPx() }
+            val interactionLocked = phase != AddMemoryFlowPhase.Editor
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { alpha = scrimAlpha }
+                    .background(Color.Black)
+            )
+
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawWithContent transitionClip@{
+                        val roundRect = RoundRect(
+                            rect = rect,
+                            cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
+                        )
+                        val clipPath = Path().apply { addRoundRect(roundRect) }
+                        drawRoundRect(
+                            color = sheetSurface,
+                            topLeft = Offset(rect.left, rect.top),
+                            size = Size(rect.width, rect.height),
+                            cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
+                        )
+                        clipPath(clipPath) {
+                            this@transitionClip.drawContent()
+                        }
+                    }
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer {
+                            alpha = contentAlpha
+                            translationX = rect.left
+                            translationY = rect.top
+                        }
+                ) {
+                    content()
+                    if (interactionLocked) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clickable(
+                                    interactionSource = remember { MutableInteractionSource() },
+                                    indication = null,
+                                    onClick = {}
+                                )
+                        )
+                    }
+                }
+                Icon(
+                    painter = painterResource(id = R.drawable.ic_nm_compose_solid),
+                    contentDescription = null,
+                    tint = if (isDark) {
+                        Color.White.copy(alpha = 0.96f)
+                    } else {
+                        Color(0xFF253244).copy(alpha = 0.92f)
+                    },
+                    modifier = Modifier
+                        .graphicsLayer {
+                            translationX = rect.left + rect.width / 2f - fabIconHalfPx
+                            translationY = rect.top + rect.height / 2f - fabIconHalfPx
+                        }
+                        .size(22.dp)
+                        .graphicsLayer {
+                            alpha = fabIconAlpha
+                            val iconScale = 1f - 0.18f * value
+                            scaleX = iconScale
+                            scaleY = iconScale
+                        }
+                )
+            }
+        }
+    }
+
+    private fun addMemoryTransitionRect(
+        progress: Float,
+        origin: Rect,
+        screenWidthPx: Float,
+        screenHeightPx: Float
+    ): Rect {
+        val full = Rect(0f, 0f, screenWidthPx, screenHeightPx)
+        return lerpRect(origin, full, smoothStep(progress))
+    }
+
+    private fun smoothStep(value: Float): Float {
+        val t = value.coerceIn(0f, 1f)
+        return t * t * (3f - 2f * t)
+    }
+
+    private fun addMemoryTransitionCornerRadiusPx(progress: Float, origin: Rect): Float {
+        val fabRadius = (origin.width.coerceAtMost(origin.height) / 2f).coerceAtLeast(1f)
+        return if (progress <= 0.72f) {
+            fabRadius
+        } else {
+            val settle = ((progress - 0.72f) / 0.28f).coerceIn(0f, 1f)
+            fabRadius * (1f - settle * settle)
+        }
+    }
+
+    private fun lerpRect(start: Rect, end: Rect, fraction: Float): Rect {
+        val t = fraction.coerceIn(0f, 1f)
+        return Rect(
+            left = start.left + (end.left - start.left) * t,
+            top = start.top + (end.top - start.top) * t,
+            right = start.right + (end.right - start.right) * t,
+            bottom = start.bottom + (end.bottom - start.bottom) * t
+        )
+    }
+
+    private fun addMemoryTransitionOriginRect(
+        originBounds: Rect?,
+        screenWidthPx: Float,
+        screenHeightPx: Float,
+        marginPx: Float,
+        defaultFabSizePx: Float
+    ): Rect {
+        val valid = originBounds?.takeIf {
+            it.width > 4f && it.height > 4f && it.left.isFinite() && it.top.isFinite()
+        }
+        if (valid == null) {
+            val left = (screenWidthPx - marginPx - defaultFabSizePx).coerceAtLeast(marginPx)
+            val top = (screenHeightPx - marginPx - defaultFabSizePx).coerceAtLeast(marginPx)
+            return Rect(left, top, left + defaultFabSizePx, top + defaultFabSizePx)
+        }
+        val width = valid.width.coerceAtLeast(defaultFabSizePx)
+        val height = valid.height.coerceAtLeast(defaultFabSizePx)
+        val left = valid.left.coerceIn(0f, (screenWidthPx - width).coerceAtLeast(0f))
+        val top = valid.top.coerceIn(0f, (screenHeightPx - height).coerceAtLeast(0f))
+        return Rect(left, top, left + width, top + height)
     }
 
     private fun registerMemoryChangeReceiver() {
@@ -584,9 +868,7 @@ class MainActivity : BaseComposeActivity() {
         onDeleteRecords: (Set<String>) -> Unit,
         onArchiveRecords: (List<MemoryRecord>) -> Unit,
         onOpenDetail: (MemoryRecord) -> Unit,
-        showAddSheet: Boolean,
         onAddClick: () -> Unit,
-        onDismissAddSheet: () -> Unit,
         onOpenGroup: () -> Unit,
         onOpenReminder: () -> Unit,
         onOpenSearch: () -> Unit,
@@ -605,7 +887,6 @@ class MainActivity : BaseComposeActivity() {
         var showDeleteConfirm by remember { mutableStateOf(false) }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var moreMenuAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
-        var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
         var selectedSecondaryByPrimary by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
         var expandedPrimaryFilter by remember { mutableStateOf<String?>(null) }
 
@@ -752,28 +1033,14 @@ class MainActivity : BaseComposeActivity() {
                 showDeleteConfirm = false
             }
         }
-        LaunchedEffect(showAddSheet, pendingScrollToTopAfterAdd) {
-            if (!showAddSheet && pendingScrollToTopAfterAdd) {
-                listState.animateScrollToItem(0)
-                pendingScrollToTopAfterAdd = false
-            }
-        }
         LaunchedEffect(isActive, selectionModeActive, onAddClick) {
             if (isActive) {
                 onPrimaryDockStateChanged(!selectionModeActive, onAddClick)
             }
         }
-        LaunchedEffect(isActive, showAddSheet, onDismissAddSheet, pendingScrollToTopAfterAdd) {
+        LaunchedEffect(isActive) {
             if (isActive) {
-                val overlay = if (showAddSheet) {
-                    PrimaryHostOverlay.AddMemory(
-                        onDismiss = onDismissAddSheet,
-                        onSaved = { pendingScrollToTopAfterAdd = true }
-                    )
-                } else {
-                    null
-                }
-                onPrimaryOverlayChanged(overlay)
+                onPrimaryOverlayChanged(null)
             }
         }
         BackHandler(enabled = selectionModeActive) {

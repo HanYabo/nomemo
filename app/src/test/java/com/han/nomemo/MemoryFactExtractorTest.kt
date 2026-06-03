@@ -294,4 +294,62 @@ class MemoryFactExtractorTest {
             )
         )
     }
+
+    @Test
+    fun alignDomainToCategory_manualDeliveryBeatsOldPickupFacts() {
+        val pickupFactsJson = MemoryFactReconciler.reconcileToJson(
+            userText = """
+                取餐码：8258
+                店铺：喜茶
+            """.trimIndent(),
+            aiStructuredFactsJson = "",
+            title = null,
+            summary = null,
+            analysis = null,
+            memory = null,
+            categoryCode = CategoryCatalog.CODE_LIFE_PICKUP
+        )
+
+        val aligned = MemoryFactReconciler.alignDomainToCategory(
+            CategoryCatalog.CODE_LIFE_DELIVERY,
+            pickupFactsJson
+        )
+        val facts = MemoryStructuredFactsJson.parse(aligned)
+
+        assertNotNull(facts)
+        assertEquals("delivery", facts!!.domain)
+        assertEquals(
+            CategoryCatalog.CODE_LIFE_DELIVERY,
+            MemoryFactReconciler.normalizeCategoryCode(CategoryCatalog.CODE_LIFE_PICKUP, aligned)
+        )
+    }
+
+    @Test
+    fun alignDomainToCategory_manualQuickNoteClearsPickupOverride() {
+        val pickupFactsJson = MemoryFactReconciler.reconcileToJson(
+            userText = """
+                取餐码：8258
+                店铺：喜茶
+            """.trimIndent(),
+            aiStructuredFactsJson = "",
+            title = null,
+            summary = null,
+            analysis = null,
+            memory = null,
+            categoryCode = CategoryCatalog.CODE_LIFE_PICKUP
+        )
+
+        val aligned = MemoryFactReconciler.alignDomainToCategory(
+            CategoryCatalog.CODE_QUICK_NOTE,
+            pickupFactsJson
+        )
+        val facts = MemoryStructuredFactsJson.parse(aligned)
+
+        assertNotNull(facts)
+        assertEquals("note", facts!!.domain)
+        assertEquals(
+            CategoryCatalog.CODE_QUICK_NOTE,
+            MemoryFactReconciler.normalizeCategoryCode(CategoryCatalog.CODE_QUICK_NOTE, aligned)
+        )
+    }
 }

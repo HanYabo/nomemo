@@ -396,7 +396,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
     ): Boolean {
         val trimmedDetail = summary.trim()
         val structuredOverride = buildStructuredOverrideText(category, currentRecord, structuredFields)
-        val updatedStructuredFactsJson = if (structuredOverride != null) {
+        val reconciledStructuredFactsJson = if (structuredOverride != null) {
             MemoryFactReconciler.reconcileToJson(
                 structuredOverride,
                 currentRecord.structuredFactsJson,
@@ -409,6 +409,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
         } else {
             currentRecord.structuredFactsJson
         }
+        val updatedStructuredFactsJson = MemoryFactReconciler.alignDomainToCategory(
+            category.categoryCode,
+            reconciledStructuredFactsJson
+        )
         val updated = MemoryRecord(
             currentRecord.recordId,
             currentRecord.createdAt,
@@ -434,7 +438,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
         )
         val saved = memoryStore.updateRecord(updated)
         if (saved) {
-            record = updated
+            record = memoryStore.findRecordById(updated.recordId)
+                ?.let(::normalizeLoadedRecordForDetail)
+                ?: updated
         }
         return saved
     }
