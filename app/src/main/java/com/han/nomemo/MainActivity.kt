@@ -548,7 +548,7 @@ class MainActivity : BaseComposeActivity() {
         val density = LocalDensity.current
         val isDark = androidx.compose.foundation.isSystemInDarkTheme()
         val palette = rememberNoMemoPalette()
-        val sheetSurface = noMemoThemeSyncedSheetSurface(palette, isDark)
+        val sheetSurface = palette.memoBgMid
         val progress = remember(transitionKey) {
             Animatable(if (phase == AddMemoryFlowPhase.Opening) 0f else 1f)
         }

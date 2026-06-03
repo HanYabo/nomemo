@@ -1600,7 +1600,7 @@ private fun addSheetPanelSurface(isDark: Boolean, palette: NoMemoPalette): Color
 }
 
 private fun addSheetBaseSurface(isDark: Boolean, palette: NoMemoPalette): Color {
-    return noMemoThemeSyncedSheetSurface(palette, isDark)
+    return palette.memoBgMid
 }
 
 private fun addSheetInputSurface(isDark: Boolean, palette: NoMemoPalette): Color {
