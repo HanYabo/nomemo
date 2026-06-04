@@ -132,7 +132,7 @@ class SettingsStore(context: Context) {
     }
 
     fun resolvedApiBaseUrl(): String {
-        return apiBaseUrl.trim()
+        return apiBaseUrl.ifBlank { BuildConfig.OPENAI_BASE_URL }.trim()
     }
 
     fun resolvedApiKey(): String {
@@ -160,11 +160,13 @@ class SettingsStore(context: Context) {
     }
 
     fun hasAiConfigured(): Boolean {
-        return apiBaseUrl.trim().isNotBlank() &&
-            apiKey.trim().isNotBlank() &&
-            hasValidModelSelection(imageModelPreset, imageCustomModel) &&
-            hasValidModelSelection(textModelPreset, textCustomModel) &&
-            hasValidModelSelection(multimodalModelPreset, multimodalCustomModel)
+        return hasAiConfiguredValues(
+            resolvedApiBaseUrl(),
+            resolvedApiKey(),
+            resolvedImageModel(),
+            resolvedTextModel(),
+            resolvedMultimodalModel()
+        )
     }
 
     private fun resolveModelByPreset(preset: String, fallback: String, customValue: String): String {
@@ -176,17 +178,6 @@ class SettingsStore(context: Context) {
             MODEL_TEXT_FLASH_47 -> MODEL_TEXT_FLASH_47
             MODEL_MULTIMODAL_FLASH -> MODEL_MULTIMODAL_FLASH
             else -> fallback
-        }
-    }
-
-    private fun hasValidModelSelection(preset: String, customValue: String): Boolean {
-        if (preset.isBlank()) {
-            return false
-        }
-        return if (preset == MODEL_PRESET_CUSTOM) {
-            customValue.trim().isNotBlank()
-        } else {
-            true
         }
     }
 
@@ -278,6 +269,20 @@ class SettingsStore(context: Context) {
         @JvmStatic
         fun applyTheme(context: Context) {
             SettingsStore(context).applyThemeMode()
+        }
+
+        internal fun hasAiConfiguredValues(
+            resolvedBaseUrl: String,
+            resolvedApiKey: String,
+            resolvedImageModel: String,
+            resolvedTextModel: String,
+            resolvedMultimodalModel: String
+        ): Boolean {
+            return resolvedBaseUrl.trim().isNotBlank() &&
+                resolvedApiKey.trim().isNotBlank() &&
+                resolvedImageModel.trim().isNotBlank() &&
+                resolvedTextModel.trim().isNotBlank() &&
+                resolvedMultimodalModel.trim().isNotBlank()
         }
     }
 }
