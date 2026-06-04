@@ -108,6 +108,7 @@ fun LiquidGlassDock(
     sharedBackdrop: Backdrop,
     dockOrderOverride: List<NoMemoDockTab>? = null,
     showAddButton: Boolean = true,
+    addButtonAlpha: Float = 1f,
     startupPulseTab: NoMemoDockTab? = null,
     startupPulseDelayMs: Long = 0L
 ) {
@@ -202,6 +203,7 @@ fun LiquidGlassDock(
             LiquidGlassAddButton(
                 onAddClick = onAddClick,
                 enabled = enabled,
+                alpha = addButtonAlpha,
                 buttonSize = buttonSize,
                 spec = spec,
                 backdrop = backdrop,
@@ -609,6 +611,7 @@ private fun RowScope.LiquidGlassDockItem(
 private fun LiquidGlassAddButton(
     onAddClick: () -> Unit,
     enabled: Boolean,
+    alpha: Float,
     buttonSize: Dp,
     spec: NoMemoAdaptiveSpec,
     backdrop: Backdrop,
@@ -627,6 +630,9 @@ private fun LiquidGlassAddButton(
     Box(
         modifier = Modifier
             .size(buttonSize)
+            .graphicsLayer {
+                this.alpha = alpha.coerceIn(0f, 1f)
+            }
             .onGloballyPositioned { coordinates ->
                 AddMemoryLaunchOriginStore.lastBounds = coordinates.boundsInWindow()
             }

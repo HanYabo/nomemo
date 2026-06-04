@@ -109,6 +109,7 @@ import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.jvm.java
@@ -345,10 +346,34 @@ class MainActivity : BaseComposeActivity() {
         var addMemoryPhase by remember { mutableStateOf(AddMemoryFlowPhase.List) }
         var addMemoryOriginBounds by remember { mutableStateOf<Rect?>(null) }
         var addMemoryTransitionKey by remember { mutableStateOf(0) }
+        var addMemoryFabRestoreDuringClosing by remember { mutableStateOf(false) }
         val addMemoryTransitioning =
             addMemoryPhase == AddMemoryFlowPhase.Opening || addMemoryPhase == AddMemoryFlowPhase.Closing
+        LaunchedEffect(addMemoryPhase, addMemoryTransitionKey) {
+            if (addMemoryPhase == AddMemoryFlowPhase.Closing) {
+                addMemoryFabRestoreDuringClosing = false
+                delay(250)
+                addMemoryFabRestoreDuringClosing = true
+            } else {
+                addMemoryFabRestoreDuringClosing = false
+            }
+        }
+        val addMemoryFabTargetAlpha = when {
+            addMemoryPhase == AddMemoryFlowPhase.List -> 1f
+            addMemoryPhase == AddMemoryFlowPhase.Closing && addMemoryFabRestoreDuringClosing -> 1f
+            else -> 0f
+        }
+        val addMemoryFabAlpha by animateFloatAsState(
+            targetValue = addMemoryFabTargetAlpha,
+            animationSpec = tween(
+                durationMillis = if (addMemoryFabTargetAlpha >= 1f) 70 else 60,
+                easing = FastOutSlowInEasing
+            ),
+            label = "addMemoryRealFabAlpha"
+        )
         val startAddMemoryOpening = {
             if (addMemoryPhase == AddMemoryFlowPhase.List) {
+                addMemoryFabRestoreDuringClosing = false
                 addMemoryOriginBounds = AddMemoryLaunchOriginStore.lastBounds
                 addMemoryTransitionKey += 1
                 addMemoryPhase = AddMemoryFlowPhase.Opening
@@ -356,6 +381,7 @@ class MainActivity : BaseComposeActivity() {
         }
         val startAddMemoryClosing = {
             if (addMemoryPhase == AddMemoryFlowPhase.Editor) {
+                addMemoryFabRestoreDuringClosing = false
                 addMemoryOriginBounds = AddMemoryLaunchOriginStore.lastBounds ?: addMemoryOriginBounds
                 addMemoryTransitionKey += 1
                 addMemoryPhase = AddMemoryFlowPhase.Closing
@@ -449,6 +475,7 @@ class MainActivity : BaseComposeActivity() {
                             primaryDockAddAction?.invoke()
                         }
                     },
+                    addButtonAlpha = addMemoryFabAlpha,
                     sharedBackdrop = currentDockBackdrop
                 )
             }
@@ -559,7 +586,7 @@ class MainActivity : BaseComposeActivity() {
                     progress.animateTo(
                         targetValue = 1f,
                         animationSpec = tween(
-                            durationMillis = 320,
+                            durationMillis = 380,
                             easing = CubicBezierEasing(0.22f, 1f, 0.36f, 1f)
                         )
                     )
@@ -570,7 +597,7 @@ class MainActivity : BaseComposeActivity() {
                     progress.animateTo(
                         targetValue = 0f,
                         animationSpec = tween(
-                            durationMillis = 260,
+                            durationMillis = 320,
                             easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
                         )
                     )
@@ -616,15 +643,33 @@ class MainActivity : BaseComposeActivity() {
                 screenWidthPx = screenWidthPx,
                 screenHeightPx = screenHeightPx
             )
-            val settleProgress = ((value - 0.25f) / 0.75f).coerceIn(0f, 1f)
-            val contentAlpha = (value / 0.18f).coerceIn(0f, 1f)
-            val scrimAlpha = if (value <= 0.25f) {
-                0.24f * (value / 0.25f).coerceIn(0f, 1f)
+            val settleProgress = ((value - 0.28f) / 0.72f).coerceIn(0f, 1f)
+            val contentAlpha = ((value - 0.12f) / 0.20f).coerceIn(0f, 1f)
+            val scrimMaxAlpha = if (isDark) 0.10f else 0.08f
+            val scrimAlpha = if (value <= 0.16f) {
+                0f
+            } else if (value <= 0.28f) {
+                scrimMaxAlpha * ((value - 0.16f) / 0.12f).coerceIn(0f, 1f)
             } else {
-                0.24f * (1f - settleProgress)
+                scrimMaxAlpha * (1f - settleProgress)
             }
+            val fabSurfaceColor = if (isDark) {
+                Color(0xFF2B2B2B)
+            } else {
+                Color(0xFFF2F3F5)
+            }
+            val transitionSurface = androidx.compose.ui.graphics.lerp(
+                fabSurfaceColor,
+                sheetSurface,
+                (value / 0.32f).coerceIn(0f, 1f)
+            )
+            val transitionSurfaceAlpha = (value / 0.14f).coerceIn(0f, 1f)
             val cornerRadiusPx = addMemoryTransitionCornerRadiusPx(value, origin)
-            val fabIconAlpha = (1f - value / 0.18f).coerceIn(0f, 1f)
+            val fabIconAlpha = if (phase == AddMemoryFlowPhase.Opening) {
+                transitionSurfaceAlpha * (1f - value / 0.28f).coerceIn(0f, 1f)
+            } else {
+                0f
+            }
             val fabIconHalfPx = with(density) { 11.dp.toPx() }
             val interactionLocked = phase != AddMemoryFlowPhase.Editor
 
@@ -645,7 +690,7 @@ class MainActivity : BaseComposeActivity() {
                         )
                         val clipPath = Path().apply { addRoundRect(roundRect) }
                         drawRoundRect(
-                            color = sheetSurface,
+                            color = transitionSurface.copy(alpha = transitionSurfaceAlpha),
                             topLeft = Offset(rect.left, rect.top),
                             size = Size(rect.width, rect.height),
                             cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx)
@@ -708,8 +753,14 @@ class MainActivity : BaseComposeActivity() {
         screenWidthPx: Float,
         screenHeightPx: Float
     ): Rect {
-        val full = Rect(0f, 0f, screenWidthPx, screenHeightPx)
-        return lerpRect(origin, full, smoothStep(progress))
+        val leftTopProgress = smoothStep((progress * 1.08f).coerceIn(0f, 1f))
+        val rightBottomProgress = smoothStep(((progress - 0.04f) / 0.96f).coerceIn(0f, 1f))
+        return Rect(
+            left = origin.left + (0f - origin.left) * leftTopProgress,
+            top = origin.top + (0f - origin.top) * leftTopProgress,
+            right = origin.right + (screenWidthPx - origin.right) * rightBottomProgress,
+            bottom = origin.bottom + (screenHeightPx - origin.bottom) * rightBottomProgress
+        )
     }
 
     private fun smoothStep(value: Float): Float {
