@@ -37,7 +37,7 @@ class AiAnalysisPoliciesTest {
     }
 
     @Test
-    fun `reanalyze economy policy adds one full prompt rescue without local fallback`() {
+    fun `reanalyze economy policy uses one strict cloud attempt`() {
         val policy = AiAnalysisPolicies.resolve(
             true,
             false,
@@ -46,16 +46,16 @@ class AiAnalysisPoliciesTest {
 
         assertEquals(AiCostMode.ECONOMY, policy.costMode)
         assertEquals(1, policy.cloudAttemptLimit)
-        assertEquals(2, policy.totalAttemptLimit)
+        assertEquals(1, policy.totalAttemptLimit)
         assertFalse(policy.isAllowLocalFallback)
-        assertTrue(policy.isAllowFullPromptRescue)
+        assertFalse(policy.isAllowFullPromptRescue)
     }
 
     @Test
-    fun `reanalyze standard policy stays strict`() {
+    fun `reanalyze standard policy ignores auto retry`() {
         val policy = AiAnalysisPolicies.resolve(
             false,
-            false,
+            true,
             AiOperationKind.REANALYZE
         )
 
@@ -78,5 +78,19 @@ class AiAnalysisPoliciesTest {
         assertEquals(3, policy.totalAttemptLimit)
         assertTrue(policy.isAllowFullPromptRescue)
         assertTrue(policy.isAllowLocalFallback)
+    }
+
+    @Test
+    fun `restore keeps reanalysis single attempt even from old retry budget`() {
+        val policy = AiAnalysisPolicies.restore(
+            AiOperationKind.REANALYZE,
+            AiCostMode.STANDARD,
+            7
+        )
+
+        assertEquals(1, policy.cloudAttemptLimit)
+        assertEquals(1, policy.totalAttemptLimit)
+        assertFalse(policy.isAllowLocalFallback)
+        assertFalse(policy.isAllowFullPromptRescue)
     }
 }

@@ -20,7 +20,21 @@
       "Bash(git checkout *)",
       "Bash(adb shell *)",
       "Bash(/c/Users/MuY1eee/AppData/Local/Android/Sdk/platform-tools/adb.exe shell *)",
-      "Bash(pidof com.han.nomemo)"
+      "Bash(pidof com.han.nomemo)",
+      "Bash(./gradlew installDebug)",
+      "Bash(git stash *)",
+      "Bash(awk 'NR>=1133 && NR<=1360' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "Bash(awk 'NR>=1345 && NR<=1365' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "Bash(awk '{for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)o++;if\\(c==\"}\"\\)cl++}}END{print \"Opening:\",o,\"Closing:\",cl}' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--;if\\(d<0\\){print \"Line \"NR\": extra closing brace\";exit}}}END{if\\(d>0\\)print \"Missing \"d\" closing braces\";else if\\(d==0\\)print \"Balanced\"}' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}}END{print \"Final depth:\",d}' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR%200==0||NR==1\\)print NR\": depth \"d}' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR>=1800\\)print NR\": depth \"d}' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR==1140||NR==1360\\)print NR\": depth \"d}')",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR==1140||NR==1360\\)print NR\": depth \"d}' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR>=1125&&NR<=1145\\)print NR\": depth \"d}')",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR>=1108&&NR<=1145\\)print NR\": depth \"d, $0}')",
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR>=1118&&NR<=1145\\)print NR\": depth \"d, $0}' app/src/main/java/com/han/nomemo/MainActivity.kt)"
     ]
   }
 }

@@ -457,18 +457,19 @@ private fun NoMemoLiveStatusCompletionToggle(
     val palette = rememberNoMemoPalette()
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
     val accent = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
-    val ringColor = if (completed) {
+    val borderColor = if (completed) {
         accent
     } else {
-        palette.glassStroke.copy(alpha = if (isDark) 0.72f else 0.52f)
+        palette.textTertiary.copy(alpha = 0.36f)
     }
+    val borderWidth = if (completed) 1.8.dp else 2.4.dp
     val fillColor = if (completed) accent else Color.Transparent
     Box(
         modifier = modifier
             .size(30.dp)
             .clip(CircleShape)
             .background(fillColor, CircleShape)
-            .border(width = 2.dp, color = ringColor, shape = CircleShape)
+            .border(width = borderWidth, color = borderColor, shape = CircleShape)
             .clickable { onCompletedChange(!completed) },
         contentAlignment = Alignment.Center
     ) {
@@ -477,7 +478,7 @@ private fun NoMemoLiveStatusCompletionToggle(
                 painter = painterResource(id = R.drawable.ic_sheet_check),
                 contentDescription = null,
                 tint = Color.White,
-                modifier = Modifier.size(16.dp)
+                modifier = Modifier.size(22.dp)
             )
         }
     }

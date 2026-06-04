@@ -24,6 +24,8 @@ public final class NoMemoLiveUpdateNotifier {
             "com.han.nomemo.action.CANCEL_AI_ANALYSIS";
     public static final String ACTION_CANCEL_GROUP_ORGANIZE =
             "com.han.nomemo.action.CANCEL_GROUP_ORGANIZE";
+    public static final String ACTION_COMPLETE_MEMORY_LIVE_STATUS =
+            "com.han.nomemo.action.COMPLETE_MEMORY_LIVE_STATUS";
     public static final String ACTION_DISMISS_NOTIFICATION =
             "com.han.nomemo.action.DISMISS_NOTIFICATION";
     public static final String EXTRA_RECORD_ID = "record_id";
@@ -244,12 +246,25 @@ public final class NoMemoLiveUpdateNotifier {
                 .setShowWhen(false)
                 .setUsesChronometer(false)
                 .addAction(
+                        R.drawable.ic_sheet_check,
+                        "\u5b8c\u6210",
+                        buildCompleteMemoryLivePendingIntent(appContext, record.getRecordId())
+                )
+                .addAction(
                         R.drawable.ic_nm_memory,
                         hasImage ? "查看图片" : "查看详情",
                         hasImage
                                 ? buildMemoryImagePreviewPendingIntent(appContext, record.getRecordId())
                                 : buildMemoryDetailPendingIntent(appContext, record.getRecordId())
                 );
+
+        if (pickupInfo != null && pickupInfo.getHasNavigableLocation()) {
+            builder.addAction(
+                    R.drawable.ic_nm_card_notification,
+                    "导航",
+                    buildNavigationPendingIntent(appContext, pickupInfo)
+            );
+        }
 
         Bitmap previewBitmap = loadNotificationPreview(appContext, record.getImageUri());
         if (previewBitmap != null) {
@@ -382,6 +397,40 @@ public final class NoMemoLiveUpdateNotifier {
         );
     }
 
+    private static PendingIntent buildCompleteMemoryLivePendingIntent(Context context, String recordId) {
+        Intent intent = new Intent(context, NoMemoLiveUpdateActionReceiver.class)
+                .setAction(ACTION_COMPLETE_MEMORY_LIVE_STATUS)
+                .putExtra(EXTRA_RECORD_ID, recordId);
+        return PendingIntent.getBroadcast(
+                context,
+                ("live-memory-complete:" + recordId).hashCode(),
+                intent,
+                pendingFlags()
+        );
+    }
+
+    private static PendingIntent buildNavigationPendingIntent(Context context, StructuredPickupInfo pickupInfo) {
+        String query = pickupInfo.getNavigationQuery();
+        Double lat = pickupInfo.getNavigationLatitude();
+        Double lng = pickupInfo.getNavigationLongitude();
+        Uri uri;
+        if (lat != null && lng != null) {
+            uri = Uri.parse("geo:" + lat + "," + lng + "?q=" + lat + "," + lng);
+        } else if (!TextUtils.isEmpty(query)) {
+            uri = Uri.parse("geo:0,0?q=" + Uri.encode(query));
+        } else {
+            uri = Uri.parse("geo:0,0");
+        }
+        Intent intent = new Intent(Intent.ACTION_VIEW, uri)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        return PendingIntent.getActivity(
+                context,
+                ("live-memory-nav:" + pickupInfo.getCode()).hashCode(),
+                intent,
+                pendingFlags()
+        );
+    }
+
     private static int pendingFlags() {
         return PendingIntent.FLAG_UPDATE_CURRENT
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
@@ -477,17 +526,17 @@ public final class NoMemoLiveUpdateNotifier {
         String headerTitle = firstNonBlank(record.getTitle(), record.getCategoryName(), "实时动态");
         if (pickupInfo != null) {
             String code = pickupInfo.getCode();
-            String title = firstNonBlank(code, headerTitle);
-            String primary = labeledValueSkippingCode(
+            String primary = labeledStructuredValueSkippingCode(
                     pickupInfo.getPrimaryLabel(),
                     pickupInfo.getPrimaryValue(),
                     code
             );
-            String secondary = labeledValueSkippingCode(
+            String secondary = labeledStructuredValueSkippingCode(
                     pickupInfo.getSecondaryLabel(),
                     pickupInfo.getSecondaryValue(),
                     code
             );
+            String title = firstNonBlank(code, headerTitle);
             String content = firstNonBlank(primary, secondary, headerTitle);
             String bigText = joinLiveBigText(primary, secondary);
             return new MemoryLiveStatusPayload(headerTitle, title, content, bigText);
@@ -495,6 +544,59 @@ public final class NoMemoLiveUpdateNotifier {
         String title = firstNonBlank(record.getTitle(), record.getSummary(), record.getCategoryName(), "实时动态");
         String content = firstNonBlank(record.getSummary(), record.getAnalysis(), record.getMemory(), "这条记忆已设为实时动态");
         return new MemoryLiveStatusPayload(headerTitle, title, content, content);
+    }
+
+    private static String labeledStructuredValue(String label, String value) {
+        String cleaned = cleanStructuredValue(value);
+        if (TextUtils.isEmpty(cleaned)) {
+            return "";
+        }
+        if (TextUtils.isEmpty(label) || TextUtils.isEmpty(label.trim())) {
+            return cleaned;
+        }
+        return label.trim() + "\uff1a" + cleaned;
+    }
+
+    private static String labeledStructuredValueSkippingCode(String label, String value, String code) {
+        String cleaned = cleanStructuredValue(value);
+        if (TextUtils.isEmpty(cleaned)) {
+            return "";
+        }
+        String normalizedValue = cleaned.replace(" ", "");
+        String normalizedCode = TextUtils.isEmpty(code) ? "" : code.trim().replace(" ", "");
+        if (!TextUtils.isEmpty(normalizedCode) && normalizedValue.equals(normalizedCode)) {
+            return "";
+        }
+        if (TextUtils.isEmpty(label) || TextUtils.isEmpty(label.trim())) {
+            return cleaned;
+        }
+        return label.trim() + "\uff1a" + cleaned;
+    }
+
+    private static String cleanStructuredValue(String value) {
+        if (TextUtils.isEmpty(value) || TextUtils.isEmpty(value.trim())) {
+            return "";
+        }
+        String cleaned = value.trim();
+        if ("\u672a\u8bc6\u522b".equals(cleaned) || "unknown".equalsIgnoreCase(cleaned)) {
+            return "";
+        }
+        return cleaned;
+    }
+
+    private static String joinLiveCompactText(String firstLine, String secondLine) {
+        String first = TextUtils.isEmpty(firstLine) ? "" : firstLine.trim();
+        String second = TextUtils.isEmpty(secondLine) ? "" : secondLine.trim();
+        if (first.isEmpty()) {
+            return second;
+        }
+        if (second.isEmpty()) {
+            return first;
+        }
+        if (first.equals(second)) {
+            return first;
+        }
+        return first + " \u00b7 " + second;
     }
 
     private static String labeledValueSkippingCode(String label, String value, String code) {

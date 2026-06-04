@@ -19,6 +19,15 @@ public final class AiAnalysisPolicies {
             AiOperationKind operationKind
     ) {
         AiCostMode costMode = economyMode ? AiCostMode.ECONOMY : AiCostMode.STANDARD;
+        if (operationKind == AiOperationKind.REANALYZE) {
+            return new AiExecutionPolicy(
+                    operationKind,
+                    costMode,
+                    1,
+                    false,
+                    false
+            );
+        }
         int cloudAttemptLimit = economyMode
                 ? (autoRetry ? ECONOMY_TOTAL_ATTEMPTS_WITH_RETRY : 1)
                 : (autoRetry ? STANDARD_TOTAL_ATTEMPTS_WITH_RETRY : 1);
@@ -38,6 +47,15 @@ public final class AiAnalysisPolicies {
             AiCostMode costMode,
             int totalAttemptLimit
     ) {
+        if (operationKind == AiOperationKind.REANALYZE) {
+            return new AiExecutionPolicy(
+                    operationKind,
+                    costMode,
+                    1,
+                    false,
+                    false
+            );
+        }
         boolean allowFullPromptRescue = costMode == AiCostMode.ECONOMY;
         boolean allowLocalFallback = operationKind == AiOperationKind.INITIAL_ANALYSIS;
         int normalizedTotal = Math.max(1, totalAttemptLimit);

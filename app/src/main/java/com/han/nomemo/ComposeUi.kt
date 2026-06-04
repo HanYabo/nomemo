@@ -2855,6 +2855,7 @@ fun RecordCard(
     record: MemoryRecord,
     modifier: Modifier = Modifier,
     selected: Boolean = false,
+    selectionMode: Boolean = false,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
     palette: NoMemoPalette = rememberNoMemoPalette(),
@@ -3078,11 +3079,317 @@ fun RecordCard(
                 )
             }
         }
+        if (selected) {
+            val selectionOverlayColor = if (isDark) {
+                Color(0xFF2E8BFF).copy(alpha = 0.18f)
+            } else {
+                Color(0xFF1677FF).copy(alpha = 0.12f)
+            }
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(cardShape)
+                    .background(selectionOverlayColor)
+            )
+        }
+        if (selectionMode) {
+            RecordGridSelectionCheckbox(
+                selected = selected,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 12.dp)
+            )
+        }
         if (aiProcessing) {
             AiProcessingBorderOverlay(
-                modifier = Modifier.matchParentSize(),
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(cardShape),
                 cornerRadius = cardCornerRadius,
                 isDark = isDark
+            )
+        }
+    }
+}
+
+@Composable
+fun RecordGridCard(
+    record: MemoryRecord,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    selectionMode: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    onLongPress: (() -> Unit)? = null,
+    palette: NoMemoPalette = rememberNoMemoPalette(),
+    adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
+    allowImageLoading: Boolean = true,
+    showShadow: Boolean = true
+) {
+    val context = LocalContext.current
+    val haptic = LocalHapticFeedback.current
+    val isDark = isSystemInDarkTheme()
+    val aiVisualState = rememberAiVisualState(record)
+    val aiProcessing = aiVisualState.isProcessing
+    val timeFormatFull = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
+    val timeFormatShort = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
+    val currentYear = remember { java.util.Calendar.getInstance().get(java.util.Calendar.YEAR) }
+    val titleText = remember(record.recordId, record.title, record.memory) {
+        record.title?.takeIf { it.isNotBlank() } ?: record.memory.orEmpty()
+    }
+    val resolvedCategoryCode = remember(
+        record.categoryCode,
+        record.structuredFactsJson,
+        record.title,
+        record.summary,
+        record.memory,
+        record.analysis,
+        record.sourceText
+    ) {
+        MemoryFactReconciler.normalizeCategoryCodeForRecord(record)
+    }
+    val categoryText = remember(record.categoryName, record.structuredFactsJson, resolvedCategoryCode, context) {
+        val normalizedCategoryName = CategoryCatalog.getCategoryName(resolvedCategoryCode)
+        record.categoryName
+            ?.takeIf { it.isNotBlank() && it != context.getString(R.string.tag_quick) }
+            ?.takeIf { it == normalizedCategoryName || record.structuredFactsJson.isNullOrBlank() }
+            ?: normalizedCategoryName
+    }
+    val timeText = remember(record.createdAt) {
+        val date = Date(record.createdAt)
+        val recordYear = java.util.Calendar.getInstance().apply { time = date }.get(java.util.Calendar.YEAR)
+        if (recordYear == currentYear) {
+            timeFormatShort.format(date)
+        } else {
+            timeFormatFull.format(date)
+        }
+    }
+    val showPreviewImage = !record.imageUri.isNullOrBlank()
+    val cardCornerRadius = if (adaptive.isNarrow) 20.dp else 22.dp
+    val cardShape = noMemoG2RoundedShape(cardCornerRadius)
+    val cardGradient = noMemoThemeSyncedRecordCardGradient(
+        palette = palette,
+        isDark = isDark,
+        selected = selected,
+        darkCardBackgroundOverride = null,
+        lightCardBackgroundOverride = null
+    )
+    val cardShadow = if (showShadow) {
+        if (isDark) 0.dp else if (selected) 5.dp else 4.dp
+    } else {
+        0.dp
+    }
+    val metaColor = if (isDark) {
+        Color.White.copy(alpha = 0.46f)
+    } else {
+        Color(0xFF98A1AE)
+    }
+    val thumbnailBackground = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF1F4F8)
+    var pressHighlightVisible by remember(record.recordId) { mutableStateOf(false) }
+    val pressHighlightAlpha by animateFloatAsState(
+        targetValue = if (pressHighlightVisible) 1f else 0f,
+        animationSpec = tween(durationMillis = if (pressHighlightVisible) 75 else 220, easing = FastOutSlowInEasing),
+        label = "recordGridCardPressHighlight_${record.recordId}"
+    )
+    val pressHighlightColor = if (isDark) {
+        Color.White.copy(alpha = 0.055f * pressHighlightAlpha)
+    } else {
+        Color.Black.copy(alpha = 0.04f * pressHighlightAlpha)
+    }
+    val gestureModifier = if (onLongPress == null && onClick == null) {
+        Modifier
+    } else {
+        Modifier.pointerInput(onLongPress, onClick) {
+            detectTapGestures(
+                onPress = {
+                    pressHighlightVisible = true
+                    try {
+                        tryAwaitRelease()
+                    } finally {
+                        pressHighlightVisible = false
+                    }
+                },
+                onTap = {
+                    onClick?.invoke()
+                },
+                onLongPress = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongPress?.invoke()
+                }
+            )
+        }
+    }
+
+    Box(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .then(gestureModifier),
+            shape = cardShape,
+            colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+            elevation = CardDefaults.cardElevation(defaultElevation = cardShadow)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(cardGradient.first())
+            ) {
+                Column {
+                    if (showPreviewImage) {
+                        if (allowImageLoading) {
+                            AsyncImage(
+                                model = remember(record.imageUri) {
+                                    ImageRequest.Builder(context)
+                                        .data(record.imageUri)
+                                        .build()
+                                },
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(160.dp)
+                            )
+                        } else {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(160.dp)
+                                    .background(thumbnailBackground)
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(80.dp)
+                        )
+                    }
+
+                Column(
+                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (aiProcessing) {
+                            AiProcessingStatusChip(
+                                isDark = isDark,
+                                text = aiVisualState.displayText,
+                                modifier = Modifier.padding(end = 8.dp)
+                            )
+                        }
+                        Text(
+                            text = titleText,
+                            color = palette.textPrimary,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = if (aiProcessing) 1 else 3,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = timeText,
+                            color = metaColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Icon(
+                            imageVector = recordCategoryMetaIcon(resolvedCategoryCode),
+                            contentDescription = null,
+                            tint = metaColor.copy(alpha = 0.86f),
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = categoryText,
+                            color = metaColor,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+
+            if (selected) {
+                val selectionOverlayColor = if (isDark) {
+                    Color(0xFF2E8BFF).copy(alpha = 0.18f)
+                } else {
+                    Color(0xFF1677FF).copy(alpha = 0.12f)
+                }
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .clip(cardShape)
+                        .background(selectionOverlayColor)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .background(pressHighlightColor)
+            )
+            }
+        }
+        if (selectionMode) {
+            RecordGridSelectionCheckbox(
+                selected = selected,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 10.dp, end = 10.dp)
+            )
+        }
+        if (aiProcessing) {
+            AiProcessingBorderOverlay(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(cardShape),
+                cornerRadius = cardCornerRadius,
+                isDark = isDark
+            )
+        }
+    }
+}
+
+@Composable
+private fun RecordGridSelectionCheckbox(
+    selected: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val palette = rememberNoMemoPalette()
+    val isDark = isSystemInDarkTheme()
+    val accent = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
+    val borderColor = if (selected) {
+        accent
+    } else {
+        palette.textTertiary.copy(alpha = 0.36f)
+    }
+    val borderWidth = if (selected) 1.8.dp else 2.4.dp
+    val fillColor = if (selected) accent else Color.Transparent
+    Box(
+        modifier = modifier
+            .size(28.dp)
+            .clip(CircleShape)
+            .background(fillColor, CircleShape)
+            .border(width = borderWidth, color = borderColor, shape = CircleShape),
+        contentAlignment = Alignment.Center
+    ) {
+        if (selected) {
+            Icon(
+                painter = painterResource(id = R.drawable.ic_sheet_check),
+                contentDescription = null,
+                tint = Color.White,
+                modifier = Modifier.size(20.dp)
             )
         }
     }

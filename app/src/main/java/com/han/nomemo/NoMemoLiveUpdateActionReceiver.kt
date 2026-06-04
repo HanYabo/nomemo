@@ -30,6 +30,15 @@ class NoMemoLiveUpdateActionReceiver : BroadcastReceiver() {
                 }
             }
 
+            NoMemoLiveUpdateNotifier.ACTION_COMPLETE_MEMORY_LIVE_STATUS -> {
+                val recordId = intent.getStringExtra(NoMemoLiveUpdateNotifier.EXTRA_RECORD_ID)
+                    ?.trim()
+                    .orEmpty()
+                if (recordId.isNotEmpty()) {
+                    completeMemoryLiveStatus(appContext, recordId)
+                }
+            }
+
             NoMemoLiveUpdateNotifier.ACTION_DISMISS_NOTIFICATION -> {
                 val notificationId = intent.getIntExtra(
                     NoMemoLiveUpdateNotifier.EXTRA_NOTIFICATION_ID,
@@ -40,6 +49,17 @@ class NoMemoLiveUpdateActionReceiver : BroadcastReceiver() {
                 }
             }
         }
+    }
+
+    private fun completeMemoryLiveStatus(context: Context, recordId: String) {
+        val memoryStore = MemoryStore(context)
+        val record = memoryStore.findRecordById(recordId) ?: return
+        if (!record.isLiveStatusActive) {
+            NoMemoLiveUpdateNotifier.cancelMemoryLiveStatus(context, recordId)
+            return
+        }
+        memoryStore.updateRecord(record.withLiveStatusState(MemoryRecord.LIVE_STATUS_COMPLETED))
+        NoMemoLiveUpdateNotifier.cancelMemoryLiveStatus(context, recordId)
     }
 
     private fun cancelInitialAiAnalysisRecord(context: Context, recordId: String) {

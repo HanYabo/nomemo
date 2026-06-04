@@ -202,16 +202,19 @@ public class AiMemoryService {
                     lastFailureStage = AiFailureStage.CLOUD_REQUEST;
                     logAttemptFailure(policy, attempt, totalAttemptLimit, exception, requestMode, resolveModelForMode(requestMode));
                 }
-                if (attempt < policy.getCloudAttemptLimit() && !sleepBeforeRetry(attempt)) {
-                    break;
+                if (attempt < policy.getCloudAttemptLimit()) {
+                    if (!shouldRetryCloudFailure(lastCloudError, lastFailureStage)) {
+                        logRetrySkipped(policy, attempt, totalAttemptLimit, lastCloudError, lastFailureStage);
+                        break;
+                    }
+                    if (!sleepBeforeRetry(attempt)) {
+                        break;
+                    }
                 }
             }
             if (lastCloudError != null && policy.isAllowFullPromptRescue()) {
                 fullPromptRescueUsed = true;
                 attemptsPerformed = totalAttemptLimit;
-                if (attemptListener != null) {
-                    attemptListener.onAttempt(totalAttemptLimit, totalAttemptLimit);
-                }
                 try {
                     CloudGenerationResult cloudResult = generateByCloud(
                             safeText,
@@ -340,6 +343,47 @@ public class AiMemoryService {
             Thread.currentThread().interrupt();
             return false;
         }
+    }
+
+    private boolean shouldRetryCloudFailure(
+            @Nullable Exception exception,
+            @Nullable AiFailureStage failureStage
+    ) {
+        if (failureStage != AiFailureStage.CLOUD_REQUEST) {
+            return false;
+        }
+        if (exception instanceof AiGenerationException) {
+            AiGenerationException aiException = (AiGenerationException) exception;
+            int httpStatus = aiException.getHttpStatus();
+            if (httpStatus == 408 || httpStatus == 409 || httpStatus == 425 || httpStatus == 429 || httpStatus >= 500) {
+                return true;
+            }
+            if (httpStatus >= 400) {
+                return false;
+            }
+            return looksTransientCloudFailure(
+                    nullToEmpty(aiException.getProviderErrorCode()) + " " + nullToEmpty(aiException.getMessage())
+            );
+        }
+        return looksTransientCloudFailure(exception == null ? "" : exception.getMessage());
+    }
+
+    private boolean looksTransientCloudFailure(@Nullable String rawMessage) {
+        String message = rawMessage == null ? "" : rawMessage.toLowerCase(Locale.ROOT);
+        return message.contains("timeout")
+                || message.contains("timed out")
+                || message.contains("temporary")
+                || message.contains("temporarily")
+                || message.contains("unavailable")
+                || message.contains("overload")
+                || message.contains("overloaded")
+                || message.contains("rate limit")
+                || message.contains("rate_limit")
+                || message.contains("too many requests")
+                || message.contains("connection reset")
+                || message.contains("connection refused")
+                || message.contains("network is unreachable")
+                || message.contains("no route to host");
     }
 
     private boolean hasCloudConfigFor(CloudRequestMode requestMode) {
@@ -809,6 +853,7 @@ public class AiMemoryService {
                 effectiveText,
                 preparedRequest.getPromptSpec().getAnalysisStyleHint()
         );
+        title = stableTitleSafely(suggestedCategoryCode, title, structuredFactsJson);
         summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
         return new CloudGenerationResult(
                 new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "cloud", structuredFactsJson),
@@ -1189,11 +1234,154 @@ public class AiMemoryService {
         } catch (Exception exception) {
             throw new AiGenerationException(AiFailureStage.JSON_PARSE, "Failed to parse AI JSON", exception);
         }
+        JSONObject normalized = normalizeResultJsonForValidation(parsed);
         try {
-            return AiResultValidator.validate(parsed);
+            return AiResultValidator.validate(normalized);
         } catch (Exception exception) {
             throw new AiGenerationException(AiFailureStage.SCHEMA_VALIDATE, "AI JSON schema validation failed", exception);
         }
+    }
+
+    static JSONObject normalizeResultJsonForValidation(JSONObject raw) throws Exception {
+        JSONObject normalized = raw == null ? new JSONObject() : new JSONObject(raw.toString());
+        normalizeStringField(normalized, "promptVersion", AiPromptBuilder.PROMPT_VERSION);
+        normalizeStringField(normalized, "schemaVersion", AiPromptBuilder.SCHEMA_VERSION);
+        normalizeStringField(normalized, "title", "");
+        normalizeStringField(normalized, "summary", "");
+        normalizeStringField(normalized, "analysis", "");
+        normalizeStringField(normalized, "memory", "");
+        normalizeStringField(normalized, "suggestedCategoryCode", "");
+        String categoryCode = normalized.optString("suggestedCategoryCode", "").trim();
+        if (!isAllowedCategoryCode(categoryCode)) {
+            normalized.put("suggestedCategoryCode", "");
+        }
+
+        JSONObject structuredFacts = normalized.optJSONObject("structuredFacts");
+        if (structuredFacts == null) {
+            structuredFacts = new JSONObject();
+            normalized.put("structuredFacts", structuredFacts);
+        }
+        normalizeStringField(structuredFacts, "domain", "");
+        String domain = structuredFacts.optString("domain", "").trim().toLowerCase(Locale.ROOT);
+        if (!isAllowedStructuredFactsDomain(domain)) {
+            structuredFacts.put("domain", inferDomainForCategory(categoryCode));
+        } else {
+            structuredFacts.put("domain", domain);
+        }
+        normalizeNullableStringField(structuredFacts, "pickupCode");
+        normalizeNullableStringField(structuredFacts, "pickupCodeType");
+        normalizeConfidenceField(
+                structuredFacts,
+                "pickupCodeConfidence",
+                hasNonBlankStringField(structuredFacts, "pickupCode") ? 0.78d : 0.0d
+        );
+        normalizeNullableStringField(structuredFacts, "pickupCodeEvidence");
+        normalizeNullableStringField(structuredFacts, "location");
+        normalizeConfidenceField(
+                structuredFacts,
+                "locationConfidence",
+                hasNonBlankStringField(structuredFacts, "location") ? 0.64d : 0.0d
+        );
+        normalizeNullableStringField(structuredFacts, "locationEvidence");
+        normalizeNullableStringField(structuredFacts, "merchantOrCompany");
+        normalizeNullableStringField(structuredFacts, "itemName");
+        normalizeNullableStringField(structuredFacts, "orderNumber");
+        normalizeNullableStringField(structuredFacts, "trackingNumber");
+        normalizeNullableStringField(structuredFacts, "amount");
+        normalizeNullableStringField(structuredFacts, "timeWindow");
+        normalizeNullableStringField(structuredFacts, "rawVisibleText");
+        return normalized;
+    }
+
+    private static void normalizeStringField(JSONObject json, String fieldName, String fallback) throws Exception {
+        Object value = json.opt(fieldName);
+        if (value == null || value == JSONObject.NULL) {
+            json.put(fieldName, fallback);
+        } else if (!(value instanceof String)) {
+            json.put(fieldName, String.valueOf(value).trim());
+        } else {
+            json.put(fieldName, ((String) value).trim());
+        }
+    }
+
+    private static void normalizeNullableStringField(JSONObject json, String fieldName) throws Exception {
+        Object value = json.opt(fieldName);
+        if (value == null || value == JSONObject.NULL) {
+            json.put(fieldName, JSONObject.NULL);
+        } else if (value instanceof String) {
+            String normalized = ((String) value).trim();
+            json.put(fieldName, normalized.isEmpty() ? JSONObject.NULL : normalized);
+        } else {
+            json.put(fieldName, String.valueOf(value).trim());
+        }
+    }
+
+    private static void normalizeConfidenceField(JSONObject json, String fieldName, double fallbackConfidence) throws Exception {
+        Object value = json.opt(fieldName);
+        double confidence = fallbackConfidence;
+        if (value instanceof Number) {
+            confidence = ((Number) value).doubleValue();
+        } else if (value instanceof String) {
+            try {
+                confidence = Double.parseDouble(((String) value).trim());
+            } catch (Exception ignored) {
+                confidence = fallbackConfidence;
+            }
+        }
+        if (Double.isNaN(confidence) || Double.isInfinite(confidence)) {
+            confidence = fallbackConfidence;
+        }
+        json.put(fieldName, Math.max(0.0d, Math.min(1.0d, confidence)));
+    }
+
+    private static boolean hasNonBlankStringField(JSONObject json, String fieldName) {
+        Object value = json.opt(fieldName);
+        if (value == null || value == JSONObject.NULL) {
+            return false;
+        }
+        return String.valueOf(value).trim().length() > 0;
+    }
+
+    private static boolean isAllowedCategoryCode(String categoryCode) {
+        return CategoryCatalog.CODE_WORK_SCHEDULE.equals(categoryCode)
+                || CategoryCatalog.CODE_WORK_TODO.equals(categoryCode)
+                || CategoryCatalog.CODE_LIFE_PICKUP.equals(categoryCode)
+                || CategoryCatalog.CODE_LIFE_DELIVERY.equals(categoryCode)
+                || CategoryCatalog.CODE_LIFE_CARD.equals(categoryCode)
+                || CategoryCatalog.CODE_LIFE_TICKET.equals(categoryCode)
+                || CategoryCatalog.CODE_QUICK_NOTE.equals(categoryCode);
+    }
+
+    private static boolean isAllowedStructuredFactsDomain(String domain) {
+        return "pickup".equals(domain)
+                || "delivery".equals(domain)
+                || "ticket".equals(domain)
+                || "schedule".equals(domain)
+                || "todo".equals(domain)
+                || "card".equals(domain)
+                || "note".equals(domain);
+    }
+
+    private static String inferDomainForCategory(String categoryCode) {
+        if (CategoryCatalog.CODE_LIFE_PICKUP.equals(categoryCode)) {
+            return "pickup";
+        }
+        if (CategoryCatalog.CODE_LIFE_DELIVERY.equals(categoryCode)) {
+            return "delivery";
+        }
+        if (CategoryCatalog.CODE_LIFE_TICKET.equals(categoryCode)) {
+            return "ticket";
+        }
+        if (CategoryCatalog.CODE_LIFE_CARD.equals(categoryCode)) {
+            return "card";
+        }
+        if (CategoryCatalog.CODE_WORK_SCHEDULE.equals(categoryCode)) {
+            return "schedule";
+        }
+        if (CategoryCatalog.CODE_WORK_TODO.equals(categoryCode)) {
+            return "todo";
+        }
+        return "note";
     }
 
     private JSONObject buildRepairPayload(
@@ -1405,6 +1593,23 @@ public class AiMemoryService {
         );
     }
 
+    private void logRetrySkipped(
+            AiExecutionPolicy policy,
+            int attempt,
+            int attemptLimit,
+            @Nullable Exception exception,
+            @Nullable AiFailureStage failureStage
+    ) {
+        Log.d(
+                TAG,
+                "AI retry skipped operationKind=" + policy.getOperationKind()
+                        + " costMode=" + policy.getCostMode()
+                        + " attempt=" + attempt + "/" + attemptLimit
+                        + " failureStage=" + (failureStage == null ? "" : failureStage.name())
+                        + " message=" + nullToEmpty(exception == null ? "" : exception.getMessage())
+        );
+    }
+
     private String buildFailureMessage(@Nullable Exception exception, @Nullable AiFailureStage failureStage) {
         if (exception instanceof AiGenerationException) {
             AiGenerationException aiException = (AiGenerationException) exception;
@@ -1608,6 +1813,78 @@ public class AiMemoryService {
         } catch (Exception ignored) {
             return fallbackSummary == null ? "" : fallbackSummary;
         }
+    }
+
+    private String stableTitleSafely(
+            @Nullable String categoryCode,
+            @Nullable String fallbackTitle,
+            @Nullable String structuredFactsJson
+    ) {
+        String normalizedTitle = compactSingleLine(fallbackTitle);
+        try {
+            JSONObject facts = TextUtils.isEmpty(structuredFactsJson)
+                    ? null
+                    : new JSONObject(structuredFactsJson);
+            if (facts != null) {
+                String target = firstNonEmpty(
+                        facts.optString("merchantOrCompany", ""),
+                        facts.optString("itemName", ""),
+                        facts.optString("location", "")
+                );
+                if (!TextUtils.isEmpty(target)) {
+                    if (CategoryCatalog.CODE_LIFE_PICKUP.equals(categoryCode)) {
+                        return cropSingleLine(target + "\u53d6\u9910\u7801", 18);
+                    }
+                    if (CategoryCatalog.CODE_LIFE_DELIVERY.equals(categoryCode)) {
+                        return cropSingleLine(target + "\u53d6\u4ef6\u7801", 18);
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall back to the model title below.
+        }
+        if (TextUtils.isEmpty(normalizedTitle)) {
+            return "";
+        }
+        if (isOverlongGeneratedTitle(normalizedTitle)) {
+            return cropSingleLine(normalizedTitle, 18);
+        }
+        return normalizedTitle;
+    }
+
+    private String compactSingleLine(@Nullable String value) {
+        if (TextUtils.isEmpty(value)) {
+            return "";
+        }
+        return value
+                .replace('\r', ' ')
+                .replace('\n', ' ')
+                .replaceAll("\\s+", " ")
+                .trim();
+    }
+
+    private boolean isOverlongGeneratedTitle(String title) {
+        return title.length() > 22
+                || title.contains("\u3002")
+                || title.contains("\uff0c")
+                || title.contains("\uff1b")
+                || title.contains(";")
+                || title.contains(".");
+    }
+
+    private String firstNonEmpty(String... values) {
+        if (values == null) {
+            return "";
+        }
+        for (String value : values) {
+            if (!TextUtils.isEmpty(value)) {
+                String normalized = value.trim();
+                if (!normalized.isEmpty() && !"null".equalsIgnoreCase(normalized)) {
+                    return normalized;
+                }
+            }
+        }
+        return "";
     }
 
     private String normalizeCategoryCodeSafely(

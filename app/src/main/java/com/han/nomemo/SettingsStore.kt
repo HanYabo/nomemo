@@ -127,6 +127,12 @@ class SettingsStore(context: Context) {
         get() = prefs.getString(KEY_APP_ICON_STYLE, ICON_STYLE_LIGHT) ?: ICON_STYLE_LIGHT
         set(value) = prefs.edit().putString(KEY_APP_ICON_STYLE, value).apply()
 
+    var viewMode: String
+        get() = prefs.getString(KEY_VIEW_MODE, VIEW_MODE_LIST) ?: VIEW_MODE_LIST
+        set(value) = prefs.edit().putString(KEY_VIEW_MODE, value).apply()
+
+    val isGridView: Boolean get() = viewMode == VIEW_MODE_GRID
+
     fun defaultLaunchDockTab(): NoMemoDockTab {
         return bottomDockOrder.firstOrNull() ?: NoMemoDockTab.MEMORY
     }
@@ -237,6 +243,10 @@ class SettingsStore(context: Context) {
         private const val KEY_BOTTOM_DOCK_ORDER = "bottom_dock_order"
         private const val DEFAULT_BOTTOM_DOCK_ORDER = "MEMORY,GROUP,REMINDER"
         private const val KEY_APP_ICON_STYLE = "app_icon_style"
+        private const val KEY_VIEW_MODE = "view_mode"
+
+        const val VIEW_MODE_LIST = "list"
+        const val VIEW_MODE_GRID = "grid"
 
         const val ICON_STYLE_LIGHT = "light"
         const val ICON_STYLE_DARK = "dark"

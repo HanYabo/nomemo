@@ -75,7 +75,8 @@
             android:name=".MemoryDetailActivity"
             android:exported="false"
             android:enableOnBackInvokedCallback="true"
-            android:theme="@style/Theme.NoMemo" />
+            android:theme="@style/Theme.NoMemo"
+            android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".AiAssistantActivity"
             android:exported="false"

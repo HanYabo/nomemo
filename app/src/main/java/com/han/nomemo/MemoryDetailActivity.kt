@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -540,6 +541,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
         reanalyzeJob?.cancel()
         reanalyzeJob = MemoryDetailReanalyzeScope.scope.launch {
             val startedAt = SystemClock.elapsedRealtime()
+            var lastAttemptCount = 1
+            var lastAttemptLimit = initialAttemptLimit
             delay(ReanalyzeStateRevealDelayMs)
             try {
                 ensureActiveReanalyzeSession(sessionId)
@@ -587,6 +590,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         detailContext,
                         progressListener
                     )
+                    lastAttemptCount = outcome.attemptCount.coerceAtLeast(1)
+                    lastAttemptLimit = outcome.attemptLimit.coerceAtLeast(1)
                     if (!isReanalyzeSessionActive(sessionId)) {
                         return@withContext null
                     }
@@ -661,8 +666,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val clearedRecord = markAiReanalyzeFailed(
                         baseRecord = previousRecord,
                         costMode = reanalyzePolicy.costMode,
-                        attemptCount = 1,
-                        attemptLimit = initialAttemptLimit
+                        attemptCount = lastAttemptCount,
+                        attemptLimit = lastAttemptLimit
                     )
                     withContext(Dispatchers.IO) {
                         memoryStore.updateRecord(clearedRecord)
@@ -688,8 +693,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     val clearedRecord = markAiReanalyzeFailed(
                         baseRecord = previousRecord,
                         costMode = reanalyzePolicy.costMode,
-                        attemptCount = 1,
-                        attemptLimit = initialAttemptLimit
+                        attemptCount = lastAttemptCount,
+                        attemptLimit = lastAttemptLimit
                     )
                     withContext(Dispatchers.IO) {
                         memoryStore.updateRecord(clearedRecord)
@@ -731,8 +736,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 val clearedRecord = markAiReanalyzeFailed(
                     baseRecord = previousRecord,
                     costMode = reanalyzePolicy.costMode,
-                    attemptCount = 1,
-                    attemptLimit = initialAttemptLimit
+                    attemptCount = lastAttemptCount,
+                    attemptLimit = lastAttemptLimit
                 )
                 withContext(Dispatchers.IO) {
                     memoryStore.updateRecord(clearedRecord)
@@ -1338,6 +1343,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 modifier = Modifier
                                     .fillMaxSize()
                                     .padding(top = statusBarHeightDp)
+                                    .imePadding()
                             ) {
                         val currentRecord = record
                         if (currentRecord == null) {

@@ -27,6 +27,8 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -51,6 +53,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
+import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridItemSpan
+import androidx.compose.foundation.lazy.staggeredgrid.items
+import androidx.compose.foundation.lazy.staggeredgrid.rememberLazyStaggeredGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -75,6 +82,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +118,7 @@ import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.jvm.java
@@ -181,6 +190,7 @@ class MainActivity : BaseComposeActivity() {
     )
 
     private lateinit var memoryStore: MemoryStore
+    private lateinit var settingsStore: SettingsStore
     private var selectedFilter by mutableStateOf(FILTER_ALL)
     private var records by mutableStateOf<List<MemoryRecord>>(emptyList())
     private var filterChipCounts by mutableStateOf(FilterChipCounts())
@@ -209,6 +219,7 @@ class MainActivity : BaseComposeActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
+        settingsStore = SettingsStore(this)
         currentPrimaryTab = resolveInitialPrimaryTab(savedInstanceState)
         setContent {
             PrimaryHostContent()
@@ -943,11 +954,26 @@ class MainActivity : BaseComposeActivity() {
         var moreMenuAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
         var selectedSecondaryByPrimary by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
         var expandedPrimaryFilter by remember { mutableStateOf<String?>(null) }
+        var viewMode by remember { mutableStateOf(settingsStore.viewMode) }
+        val selectionAnimationScope = rememberCoroutineScope()
+        var pendingSelectionClearJob by remember { mutableStateOf<Job?>(null) }
+        val selectionExitDurationMs = 240L
+        fun exitSelectionMode() {
+            pendingSelectionClearJob?.cancel()
+            selectionModeActive = false
+            showDeleteConfirm = false
+            pendingSelectionClearJob = selectionAnimationScope.launch {
+                delay(selectionExitDurationMs)
+                selectedRecordIds = emptySet()
+                pendingSelectionClearJob = null
+            }
+        }
 
         val selectedRecords = remember(records, selectedRecordIds) {
             records.filter { selectedRecordIds.contains(it.recordId) }
         }
         val listState = rememberLazyListState()
+        val gridState = rememberLazyStaggeredGridState()
         val density = LocalDensity.current
         val secondaryCategories = remember(selectedFilter) {
             getSecondaryCategoriesForPrimary(selectedFilter)
@@ -1001,15 +1027,17 @@ class MainActivity : BaseComposeActivity() {
             }
         }
         val headerCollapseDistancePx = with(density) { 68.dp.toPx() }
-        val headerCollapseTarget by remember(selectionModeActive, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        val headerCollapseTarget by remember(selectionModeActive, viewMode, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset) {
             derivedStateOf {
                 if (selectionModeActive) {
                     0f
                 } else {
+                    val firstVisibleIndex = if (viewMode == SettingsStore.VIEW_MODE_GRID) gridState.firstVisibleItemIndex else listState.firstVisibleItemIndex
+                    val firstVisibleOffset = if (viewMode == SettingsStore.VIEW_MODE_GRID) gridState.firstVisibleItemScrollOffset else listState.firstVisibleItemScrollOffset
                     when {
-                        listState.firstVisibleItemIndex > 0 -> 1f
+                        firstVisibleIndex > 0 -> 1f
                         headerCollapseDistancePx <= 0f -> 0f
-                        else -> (listState.firstVisibleItemScrollOffset / headerCollapseDistancePx).coerceIn(0f, 1f)
+                        else -> (firstVisibleOffset / headerCollapseDistancePx).coerceIn(0f, 1f)
                     }
                 }
             }
@@ -1043,6 +1071,7 @@ class MainActivity : BaseComposeActivity() {
                 RecordCard(
                     record = record,
                     selected = selected,
+                    selectionMode = selectionModeActive,
                     modifier = Modifier.animateItem(
                         fadeInSpec = tween(250),
                         placementSpec = tween(300, easing = FastOutSlowInEasing),
@@ -1097,10 +1126,14 @@ class MainActivity : BaseComposeActivity() {
                 onPrimaryOverlayChanged(null)
             }
         }
+        LaunchedEffect(selectionModeActive) {
+            if (selectionModeActive) {
+                pendingSelectionClearJob?.cancel()
+                pendingSelectionClearJob = null
+            }
+        }
         BackHandler(enabled = selectionModeActive) {
-            selectionModeActive = false
-            selectedRecordIds = emptySet()
-            showDeleteConfirm = false
+            exitSelectionMode()
             resetDoubleBackExitState()
         }
         NoMemoBackground {
@@ -1121,7 +1154,18 @@ class MainActivity : BaseComposeActivity() {
                         Column(
                             modifier = Modifier.zIndex(1f)
                         ) {
-                            if (selectionModeActive) {
+                            AnimatedVisibility(
+                                visible = selectionModeActive,
+                                enter = expandVertically(
+                                    expandFrom = Alignment.Top,
+                                    animationSpec = tween(durationMillis = 210, easing = FastOutSlowInEasing)
+                                ) + fadeIn(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)),
+                                exit = shrinkVertically(
+                                    shrinkTowards = Alignment.Top,
+                                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                                ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing))
+                            ) {
+                                Column {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1131,9 +1175,7 @@ class MainActivity : BaseComposeActivity() {
                                         iconRes = R.drawable.ic_sheet_close,
                                         contentDescription = stringResource(R.string.cancel),
                                         onClick = {
-                                            selectionModeActive = false
-                                            selectedRecordIds = emptySet()
-                                            showDeleteConfirm = false
+                                            exitSelectionMode()
                                         },
                                         modifier = Modifier.align(Alignment.CenterStart),
                                         size = spec.topActionButtonSize
@@ -1169,7 +1211,20 @@ class MainActivity : BaseComposeActivity() {
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-                            } else {
+                                }
+                            }
+                            AnimatedVisibility(
+                                visible = !selectionModeActive,
+                                enter = expandVertically(
+                                    expandFrom = Alignment.Top,
+                                    animationSpec = tween(durationMillis = 230, delayMillis = 40, easing = FastOutSlowInEasing)
+                                ) + fadeIn(animationSpec = tween(durationMillis = 190, delayMillis = 40, easing = FastOutSlowInEasing)),
+                                exit = shrinkVertically(
+                                    shrinkTowards = Alignment.Top,
+                                    animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)
+                                ) + fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing))
+                            ) {
+                                Column {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1338,6 +1393,7 @@ class MainActivity : BaseComposeActivity() {
                                 }
                             }
                         }
+                        }
 
                         if (!hasLoadedRecords || filteredRecords.isEmpty()) {
                             Spacer(modifier = Modifier.weight(1f))
@@ -1348,20 +1404,81 @@ class MainActivity : BaseComposeActivity() {
                                     .zIndex(0f)
                                     .clipToBounds()
                             ) {
-                                LazyColumn(
-                                    modifier = Modifier.fillMaxSize(),
-                                    state = listState,
-                                    contentPadding = androidx.compose.foundation.layout.PaddingValues(
-                                        top = listTopPadding,
-                                        bottom = if (selectedRecords.isNotEmpty()) {
-                                            spec.pageBottomPadding + if (spec.isNarrow) 18.dp else 22.dp
-                                        } else {
-                                            spec.pageBottomPadding + 20.dp
+                                if (viewMode == SettingsStore.VIEW_MODE_GRID) {
+                                    LazyVerticalStaggeredGrid(
+                                        columns = StaggeredGridCells.Fixed(2),
+                                        modifier = Modifier.fillMaxSize(),
+                                        state = gridState,
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                            start = 0.dp,
+                                            end = 0.dp,
+                                            top = listTopPadding,
+                                            bottom = if (selectedRecords.isNotEmpty()) {
+                                                spec.pageBottomPadding + if (spec.isNarrow) 18.dp else 22.dp
+                                            } else {
+                                                spec.pageBottomPadding + 20.dp
+                                            }
+                                        ),
+                                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        verticalItemSpacing = 10.dp
+                                    ) {
+                                        items(
+                                            items = filteredRecords,
+                                            key = { it.recordId }
+                                        ) { record ->
+                                            val selected = selectedRecordIds.contains(record.recordId)
+                                            RecordGridCard(
+                                                record = record,
+                                                selected = selected,
+                                                selectionMode = selectionModeActive,
+                                                modifier = Modifier.animateItem(
+                                                    fadeInSpec = tween(250),
+                                                    placementSpec = tween(300, easing = FastOutSlowInEasing),
+                                                    fadeOutSpec = tween(200)
+                                                ),
+                                                allowImageLoading = true,
+                                                showShadow = false,
+                                                onClick = {
+                                                    when {
+                                                        selectionModeActive && selected -> {
+                                                            selectedRecordIds = selectedRecordIds - record.recordId
+                                                        }
+                                                        selectionModeActive -> {
+                                                            selectedRecordIds = selectedRecordIds + record.recordId
+                                                        }
+                                                        else -> {
+                                                            onOpenDetail(record)
+                                                        }
+                                                    }
+                                                },
+                                                onLongPress = {
+                                                    moreMenuExpanded = false
+                                                    selectionModeActive = true
+                                                    selectedRecordIds = if (selected) {
+                                                        selectedRecordIds - record.recordId
+                                                    } else {
+                                                        selectedRecordIds + record.recordId
+                                                    }
+                                                }
+                                            )
                                         }
-                                    ),
-                                    verticalArrangement = Arrangement.spacedBy(recordSpacing),
-                                    content = recordItems
-                                )
+                                    }
+                                } else {
+                                    LazyColumn(
+                                        modifier = Modifier.fillMaxSize(),
+                                        state = listState,
+                                        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+                                            top = listTopPadding,
+                                            bottom = if (selectedRecords.isNotEmpty()) {
+                                                spec.pageBottomPadding + if (spec.isNarrow) 18.dp else 22.dp
+                                            } else {
+                                                spec.pageBottomPadding + 20.dp
+                                            }
+                                        ),
+                                        verticalArrangement = Arrangement.spacedBy(recordSpacing),
+                                        content = recordItems
+                                    )
+                                }
                             }
                         }
 
@@ -1378,37 +1495,57 @@ class MainActivity : BaseComposeActivity() {
                         )
                     }
 
-                    if (showPrimaryDock && !selectionModeActive) {
+                    AnimatedVisibility(
+                        visible = showPrimaryDock && !selectionModeActive,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        enter = slideInVertically(
+                            initialOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 240, delayMillis = 50, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 180, delayMillis = 50, easing = FastOutSlowInEasing)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing))
+                    ) {
                         LiquidGlassDock(
                             selectedTab = NoMemoDockTab.MEMORY,
                             spec = spec,
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(
                                     start = spec.pageHorizontalPadding,
                                     end = spec.pageHorizontalPadding,
                                     bottom = if (spec.isNarrow) 10.dp else 14.dp
-                            ),
+                                ),
                             onOpenMemory = {},
                             onOpenGroup = onOpenGroup,
                             onOpenReminder = onOpenReminder,
                             onAddClick = onAddClick,
                             sharedBackdrop = backdrop
                         )
-                    } else if (selectedRecords.isNotEmpty()) {
+                    }
+                    AnimatedVisibility(
+                        visible = selectionModeActive && selectedRecords.isNotEmpty(),
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        enter = slideInVertically(
+                            initialOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 230, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing))
+                    ) {
                         NoMemoSelectionActionDock(
                             selectedRecords = selectedRecords,
                             onArchiveClick = {
                                 onArchiveRecords(selectedRecords)
-                                selectionModeActive = false
-                                selectedRecordIds = emptySet()
+                                exitSelectionMode()
                             },
                             onDeleteClick = { showDeleteConfirm = true },
                             allSelected = allVisibleRecordsSelected,
                             backdrop = backdrop,
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(
                                     start = spec.pageHorizontalPadding,
@@ -1424,9 +1561,8 @@ class MainActivity : BaseComposeActivity() {
                             message = getString(R.string.delete_selected_batch_message, selectedRecordIds.size),
                             onConfirm = {
                                 onDeleteRecords(selectedRecordIds)
-                                selectionModeActive = false
-                                selectedRecordIds = emptySet()
                                 showDeleteConfirm = false
+                                exitSelectionMode()
                             },
                             onDismiss = { showDeleteConfirm = false }
                         )
@@ -1444,6 +1580,19 @@ class MainActivity : BaseComposeActivity() {
                                     showDeleteConfirm = false
                                     selectionModeActive = true
                                     selectedRecordIds = filteredRecords.map { it.recordId }.toSet()
+                                }
+                            ),
+                            NoMemoMenuActionItem(
+                                iconRes = if (viewMode == SettingsStore.VIEW_MODE_GRID) R.drawable.ic_nm_list_view else R.drawable.ic_nm_grid_view,
+                                label = if (viewMode == SettingsStore.VIEW_MODE_GRID) "列表视图" else "瀑布流视图",
+                                onClick = {
+                                    moreMenuExpanded = false
+                                    viewMode = if (viewMode == SettingsStore.VIEW_MODE_GRID) {
+                                        SettingsStore.VIEW_MODE_LIST
+                                    } else {
+                                        SettingsStore.VIEW_MODE_GRID
+                                    }
+                                    settingsStore.viewMode = viewMode
                                 }
                             ),
                             NoMemoMenuActionItem(

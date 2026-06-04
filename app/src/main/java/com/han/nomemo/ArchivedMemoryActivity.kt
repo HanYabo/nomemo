@@ -49,6 +49,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -234,6 +235,19 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
         var addSheetSearchQuery by remember { mutableStateOf("") }
         var selectedAddRecordIds by remember { mutableStateOf(setOf<String>()) }
         var addableRecords by remember { mutableStateOf<List<MemoryRecord>>(emptyList()) }
+        val selectionAnimationScope = rememberCoroutineScope()
+        var pendingSelectionClearJob by remember { mutableStateOf<Job?>(null) }
+        val selectionExitDurationMs = 240L
+        fun exitSelectionMode() {
+            pendingSelectionClearJob?.cancel()
+            selectionModeActive = false
+            showDeleteConfirm = false
+            pendingSelectionClearJob = selectionAnimationScope.launch {
+                delay(selectionExitDurationMs)
+                selectedRecordIds = emptySet()
+                pendingSelectionClearJob = null
+            }
+        }
 
         val selectedRecords = remember(records, selectedRecordIds) {
             records.filter { selectedRecordIds.contains(it.recordId) }
@@ -284,16 +298,19 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
             if (sanitized != selectedRecordIds) {
                 selectedRecordIds = sanitized
             }
-            if (sanitized.isEmpty() && records.isNotEmpty()) {
-                selectionModeActive = false
-                showDeleteConfirm = false
+            if (selectionModeActive && sanitized.isEmpty() && records.isNotEmpty()) {
+                exitSelectionMode()
+            }
+        }
+        LaunchedEffect(selectionModeActive) {
+            if (selectionModeActive) {
+                pendingSelectionClearJob?.cancel()
+                pendingSelectionClearJob = null
             }
         }
 
         BackHandler(enabled = selectionModeActive) {
-            selectionModeActive = false
-            selectedRecordIds = emptySet()
-            showDeleteConfirm = false
+            exitSelectionMode()
         }
         BackHandler(enabled = moreMenuExpanded) {
             moreMenuExpanded = false
@@ -318,7 +335,18 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
-                        if (selectionModeActive) {
+                        AnimatedVisibility(
+                            visible = selectionModeActive,
+                            enter = slideInVertically(
+                                initialOffsetY = { -it / 3 },
+                                animationSpec = tween(durationMillis = 210)
+                            ) + fadeIn(animationSpec = tween(durationMillis = 180)),
+                            exit = slideOutVertically(
+                                targetOffsetY = { -it / 3 },
+                                animationSpec = tween(durationMillis = 220)
+                            ) + fadeOut(animationSpec = tween(durationMillis = 180))
+                        ) {
+                            Column {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -328,9 +356,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                     iconRes = R.drawable.ic_sheet_close,
                                     contentDescription = stringResource(R.string.cancel),
                                     onClick = {
-                                        selectionModeActive = false
-                                        selectedRecordIds = emptySet()
-                                        showDeleteConfirm = false
+                                        exitSelectionMode()
                                     },
                                     modifier = Modifier.align(Alignment.CenterStart),
                                     size = spec.topActionButtonSize
@@ -362,7 +388,19 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                 )
                             }
                             Spacer(modifier = Modifier.height(12.dp))
-                        } else {
+                            }
+                        }
+                        AnimatedVisibility(
+                            visible = !selectionModeActive,
+                            enter = slideInVertically(
+                                initialOffsetY = { -it / 4 },
+                                animationSpec = tween(durationMillis = 230, delayMillis = 40)
+                            ) + fadeIn(animationSpec = tween(durationMillis = 190, delayMillis = 40)),
+                            exit = slideOutVertically(
+                                targetOffsetY = { -it / 4 },
+                                animationSpec = tween(durationMillis = 170)
+                            ) + fadeOut(animationSpec = tween(durationMillis = 140))
+                        ) {
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -483,19 +521,28 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                         )
                     }
 
-                    if (selectionModeActive && selectedRecords.isNotEmpty()) {
+                    AnimatedVisibility(
+                        visible = selectionModeActive && selectedRecords.isNotEmpty(),
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        enter = slideInVertically(
+                            initialOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 230)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 170)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 220)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 170))
+                    ) {
                         NoMemoSelectionActionDock(
                             selectedRecords = selectedRecords,
                             onArchiveClick = {
                                 onArchiveRecords(selectedRecords)
-                                selectionModeActive = false
-                                selectedRecordIds = emptySet()
+                                exitSelectionMode()
                             },
                             onDeleteClick = { showDeleteConfirm = true },
                             allSelected = allVisibleRecordsSelected,
                             backdrop = backdrop,
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(
                                     start = spec.pageHorizontalPadding,
@@ -511,9 +558,8 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                             message = getString(R.string.delete_selected_batch_message, selectedRecordIds.size),
                             onConfirm = {
                                 onDeleteRecords(selectedRecordIds)
-                                selectionModeActive = false
-                                selectedRecordIds = emptySet()
                                 showDeleteConfirm = false
+                                exitSelectionMode()
                             },
                             onDismiss = { showDeleteConfirm = false }
                         )
