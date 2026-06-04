@@ -20,6 +20,7 @@ import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
@@ -109,7 +110,6 @@ import com.kyant.backdrop.backdrops.LayerBackdrop
 import com.kyant.backdrop.backdrops.layerBackdrop
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.jvm.java
@@ -346,34 +346,26 @@ class MainActivity : BaseComposeActivity() {
         var addMemoryPhase by remember { mutableStateOf(AddMemoryFlowPhase.List) }
         var addMemoryOriginBounds by remember { mutableStateOf<Rect?>(null) }
         var addMemoryTransitionKey by remember { mutableStateOf(0) }
-        var addMemoryFabRestoreDuringClosing by remember { mutableStateOf(false) }
         val addMemoryTransitioning =
             addMemoryPhase == AddMemoryFlowPhase.Opening || addMemoryPhase == AddMemoryFlowPhase.Closing
-        LaunchedEffect(addMemoryPhase, addMemoryTransitionKey) {
-            if (addMemoryPhase == AddMemoryFlowPhase.Closing) {
-                addMemoryFabRestoreDuringClosing = false
-                delay(250)
-                addMemoryFabRestoreDuringClosing = true
-            } else {
-                addMemoryFabRestoreDuringClosing = false
-            }
-        }
         val addMemoryFabTargetAlpha = when {
             addMemoryPhase == AddMemoryFlowPhase.List -> 1f
-            addMemoryPhase == AddMemoryFlowPhase.Closing && addMemoryFabRestoreDuringClosing -> 1f
             else -> 0f
         }
         val addMemoryFabAlpha by animateFloatAsState(
             targetValue = addMemoryFabTargetAlpha,
-            animationSpec = tween(
-                durationMillis = if (addMemoryFabTargetAlpha >= 1f) 70 else 60,
-                easing = FastOutSlowInEasing
-            ),
+            animationSpec = if (addMemoryFabTargetAlpha >= 1f) {
+                snap()
+            } else {
+                tween(
+                    durationMillis = 60,
+                    easing = FastOutSlowInEasing
+                )
+            },
             label = "addMemoryRealFabAlpha"
         )
         val startAddMemoryOpening = {
             if (addMemoryPhase == AddMemoryFlowPhase.List) {
-                addMemoryFabRestoreDuringClosing = false
                 addMemoryOriginBounds = AddMemoryLaunchOriginStore.lastBounds
                 addMemoryTransitionKey += 1
                 addMemoryPhase = AddMemoryFlowPhase.Opening
@@ -381,7 +373,6 @@ class MainActivity : BaseComposeActivity() {
         }
         val startAddMemoryClosing = {
             if (addMemoryPhase == AddMemoryFlowPhase.Editor) {
-                addMemoryFabRestoreDuringClosing = false
                 addMemoryOriginBounds = AddMemoryLaunchOriginStore.lastBounds ?: addMemoryOriginBounds
                 addMemoryTransitionKey += 1
                 addMemoryPhase = AddMemoryFlowPhase.Closing
@@ -573,8 +564,10 @@ class MainActivity : BaseComposeActivity() {
         content: @Composable BoxScope.() -> Unit
     ) {
         val density = LocalDensity.current
-        val isDark = androidx.compose.foundation.isSystemInDarkTheme()
-        val palette = rememberNoMemoPalette()
+        val currentIsDark = androidx.compose.foundation.isSystemInDarkTheme()
+        val currentPalette = rememberNoMemoPalette()
+        val isDark = remember(transitionKey) { currentIsDark }
+        val palette = remember(transitionKey) { currentPalette }
         val sheetSurface = palette.memoBgMid
         val progress = remember(transitionKey) {
             Animatable(if (phase == AddMemoryFlowPhase.Opening) 0f else 1f)
@@ -653,11 +646,7 @@ class MainActivity : BaseComposeActivity() {
             } else {
                 scrimMaxAlpha * (1f - settleProgress)
             }
-            val fabSurfaceColor = if (isDark) {
-                Color(0xFF2B2B2B)
-            } else {
-                Color(0xFFF2F3F5)
-            }
+            val fabSurfaceColor = addMemoryTransitionFabSurfaceColor(isDark)
             val transitionSurface = androidx.compose.ui.graphics.lerp(
                 fabSurfaceColor,
                 sheetSurface,
@@ -667,6 +656,8 @@ class MainActivity : BaseComposeActivity() {
             val cornerRadiusPx = addMemoryTransitionCornerRadiusPx(value, origin)
             val fabIconAlpha = if (phase == AddMemoryFlowPhase.Opening) {
                 transitionSurfaceAlpha * (1f - value / 0.28f).coerceIn(0f, 1f)
+            } else if (phase == AddMemoryFlowPhase.Closing) {
+                ((0.22f - value) / 0.22f).coerceIn(0f, 1f)
             } else {
                 0f
             }
@@ -725,11 +716,7 @@ class MainActivity : BaseComposeActivity() {
                 Icon(
                     painter = painterResource(id = R.drawable.ic_nm_compose_solid),
                     contentDescription = null,
-                    tint = if (isDark) {
-                        Color.White.copy(alpha = 0.96f)
-                    } else {
-                        Color(0xFF253244).copy(alpha = 0.92f)
-                    },
+                    tint = addMemoryTransitionFabIconTint(isDark),
                     modifier = Modifier
                         .graphicsLayer {
                             translationX = rect.left + rect.width / 2f - fabIconHalfPx
@@ -775,6 +762,22 @@ class MainActivity : BaseComposeActivity() {
         } else {
             val settle = ((progress - 0.72f) / 0.28f).coerceIn(0f, 1f)
             fabRadius * (1f - settle * settle)
+        }
+    }
+
+    private fun addMemoryTransitionFabSurfaceColor(isDark: Boolean): Color {
+        return if (isDark) {
+            Color(0xFF121212)
+        } else {
+            Color(0xFFFAFAFA)
+        }
+    }
+
+    private fun addMemoryTransitionFabIconTint(isDark: Boolean): Color {
+        return if (isDark) {
+            Color.White.copy(alpha = 0.96f)
+        } else {
+            Color(0xFF253244).copy(alpha = 0.92f)
         }
     }
 

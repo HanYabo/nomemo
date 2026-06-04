@@ -194,7 +194,9 @@ class AiInitialAnalysisWorker(
             if (!updated) {
                 memoryStore.prependRecord(resolved)
             }
-            AiSummaryNotifier.notifyAnalysisReady(appContext, resolved)
+            if (!resolved.isLiveStatusActive) {
+                AiSummaryNotifier.notifyAnalysisReady(appContext, resolved)
+            }
             return Result.success()
         } finally {
             AiProcessingStateRegistry.clearProcessing(recordId)

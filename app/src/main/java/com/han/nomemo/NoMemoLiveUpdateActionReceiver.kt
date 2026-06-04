@@ -39,23 +39,7 @@ class NoMemoLiveUpdateActionReceiver : BroadcastReceiver() {
                     NotificationManagerCompat.from(appContext).cancel(notificationId)
                 }
             }
-
-            NoMemoLiveUpdateNotifier.ACTION_COMPLETE_MEMORY_LIVE_STATUS -> {
-                val recordId = intent.getStringExtra(NoMemoLiveUpdateNotifier.EXTRA_RECORD_ID)
-                    ?.trim()
-                    .orEmpty()
-                if (recordId.isNotEmpty()) {
-                    completeMemoryLiveStatus(appContext, recordId)
-                }
-            }
         }
-    }
-
-    private fun completeMemoryLiveStatus(context: Context, recordId: String) {
-        val memoryStore = MemoryStore(context)
-        val record = memoryStore.findRecordById(recordId) ?: return
-        memoryStore.updateRecord(record.withLiveStatusState(MemoryRecord.LIVE_STATUS_COMPLETED))
-        NoMemoLiveUpdateNotifier.cancelMemoryLiveStatus(context, recordId)
     }
 
     private fun cancelInitialAiAnalysisRecord(context: Context, recordId: String) {

@@ -706,8 +706,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
                     return@launch
                 }
-                withContext(Dispatchers.IO) {
-                    AiSummaryNotifier.notifyAnalysisReady(appContext, updated)
+                if (!updated.isLiveStatusActive) {
+                    withContext(Dispatchers.IO) {
+                        AiSummaryNotifier.notifyAnalysisReady(appContext, updated)
+                    }
                 }
                 waitForMinimumReanalyzeFeedback(startedAt)
                 withContext(Dispatchers.Main) {

@@ -10,6 +10,7 @@ import java.nio.charset.StandardCharsets
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 class AiAssistantService(context: Context) {
     private val appContext = context.applicationContext
@@ -25,12 +26,14 @@ class AiAssistantService(context: Context) {
         }
         if (settingsStore.isAiAvailable()) {
             runCatching {
-                requestTextCompletion(
-                    systemPrompt = SUMMARY_SYSTEM_PROMPT,
-                    userPrompt = buildSummaryUserPrompt(userText, records),
-                    maxTokens = if (settingsStore.economyMode) 650 else 1000,
-                    temperature = 0.25
-                )
+                withAssistantLiveUpdate(userText, hasImage = false) {
+                    requestTextCompletion(
+                        systemPrompt = SUMMARY_SYSTEM_PROMPT,
+                        userPrompt = buildSummaryUserPrompt(userText, records),
+                        maxTokens = if (settingsStore.economyMode) 650 else 1000,
+                        temperature = 0.25
+                    )
+                }
             }.getOrNull()
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
@@ -42,12 +45,14 @@ class AiAssistantService(context: Context) {
     fun inferRouteByAi(userText: String): AiAssistantRoute? {
         if (!settingsStore.isAiAvailable() || userText.isBlank()) return null
         val content = runCatching {
-            requestTextCompletion(
-                systemPrompt = INTENT_SYSTEM_PROMPT,
-                userPrompt = userText,
-                maxTokens = 220,
-                temperature = 0.0
-            )
+            withAssistantLiveUpdate(userText, hasImage = false) {
+                requestTextCompletion(
+                    systemPrompt = INTENT_SYSTEM_PROMPT,
+                    userPrompt = userText,
+                    maxTokens = 220,
+                    temperature = 0.0
+                )
+            }
         }.getOrNull() ?: return null
         val json = runCatching { JSONObject(extractJsonObject(content)) }.getOrNull() ?: return null
         val intent = runCatching {
@@ -87,16 +92,37 @@ class AiAssistantService(context: Context) {
             }
         }
         return runCatching {
-            val result = aiMemoryService.generateEnhancedMemory(
-                prompt,
-                imageUri,
-                compressRecords(records.take(12))
-            )
-            firstNonBlank(result.analysis, result.memory, result.summary)
+            withAssistantLiveUpdate(userText, hasImage = true) {
+                val result = aiMemoryService.generateEnhancedMemory(
+                    prompt,
+                    imageUri,
+                    compressRecords(records.take(12))
+                )
+                firstNonBlank(result.analysis, result.memory, result.summary)
+            }
         }.getOrNull()
             ?.trim()
             ?.takeIf { it.isNotEmpty() }
             ?: "我收到了图片，但当前没有得到可用的图片识别结果。你可以检查 AI 配置后再试，或把图片里的关键信息用文字发给我。"
+    }
+
+    private fun <T> withAssistantLiveUpdate(
+        userText: String,
+        hasImage: Boolean,
+        block: () -> T
+    ): T {
+        val sessionId = UUID.randomUUID().toString()
+        NoMemoLiveUpdateNotifier.notifyAssistantAiAnalysis(
+            appContext,
+            sessionId,
+            userText,
+            hasImage
+        )
+        return try {
+            block()
+        } finally {
+            NoMemoLiveUpdateNotifier.cancelAssistantAiAnalysis(appContext, sessionId)
+        }
     }
 
     private fun buildSummaryUserPrompt(userText: String, records: List<MemoryRecord>): String {

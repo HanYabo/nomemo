@@ -26,8 +26,6 @@ public final class NoMemoLiveUpdateNotifier {
             "com.han.nomemo.action.CANCEL_GROUP_ORGANIZE";
     public static final String ACTION_DISMISS_NOTIFICATION =
             "com.han.nomemo.action.DISMISS_NOTIFICATION";
-    public static final String ACTION_COMPLETE_MEMORY_LIVE_STATUS =
-            "com.han.nomemo.action.COMPLETE_MEMORY_LIVE_STATUS";
     public static final String EXTRA_RECORD_ID = "record_id";
     public static final String EXTRA_ALBUM_ID = "album_id";
     public static final String EXTRA_NOTIFICATION_ID = "notification_id";
@@ -37,6 +35,9 @@ public final class NoMemoLiveUpdateNotifier {
     private static final String CHANNEL_DESCRIPTION = "AI 分析、后台整理等进行中状态";
     private static final String GROUP_ACTIVITY_ALBUM_EXTRA = "extra_open_album_id";
     private static final int BRAND_BLUE = 0xFF1677FF;
+    private static final int PROGRESS_SEGMENT_PREPARE = 0xFF7C5CFF;
+    private static final int PROGRESS_SEGMENT_ANALYZE = 0xFF1677FF;
+    private static final int PROGRESS_SEGMENT_WRITE = 0xFF16A34A;
 
     private NoMemoLiveUpdateNotifier() {
     }
@@ -93,14 +94,16 @@ public final class NoMemoLiveUpdateNotifier {
         String bigText = content + "，完成后会自动更新记忆详情。";
 
         PendingIntent contentIntent = buildMemoryDetailPendingIntent(appContext, record.getRecordId());
+        cancelMemoryLiveStatus(appContext, record.getRecordId());
         NotificationCompat.Builder builder = baseBuilder(appContext)
-                .setSmallIcon(R.drawable.ic_nm_memory_notification)
+                .setSmallIcon(resolveAiAnalysisIcon(record, reanalyze))
+                .setColor(resolveAiAnalysisColor(record, reanalyze))
                 .setContentTitle(title)
                 .setContentText(content)
-                .setStyle(new NotificationCompat.BigTextStyle()
-                        .setBigContentTitle(title)
-                        .bigText(bigText)
-                        .setSummaryText(reanalyze ? "AI 重新分析" : "AI 分析"))
+                .setSubText(reanalyze ? "AI 重新分析" : "AI 分析")
+                .setShortCriticalText(reanalyze ? "重分析" : "AI分析")
+                .setStyle(buildAiAnalysisProgressStyle(appContext, attempt, attemptLimit))
+                .setProgress(100, calculateAiAnalysisProgress(attempt, attemptLimit), false)
                 .setContentIntent(contentIntent)
                 .setWhen(System.currentTimeMillis())
                 .setShowWhen(true)
@@ -123,6 +126,50 @@ public final class NoMemoLiveUpdateNotifier {
         }
         NotificationManagerCompat.from(context.getApplicationContext())
                 .cancel(buildAiNotificationId(recordId));
+    }
+
+    public static void notifyAssistantAiAnalysis(
+            Context context,
+            String sessionId,
+            String userText,
+            boolean hasImage
+    ) {
+        if (TextUtils.isEmpty(sessionId) || !canNotify(context)) {
+            return;
+        }
+        Context appContext = context.getApplicationContext();
+        ensureChannel(appContext);
+
+        String title = "AI 助手分析中";
+        String target = firstNonBlank(userText, hasImage ? "图片内容" : "记忆库");
+        String content = hasImage
+                ? "正在识别图片并整理相关记忆"
+                : "正在整理「" + compactForNotification(target, 18) + "」";
+
+        NotificationCompat.Builder builder = baseBuilder(appContext)
+                .setSmallIcon(R.drawable.ic_nm_ai_assistant)
+                .setContentTitle(title)
+                .setContentText(content)
+                .setSubText("AI 助手")
+                .setShortCriticalText("AI助手")
+                .setStyle(new NotificationCompat.BigTextStyle()
+                        .setBigContentTitle(title)
+                        .bigText(content)
+                        .setSummaryText("AI 助手"))
+                .setContentIntent(buildAiAssistantPendingIntent(appContext))
+                .setWhen(System.currentTimeMillis())
+                .setShowWhen(true)
+                .setUsesChronometer(true);
+
+        safeNotify(appContext, buildAssistantAiNotificationId(sessionId), builder);
+    }
+
+    public static void cancelAssistantAiAnalysis(Context context, String sessionId) {
+        if (TextUtils.isEmpty(sessionId)) {
+            return;
+        }
+        NotificationManagerCompat.from(context.getApplicationContext())
+                .cancel(buildAssistantAiNotificationId(sessionId));
     }
 
     public static void notifyGroupOrganizing(
@@ -196,11 +243,6 @@ public final class NoMemoLiveUpdateNotifier {
                 .setWhen(System.currentTimeMillis())
                 .setShowWhen(false)
                 .setUsesChronometer(false)
-                .addAction(
-                        R.drawable.ic_sheet_check,
-                        "完成",
-                        buildCompleteMemoryLivePendingIntent(appContext, record.getRecordId())
-                )
                 .addAction(
                         R.drawable.ic_nm_memory,
                         hasImage ? "查看图片" : "查看详情",
@@ -305,6 +347,17 @@ public final class NoMemoLiveUpdateNotifier {
         );
     }
 
+    private static PendingIntent buildAiAssistantPendingIntent(Context context) {
+        Intent intent = AiAssistantActivity.Companion.createIntent(context)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        return PendingIntent.getActivity(
+                context,
+                "live-assistant-open".hashCode(),
+                intent,
+                pendingFlags()
+        );
+    }
+
     private static PendingIntent buildCancelAiPendingIntent(Context context, String recordId) {
         Intent intent = new Intent(context, NoMemoLiveUpdateActionReceiver.class)
                 .setAction(ACTION_CANCEL_AI_ANALYSIS)
@@ -329,18 +382,6 @@ public final class NoMemoLiveUpdateNotifier {
         );
     }
 
-    private static PendingIntent buildCompleteMemoryLivePendingIntent(Context context, String recordId) {
-        Intent intent = new Intent(context, NoMemoLiveUpdateActionReceiver.class)
-                .setAction(ACTION_COMPLETE_MEMORY_LIVE_STATUS)
-                .putExtra(EXTRA_RECORD_ID, recordId);
-        return PendingIntent.getBroadcast(
-                context,
-                ("live-memory-complete:" + recordId).hashCode(),
-                intent,
-                pendingFlags()
-        );
-    }
-
     private static int pendingFlags() {
         return PendingIntent.FLAG_UPDATE_CURRENT
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
@@ -354,8 +395,71 @@ public final class NoMemoLiveUpdateNotifier {
         return ("live:group:" + albumId).hashCode();
     }
 
+    private static int buildAssistantAiNotificationId(String sessionId) {
+        return ("live:assistant-ai:" + sessionId).hashCode();
+    }
+
     private static int buildMemoryLiveNotificationId(String recordId) {
         return ("live:memory:" + recordId).hashCode();
+    }
+
+    private static int resolveAiAnalysisIcon(MemoryRecord record, boolean reanalyze) {
+        if (reanalyze) {
+            return R.drawable.ic_nm_ai_assistant;
+        }
+        return NotificationIconResolver.forCategory(record.getCategoryCode());
+    }
+
+    private static int resolveAiAnalysisColor(MemoryRecord record, boolean reanalyze) {
+        if (reanalyze) {
+            return BRAND_BLUE;
+        }
+        return CategoryCatalog.getCategoryAccentColor(record.getCategoryCode());
+    }
+
+    private static int calculateAiAnalysisProgress(int attempt, int attemptLimit) {
+        int safeAttempt = Math.max(1, attempt);
+        int safeLimit = Math.max(1, attemptLimit);
+        if (safeLimit <= 1) {
+            return 62;
+        }
+        float attemptFraction = (float) (safeAttempt - 1) / (float) safeLimit;
+        int progress = 24 + Math.round(attemptFraction * 64f);
+        if (safeAttempt >= safeLimit) {
+            progress = Math.max(progress, 82);
+        }
+        return Math.max(18, Math.min(progress, 90));
+    }
+
+    private static NotificationCompat.ProgressStyle buildAiAnalysisProgressStyle(
+            Context context,
+            int attempt,
+            int attemptLimit
+    ) {
+        int progress = calculateAiAnalysisProgress(attempt, attemptLimit);
+        return new NotificationCompat.ProgressStyle()
+                .addProgressSegment(
+                        new NotificationCompat.ProgressStyle.Segment(24)
+                                .setId(1)
+                                .setColor(PROGRESS_SEGMENT_PREPARE)
+                )
+                .addProgressSegment(
+                        new NotificationCompat.ProgressStyle.Segment(52)
+                                .setId(2)
+                                .setColor(PROGRESS_SEGMENT_ANALYZE)
+                )
+                .addProgressSegment(
+                        new NotificationCompat.ProgressStyle.Segment(24)
+                                .setId(3)
+                                .setColor(PROGRESS_SEGMENT_WRITE)
+                )
+                .addProgressPoint(
+                        new NotificationCompat.ProgressStyle.Point(progress)
+                                .setId(1)
+                                .setColor(PROGRESS_SEGMENT_ANALYZE)
+                )
+                .setProgress(progress)
+                .setStyledByProgress(true);
     }
 
     private static int resolveMemoryLiveIcon(MemoryRecord record, StructuredPickupInfo pickupInfo) {
@@ -478,6 +582,17 @@ public final class NoMemoLiveUpdateNotifier {
             }
         }
         return "";
+    }
+
+    private static String compactForNotification(String value, int maxLength) {
+        if (TextUtils.isEmpty(value)) {
+            return "";
+        }
+        String compact = value.replace('\n', ' ').replaceAll("\\s+", " ").trim();
+        if (compact.length() <= maxLength) {
+            return compact;
+        }
+        return compact.substring(0, maxLength) + "...";
     }
 
     private static final class MemoryLiveStatusPayload {

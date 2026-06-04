@@ -9,25 +9,21 @@ import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.ime
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -53,13 +49,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -114,27 +107,48 @@ private fun AiAssistantContent(
     val uiState by viewModel.uiState.collectAsState()
     var inputText by remember { mutableStateOf("") }
     var selectedImageUri by remember { mutableStateOf<Uri?>(null) }
+    var inputBarHeightPx by remember { mutableStateOf(0) }
     val listState = rememberLazyListState()
 
     val quickActions = listOf(
-        "帮我归档过期的记忆",
-        "帮我找一下购物记录",
         "查看我的快递",
-        "查看所有购物相关"
+        "帮我找一下购物记录",
+        "帮我归档过期的记忆",
+        "总结最近一周的记忆"
     )
 
-    val accent = Color(0xFF202435)
-    val assistantTextPrimary = Color(0xFF171A2C)
-    val assistantTextSecondary = Color(0xFF77849A)
-    val assistantIconTint = Color(0xFF4E5B70)
-    val contentSurface = Color.White.copy(alpha = 0.86f)
-    val insetSurface = Color(0xFFF7F8FC).copy(alpha = 0.96f)
-    val subtleStroke = Color.White.copy(alpha = 0.68f)
+    val accent = palette.accent
+    val contentSurface = noMemoThemeSyncedContentSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = palette.glassFill.copy(alpha = 0.96f),
+        lightDefault = Color.White,
+        darkLift = 0.095f,
+        lightMix = 0.24f,
+        darkAlpha = 0.96f,
+        lightAlpha = 1f
+    )
+    val insetSurface = noMemoThemeSyncedInsetSurface(
+        palette = palette,
+        isDark = isDark,
+        darkDefault = Color.White.copy(alpha = 0.08f),
+        lightDefault = Color(0xFFE9EBF0),
+        darkLift = 0.15f,
+        lightMix = 0.62f,
+        darkAlpha = 0.72f,
+        lightAlpha = 0.96f
+    )
+    val subtleStroke = if (isDark) {
+        Color.White.copy(alpha = 0.08f)
+    } else {
+        palette.glassStroke
+    }
     val density = LocalDensity.current
-    val keyboardLiftTargetPx = (
-        WindowInsets.ime.getBottom(density) - WindowInsets.navigationBars.getBottom(density)
-    ).coerceAtLeast(0).toFloat()
-    val keyboardLiftPx = keyboardLiftTargetPx
+    val inputBarBottomClearance = if (inputBarHeightPx > 0) {
+        with(density) { inputBarHeightPx.toDp() } + 18.dp
+    } else {
+        112.dp
+    }
     val imagePickerLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -171,40 +185,40 @@ private fun AiAssistantContent(
 
     NoMemoBackground {
         ResponsiveContentFrame { spec ->
-            AssistantScreenBackground {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .statusBarsPadding()
-                        .padding(
-                            start = if (spec.isNarrow) 28.dp else 34.dp,
-                            top = 28.dp,
-                            end = if (spec.isNarrow) 28.dp else 34.dp
-                        )
-                ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .statusBarsPadding()
+                    .imePadding()
+                    .padding(
+                        start = spec.pageHorizontalPadding,
+                        top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
+                        end = spec.pageHorizontalPadding
+                    )
+            ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(58.dp)
+                            .height(spec.topActionButtonSize)
                     ) {
-                        AssistantTopCircleButton(
+                        GlassIconCircleButton(
                             iconRes = R.drawable.ic_sheet_back,
                             contentDescription = "返回",
                             onClick = onClose,
                             modifier = Modifier.align(Alignment.CenterStart),
-                            tint = assistantIconTint
+                            size = spec.topActionButtonSize
                         )
                         Text(
                             text = "AI 助手",
-                            color = assistantTextPrimary,
-                            fontSize = 21.sp,
+                            color = palette.textPrimary,
+                            fontSize = if (spec.isNarrow) 20.sp else 22.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.align(Alignment.Center)
                         )
-                        AssistantTopCircleButton(
+                        GlassIconCircleButton(
                             iconRes = R.drawable.ic_nm_delete,
                             contentDescription = "清空输入",
                             onClick = {
@@ -212,7 +226,7 @@ private fun AiAssistantContent(
                                 selectedImageUri = null
                             },
                             modifier = Modifier.align(Alignment.CenterEnd),
-                            tint = assistantIconTint
+                            size = spec.topActionButtonSize
                         )
                     }
 
@@ -220,13 +234,14 @@ private fun AiAssistantContent(
                         modifier = Modifier
                             .weight(1f)
                             .fillMaxWidth()
+                            .padding(bottom = inputBarBottomClearance)
                     ) {
                         if (uiState.messages.isEmpty() && !uiState.isSending) {
                             AssistantWelcome(
                                 quickActions = quickActions,
-                                textPrimary = assistantTextPrimary,
-                                textSecondary = assistantTextSecondary,
-                                iconTint = assistantTextPrimary,
+                                palette = palette,
+                                accent = accent,
+                                contentSurface = contentSurface,
                                 isNarrow = spec.isNarrow,
                                 onQuickAction = { inputText = it }
                             )
@@ -234,7 +249,7 @@ private fun AiAssistantContent(
                             LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 state = listState,
-                                contentPadding = PaddingValues(top = 18.dp, bottom = 156.dp),
+                                contentPadding = PaddingValues(top = 18.dp, bottom = 20.dp),
                                 verticalArrangement = Arrangement.spacedBy(14.dp)
                             ) {
                                 items(uiState.messages, key = { it.id }) { message ->
@@ -268,19 +283,12 @@ private fun AiAssistantContent(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .fillMaxWidth()
+                        .onSizeChanged { inputBarHeightPx = it.height }
                         .navigationBarsPadding()
-                        .padding(
-                            start = if (spec.isNarrow) 10.dp else 18.dp,
-                            end = if (spec.isNarrow) 10.dp else 18.dp,
-                            bottom = 26.dp
-                        )
-                        .graphicsLayer {
-                            translationY = -keyboardLiftPx
-                        },
-                    shape = NoMemoG2CapsuleShape,
+                        .padding(bottom = 12.dp),
+                    shape = noMemoG2RoundedShape(28.dp),
                     colors = CardDefaults.cardColors(containerColor = contentSurface),
-                    border = BorderStroke(1.dp, subtleStroke),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 18.dp)
+                    border = BorderStroke(1.dp, subtleStroke)
                 ) {
                     selectedImageUri?.let { imageUri ->
                         AssistantImageAttachmentPreview(
@@ -295,16 +303,16 @@ private fun AiAssistantContent(
                         )
                     }
                     Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .heightIn(min = 74.dp)
-                                .padding(start = 18.dp, top = 8.dp, end = 8.dp, bottom = 8.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(
                             modifier = Modifier
-                                .size(46.dp)
+                                .size(38.dp)
                                 .clip(CircleShape)
+                                .background(insetSurface)
                                 .clickable(enabled = !uiState.isSending) {
                                     imagePickerLauncher.launch(arrayOf("image/*"))
                                 },
@@ -313,8 +321,8 @@ private fun AiAssistantContent(
                             Icon(
                                 painter = painterResource(R.drawable.ic_nm_image),
                                 contentDescription = "添加图片",
-                                tint = assistantTextSecondary,
-                                modifier = Modifier.size(25.dp)
+                                tint = palette.textSecondary,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
 
@@ -322,16 +330,16 @@ private fun AiAssistantContent(
                             value = inputText,
                             onValueChange = { inputText = it },
                             textStyle = TextStyle(
-                                color = assistantTextPrimary,
+                                color = palette.textPrimary,
                                 fontSize = 16.sp,
-                                fontWeight = FontWeight.SemiBold,
+                                fontWeight = FontWeight.Medium,
                                 lineHeight = 22.sp
                             ),
                             cursorBrush = SolidColor(accent),
                             maxLines = 4,
                             modifier = Modifier
                                 .weight(1f)
-                                .heightIn(min = 46.dp, max = 112.dp)
+                                .heightIn(min = 38.dp, max = 112.dp)
                                 .padding(horizontal = 12.dp)
                         ) { innerTextField ->
                             Box(
@@ -341,9 +349,9 @@ private fun AiAssistantContent(
                                 if (inputText.isBlank()) {
                                     Text(
                                         text = "输入消息...",
-                                        color = Color(0xFFA9B3C2),
+                                        color = palette.textTertiary,
                                         fontSize = 16.sp,
-                                        fontWeight = FontWeight.SemiBold
+                                        fontWeight = FontWeight.Medium
                                     )
                                 }
                                 innerTextField()
@@ -354,16 +362,9 @@ private fun AiAssistantContent(
                             (inputText.isNotBlank() || selectedImageUri != null)
                         Box(
                             modifier = Modifier
-                                .size(56.dp)
-                                .shadow(
-                                    elevation = 14.dp,
-                                    shape = CircleShape,
-                                    clip = false,
-                                    ambientColor = Color(0x22000000),
-                                    spotColor = Color(0x22000000)
-                                )
+                                .size(38.dp)
                                 .clip(CircleShape)
-                                .background(Color.White.copy(alpha = 0.98f))
+                                .background(if (sendEnabled) accent else insetSurface)
                                 .clickable(enabled = sendEnabled) {
                                     viewModel.sendMessage(inputText, selectedImageUri)
                                     inputText = ""
@@ -374,105 +375,13 @@ private fun AiAssistantContent(
                             Icon(
                                 painter = painterResource(R.drawable.ic_nm_send),
                                 contentDescription = "发送",
-                                tint = if (sendEnabled) accent else Color(0xFFA4AEC0),
-                                modifier = Modifier.size(28.dp)
+                                tint = if (sendEnabled) palette.onAccent else palette.textTertiary,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
                 }
             }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AssistantScreenBackground(
-    content: @Composable BoxScope.() -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFFFAF9FD))
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFEAF3FF).copy(alpha = 0.78f),
-                            Color.Transparent
-                        ),
-                        center = Offset(0f, 240f),
-                        radius = 860f
-                    )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.radialGradient(
-                        colors = listOf(
-                            Color(0xFFFFEFF7).copy(alpha = 0.74f),
-                            Color.Transparent
-                        ),
-                        center = Offset(900f, 250f),
-                        radius = 920f
-                    )
-                )
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(
-                    Brush.verticalGradient(
-                        colors = listOf(
-                            Color.White.copy(alpha = 0.40f),
-                            Color(0xFFF8F7FF).copy(alpha = 0.70f)
-                        )
-                    )
-                )
-        )
-        content()
-    }
-}
-
-@Composable
-private fun AssistantTopCircleButton(
-    iconRes: Int,
-    contentDescription: String,
-    onClick: () -> Unit,
-    tint: Color,
-    modifier: Modifier = Modifier
-) {
-    PressScaleBox(
-        onClick = onClick,
-        pressedScale = 0.965f,
-        modifier = modifier
-    ) {
-        Box(
-            modifier = Modifier
-                .size(56.dp)
-                .shadow(
-                    elevation = 20.dp,
-                    shape = CircleShape,
-                    clip = false,
-                    ambientColor = Color(0x10000000),
-                    spotColor = Color(0x10000000)
-                )
-                .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.76f))
-                .border(1.dp, Color.White.copy(alpha = 0.64f), CircleShape),
-            contentAlignment = Alignment.Center
-        ) {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = contentDescription,
-                tint = tint,
-                modifier = Modifier.size(25.dp)
-            )
         }
     }
 }
@@ -481,77 +390,64 @@ private fun AssistantTopCircleButton(
 @Composable
 private fun AssistantWelcome(
     quickActions: List<String>,
-    textPrimary: Color,
-    textSecondary: Color,
-    iconTint: Color,
+    palette: NoMemoPalette,
+    accent: Color,
+    contentSurface: Color,
     isNarrow: Boolean,
     onQuickAction: (String) -> Unit
 ) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .padding(
-                start = 8.dp,
-                top = if (isNarrow) 104.dp else 118.dp,
-                end = 8.dp,
-                bottom = 154.dp
-            ),
+            .padding(horizontal = 12.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Top
+        verticalArrangement = Arrangement.Center
     ) {
         Box(
             modifier = Modifier
-                .size(if (isNarrow) 112.dp else 122.dp)
-                .shadow(
-                    elevation = 30.dp,
-                    shape = CircleShape,
-                    clip = false,
-                    ambientColor = Color(0x14000000),
-                    spotColor = Color(0x14000000)
-                )
+                .size(if (isNarrow) 78.dp else 88.dp)
                 .clip(CircleShape)
-                .background(Color.White.copy(alpha = 0.82f)),
+                .background(contentSurface),
             contentAlignment = Alignment.Center
         ) {
             Icon(
                 painter = painterResource(R.drawable.ic_nm_ai_assistant),
                 contentDescription = null,
-                tint = iconTint,
-                modifier = Modifier.size(if (isNarrow) 42.dp else 46.dp)
+                tint = accent,
+                modifier = Modifier.size(if (isNarrow) 40.dp else 44.dp)
             )
         }
-        Spacer(modifier = Modifier.height(if (isNarrow) 42.dp else 48.dp))
+        Spacer(modifier = Modifier.height(22.dp))
         Text(
             text = "你好，我是 AI 助手",
-            color = textPrimary,
-            fontSize = if (isNarrow) 27.sp else 29.sp,
-            lineHeight = if (isNarrow) 33.sp else 35.sp,
+            color = palette.textPrimary,
+            fontSize = if (isNarrow) 22.sp else 24.sp,
             fontWeight = FontWeight.Bold,
             textAlign = TextAlign.Center
         )
         Spacer(modifier = Modifier.height(10.dp))
         Text(
-            text = "可以帮你查找、整理、归档记忆",
-            color = textSecondary,
-            fontSize = 16.sp,
-            lineHeight = 22.sp,
-            fontWeight = FontWeight.SemiBold,
+            text = "可以帮你查找、整理和归档记忆",
+            color = palette.textSecondary,
+            fontSize = 15.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(horizontal = 24.dp)
         )
-        Spacer(modifier = Modifier.height(40.dp))
+        Spacer(modifier = Modifier.height(30.dp))
         FlowRow(
-            modifier = Modifier.widthIn(max = if (isNarrow) 356.dp else 390.dp),
-            horizontalArrangement = Arrangement.spacedBy(14.dp, Alignment.CenterHorizontally),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            modifier = Modifier.widthIn(max = 420.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.CenterHorizontally),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             quickActions.forEach { action ->
                 QuickActionChip(
                     text = action,
+                    palette = palette,
                     onClick = { onQuickAction(action) }
                 )
             }
         }
+        Spacer(modifier = Modifier.height(96.dp))
     }
 }
 
@@ -649,7 +545,6 @@ private fun AssistantMessageBubble(
             .widthIn(max = 430.dp)
             .clip(noMemoG2RoundedShape(20.dp))
             .background(background)
-            .then(if (isUser) Modifier else Modifier)
             .padding(horizontal = 15.dp, vertical = 11.dp)
     ) {
         Text(
@@ -659,9 +554,6 @@ private fun AssistantMessageBubble(
             lineHeight = 21.sp,
             fontWeight = FontWeight.Medium
         )
-    }
-    if (!isUser && !isError) {
-        Spacer(modifier = Modifier.height(0.dp))
     }
 }
 
@@ -814,7 +706,6 @@ private fun AssistantConfirmationCard(
                             text = "取消",
                             background = Color.Transparent,
                             textColor = palette.textSecondary,
-                            border = subtleStroke,
                             onClick = onCancel,
                             modifier = Modifier.weight(1f)
                         )
@@ -825,7 +716,6 @@ private fun AssistantConfirmationCard(
                             },
                             background = palette.accent,
                             textColor = palette.onAccent,
-                            border = Color.Transparent,
                             onClick = onConfirm,
                             modifier = Modifier.weight(1f)
                         )
@@ -890,7 +780,6 @@ private fun ConfirmationActionButton(
     text: String,
     background: Color,
     textColor: Color,
-    border: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -899,13 +788,6 @@ private fun ConfirmationActionButton(
             .height(38.dp)
             .clip(NoMemoG2CapsuleShape)
             .background(background)
-            .then(
-                if (border == Color.Transparent) {
-                    Modifier
-                } else {
-                    Modifier.background(Color.Transparent)
-                }
-            )
             .clickable(onClick = onClick),
         contentAlignment = Alignment.Center
     ) {
@@ -1011,31 +893,24 @@ private fun AssistantImageAttachmentPreview(
 @Composable
 private fun QuickActionChip(
     text: String,
+    palette: NoMemoPalette,
     onClick: () -> Unit
 ) {
+    val isDark = isSystemInDarkTheme()
     PressScaleBox(
         onClick = onClick,
         pressedScale = 0.985f
     ) {
         Box(
             modifier = Modifier
-                .shadow(
-                    elevation = 18.dp,
-                    shape = NoMemoG2CapsuleShape,
-                    clip = false,
-                    ambientColor = Color(0x10000000),
-                    spotColor = Color(0x10000000)
-                )
                 .clip(NoMemoG2CapsuleShape)
-                .background(Color.White.copy(alpha = 0.78f))
-                .border(1.dp, Color.White.copy(alpha = 0.62f), NoMemoG2CapsuleShape)
-                .padding(horizontal = 24.dp, vertical = 14.dp)
+                .background(noMemoThemeSyncedChipBackground(palette, isDark, selected = false))
+                .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Text(
                 text = text,
-                color = Color(0xFF4F5B70),
-                fontSize = 16.sp,
-                lineHeight = 20.sp,
+                color = noMemoThemeSyncedChipTextColor(palette, selected = false),
+                fontSize = 14.sp,
                 fontWeight = FontWeight.SemiBold
             )
         }
