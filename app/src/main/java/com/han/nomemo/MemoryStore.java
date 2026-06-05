@@ -67,9 +67,9 @@ public class MemoryStore {
                 } catch (Exception ignored) {
                 }
             }
+            MemoryRecord imageNormalizedRecord = r;
             if (!normalizedUri.equals(img) || !normalizedVisualState.equals(r.getAiVisualStateJson())) {
-                // create updated record with new imageUri
-                MemoryRecord updated = new MemoryRecord(
+                imageNormalizedRecord = new MemoryRecord(
                         r.getRecordId(),
                         r.getCreatedAt(),
                         r.getMode(),
@@ -92,17 +92,18 @@ public class MemoryStore {
                         normalizedVisualState,
                         r.getLiveStatusState()
                 );
-                normalized.add(updated);
-                updatedAny = true;
-            } else {
-                normalized.add(r);
             }
+            MemoryRecord evidenceNormalizedRecord =
+                    MemoryRecordEvidenceNormalizer.normalize(imageNormalizedRecord);
+            normalized.add(evidenceNormalizedRecord);
+            updatedAny = updatedAny
+                    || imageNormalizedRecord != r
+                    || evidenceNormalizedRecord != imageNormalizedRecord;
         }
         if (updatedAny) {
             records = normalized;
-            // persist normalized records
             persist(records);
-            cachedRawRecords = new org.json.JSONArray().toString();
+            raw = preferences.getString(KEY_RECORDS, "[]");
         }
         sortNewestFirst(records);
         cachedRawRecords = raw;

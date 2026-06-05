@@ -3,7 +3,7 @@ package com.han.nomemo;
 import androidx.annotation.Nullable;
 
 public final class AiPromptBuilder {
-    public static final String PROMPT_VERSION = "nomemo-prompt-v4";
+    public static final String PROMPT_VERSION = "nomemo-prompt-v5";
     public static final String SCHEMA_VERSION = "memory-facts-v1";
 
     private static final int FULL_IMAGE_MAX_SIZE = 1024;
@@ -143,6 +143,9 @@ public final class AiPromptBuilder {
         builder.append("- DOCUMENT_RICH titles should stay within 2-6 Chinese characters, with sparse emoji and no Markdown bullet lists.\n\n");
         builder.append("# Forbidden\n");
         builder.append("- Do not treat order numbers, tracking numbers, waybill numbers, phone numbers, amounts, dates, or times as pickup/takeout codes.\n");
+        builder.append("- Never create a code by joining digits across '/', ':', date, time, phone, amount, order-number, or tracking-number boundaries. Spaces may be folded only inside one visibly isolated code.\n");
+        builder.append("- Email, invitation, announcement, article, and informational-document content must stay QUICK_NOTE unless explicit logistics or takeout evidence is visible.\n");
+        builder.append("- A location must be an explicit address/place phrase. Do not extract prose fragments merely because they contain a single character such as 门, 店, or 区.\n");
         builder.append("- Do not invent facts. Use null and low confidence when unsupported.\n");
         builder.append("- Do not include Markdown or explanatory text.\n\n");
         builder.append("# Output JSON\n");
@@ -163,6 +166,8 @@ public final class AiPromptBuilder {
         builder.append("Use localCandidatesJson first: choose supported facts from candidates; only add facts directly visible in input/OCR.\n");
         builder.append("For order-detail screenshots, a top isolated 3-6 digit code can be treated as a pickupCode candidate only when merchant or order-detail context supports it.\n");
         builder.append("Never treat order/tracking/waybill/phone/amount/date/time as pickupCode. Unsupported facts must be null/0.0.\n");
+        builder.append("Never join digits across '/', ':', date/time, phone, amount, order, or tracking boundaries. Email/invitation/document content stays QUICK_NOTE without explicit transaction evidence.\n");
+        builder.append("A location needs address/place semantics; a prose fragment containing only 门, 店, or 区 is not a location.\n");
         builder.append("summary is display-only; structuredFacts drives detail cards.\n");
         builder.append("analysisStyleHint=TRANSACTIONAL means concise 1-3 sentence analysis only. analysisStyleHint=DOCUMENT_RICH means one overview paragraph plus 2-4 themed blocks using 'emoji + short title' and one explanation paragraph each.\n");
         builder.append("pickupCodeEvidence and locationEvidence must be short evidence snippets from visible input/OCR.\n");

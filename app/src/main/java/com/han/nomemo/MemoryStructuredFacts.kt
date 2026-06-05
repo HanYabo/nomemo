@@ -104,7 +104,7 @@ object MemoryFactExtractor {
     )
 
     private val codeLabelRegex = Regex(
-        """(?i)(取件码|取餐码|提货码|取货码|自提码|核销码|领取码|收货码|凭码|柜号|格口号|货架号|架位号|尾号|验证码)\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9\-_]{0,14})"""
+        """(?i)(取件码|取件号|取餐码|取餐号|提货码|提货号|取货码|取货号|自提码|自提号|核销码|领取码|收货码|凭码|柜号|格口号|货架号|架位号|尾号|验证码)\s*[:：]?\s*([A-Za-z0-9][A-Za-z0-9\-_]{0,14})"""
     )
     private val stationCodeRegex = Regex("""(?<![A-Za-z0-9])([A-Za-z]?\d{1,2}-\d{1,2}-\d{2,5})(?![A-Za-z0-9])""")
     private val genericShortCodeRegex = Regex("""(?<![A-Za-z0-9])([A-Za-z]\d{2,5}|\d{4,6})(?![A-Za-z0-9])""")
@@ -122,14 +122,9 @@ object MemoryFactExtractor {
         "瑞幸", "星巴克", "幸运咖", "蜜雪冰城", "奈雪", "喜茶", "库迪", "肯德基",
         "麦当劳", "美团", "饿了么"
     )
-    private val locationTokens = listOf(
-        "省", "市", "区", "县", "镇", "乡", "村", "路", "街", "道", "号", "楼",
-        "栋", "单元", "室", "门", "店", "校区", "园区", "广场", "中心", "小区",
-        "公寓", "大学", "学校", "医院", "驿站", "快递柜", "自提点", "取件点",
-        "取餐点", "食堂", "窗口", "前台", "菜鸟", "丰巢"
-    )
     private val locationStopLabels = listOf(
-        "取件码", "取餐码", "提货码", "取货码", "自提码", "核销码", "验证码",
+        "取件码", "取件号", "取餐码", "取餐号", "提货码", "提货号", "取货码", "取货号",
+        "自提码", "自提号", "核销码", "验证码",
         "订单号", "订单编号", "运单号", "快递单号", "物流单号", "金额", "应付",
         "实付", "状态", "商品", "餐品", "物品", "电话", "手机号"
     )
@@ -483,7 +478,18 @@ object MemoryFactExtractor {
 
     private fun looksLikeLocation(value: String): Boolean {
         if (value.length < 2 || isStatusLike(value)) return false
-        return locationTokens.any { value.contains(it, ignoreCase = true) }
+        if (value.containsAny(
+                "校区", "园区", "广场", "中心", "小区", "公寓", "大学", "学校", "医院",
+                "驿站", "快递柜", "自提点", "取件点", "取餐点", "食堂", "窗口", "前台",
+                "办公室", "会议室", "教室", "宿舍", "大厅", "车站", "机场", "商场",
+                "菜鸟", "丰巢", "北门", "南门", "东门", "西门", "正门", "门店"
+            )
+        ) {
+            return true
+        }
+        return Regex(
+            """[\p{L}\d]{2,}(?:省|市|区|县|镇|乡|村|路|街|大道|巷|弄|号|楼|栋|单元|室)"""
+        ).containsMatchIn(value)
     }
 
     private fun isStatusLike(value: String): Boolean {
@@ -499,6 +505,21 @@ object MemoryFactExtractor {
 }
 
 object MemoryFactReconciler {
+    private val legacyStructuredTemplateLine = Regex(
+        """^(取件码|取餐码|提货码|取货码|快递公司|物流公司|取件地址|取餐地址|店铺|门店|商品|餐品|地点)\s*[:：]\s*$"""
+    )
+    private val codeDateTimePatterns = listOf(
+        Regex("""(?<!\d)(?:20\d{2}[年./-])?\d{1,2}[月./-]\d{1,2}日?\s+\d{1,2}[:：]\d{2}(?!\d)"""),
+        Regex("""(?<!\d)20\d{2}[年./-]\d{1,2}[月./-]\d{1,2}日?(?!\d)"""),
+        Regex("""(?<!\d)\d{1,2}[:：]\d{2}(?!\d)""")
+    )
+    private val phonePattern = Regex("""(?<!\d)1\d{10}(?!\d)""")
+    private val amountPattern = Regex("""(?:[¥￥$]\s*\d+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?\s*元)""")
+    private val strongLocationPattern = Regex(
+        """(?:校区|园区|广场|中心|小区|公寓|大学|学校|医院|驿站|快递柜|自提点|取件点|取餐点|食堂|窗口|前台|办公室|会议室|教室|宿舍|大厅|车站|机场|商场|菜鸟|丰巢|北门|南门|东门|西门|正门|门店|教学楼|办公楼|宿舍楼|实验楼|综合楼|[\p{L}\d]{2,}(?:省|县|镇|乡|村|路|街|大道|巷|弄)|[\p{L}\d]{2,}市(?!场)|[\p{L}\d]{2,}区(?!块|别|域|分)|\d+\s*(?:号楼|号|楼|栋|单元|室))""",
+        RegexOption.IGNORE_CASE
+    )
+
     @JvmStatic
     fun reconcileToJson(
         userText: String?,
@@ -510,9 +531,15 @@ object MemoryFactReconciler {
         categoryCode: String?
     ): String {
         val aiFacts = MemoryStructuredFactsJson.parse(aiStructuredFactsJson)
-        val allowGeneratedTextFallback = userText.isNullOrBlank() && aiFacts?.rawVisibleText.isNullOrBlank()
+        val cleanedUserText = cleanLegacyStructuredTemplateText(userText)
+        val primaryEvidence = listOf(cleanedUserText, aiFacts?.rawVisibleText)
+            .filterNotNull()
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("\n")
+        val allowGeneratedTextFallback = primaryEvidence.isBlank()
         val localFacts = MemoryFactExtractor.extractLocalFacts(
-            userText = userText,
+            userText = cleanedUserText,
             aiRawVisibleText = aiFacts?.rawVisibleText,
             memory = if (allowGeneratedTextFallback) memory else null,
             analysis = if (allowGeneratedTextFallback) analysis else null,
@@ -524,17 +551,86 @@ object MemoryFactReconciler {
             reconcile(
                 aiFacts = aiFacts,
                 localFacts = localFacts,
-                supportText = listOf(
-                    userText,
-                    aiFacts?.rawVisibleText,
-                    if (userText.isNullOrBlank()) memory else null,
-                    if (userText.isNullOrBlank()) analysis else null,
-                    if (userText.isNullOrBlank()) summary else null,
-                    if (userText.isNullOrBlank()) title else null
-                ).filterNotNull().joinToString("\n"),
-                categoryCode = categoryCode
+                supportText = primaryEvidence.ifBlank {
+                    listOf(memory, analysis, summary, title)
+                        .filterNotNull()
+                        .joinToString("\n")
+                }
             )
         )
+    }
+
+    @JvmStatic
+    fun cleanLegacyStructuredTemplateText(value: String?): String {
+        val original = value.orEmpty()
+        val text = original.trim()
+        if (text.isBlank()) return ""
+        val lines = text.lines().map { it.trim() }.filter { it.isNotEmpty() }
+        if (lines.size >= 2 && lines.all { legacyStructuredTemplateLine.matches(it) }) {
+            return ""
+        }
+        return original
+    }
+
+    @JvmStatic
+    fun sanitizeFactsAgainstEvidence(
+        evidenceText: String?,
+        structuredFactsJson: String?,
+        categoryCode: String?
+    ): String {
+        return reconcileToJson(
+            userText = cleanLegacyStructuredTemplateText(evidenceText),
+            aiStructuredFactsJson = structuredFactsJson,
+            title = null,
+            summary = null,
+            analysis = null,
+            memory = null,
+            categoryCode = categoryCode
+        )
+    }
+
+    @JvmStatic
+    fun mergeEditedStructuredFacts(
+        structuredFactsJson: String?,
+        categoryCode: String?,
+        code: String?,
+        primaryValue: String?,
+        secondaryValue: String?,
+        locationText: String?
+    ): String {
+        val existing = MemoryStructuredFactsJson.parse(structuredFactsJson) ?: MemoryStructuredFacts()
+        val normalizedCode = sanitizeCodeValue(code)
+        val normalizedPrimary = sanitizeFactValue(primaryValue)
+        val normalizedSecondary = sanitizeFactValue(secondaryValue)
+        val normalizedLocation = sanitizeFactValue(locationText)
+        val domain = domainForCategory(categoryCode)
+        val updated = when (domain) {
+            DOMAIN_DELIVERY -> existing.copy(
+                domain = DOMAIN_DELIVERY,
+                pickupCode = normalizedCode,
+                pickupCodeType = normalizedCode?.let { existing.pickupCodeType ?: "package" },
+                pickupCodeConfidence = if (normalizedCode == null) 0.0 else 1.0,
+                pickupCodeEvidence = normalizedCode?.let { "manual_edit" },
+                merchantOrCompany = normalizedPrimary,
+                location = normalizedLocation ?: normalizedSecondary,
+                locationConfidence = if (normalizedLocation != null || normalizedSecondary != null) 1.0 else 0.0,
+                locationEvidence = (normalizedLocation ?: normalizedSecondary)?.let { "manual_edit" }
+            )
+            DOMAIN_PICKUP -> existing.copy(
+                domain = DOMAIN_PICKUP,
+                pickupCode = normalizedCode,
+                pickupCodeType = normalizedCode?.let { existing.pickupCodeType ?: "meal" },
+                pickupCodeConfidence = if (normalizedCode == null) 0.0 else 1.0,
+                pickupCodeEvidence = normalizedCode?.let { "manual_edit" },
+                merchantOrCompany = normalizedPrimary,
+                itemName = normalizedSecondary,
+                location = normalizedLocation,
+                locationConfidence = if (normalizedLocation == null) 0.0 else 1.0,
+                locationEvidence = normalizedLocation?.let { "manual_edit" }
+            )
+            else -> existing.copy(domain = domain)
+        }
+        return MemoryStructuredFactsJson.toJson(updated)
     }
 
     @JvmStatic
@@ -582,6 +678,46 @@ object MemoryFactReconciler {
         }
     }
 
+    @JvmStatic
+    fun normalizeCategoryCode(
+        categoryCode: String?,
+        structuredFactsJson: String?,
+        evidenceText: String?
+    ): String {
+        val facts = MemoryStructuredFactsJson.parse(structuredFactsJson)
+        val evidence = listOf(cleanLegacyStructuredTemplateText(evidenceText), facts?.rawVisibleText)
+            .filterNotNull()
+            .filter { it.isNotBlank() }
+            .distinct()
+            .joinToString("\n")
+        if (evidence.isBlank()) {
+            return normalizeCategoryCode(categoryCode, structuredFactsJson)
+        }
+        val codeIsManual = facts?.pickupCodeEvidence == "manual_edit"
+        val hasReliableCode = !facts?.pickupCode.isNullOrBlank() &&
+            (facts?.pickupCodeConfidence ?: 0.0) >= 0.55 &&
+            (codeIsManual || isCodeSupportedBySource(facts?.pickupCode.orEmpty(), evidence, facts?.pickupCodeType))
+        val hasPickupScene = hasStrongPickupScene(evidence)
+        val hasDeliveryScene = hasStrongDeliveryScene(evidence)
+        val normalizedCategory = categoryCode ?: CategoryCatalog.CODE_QUICK_NOTE
+        val resolved = when {
+            facts?.domain == DOMAIN_PICKUP && (hasReliableCode || hasPickupScene) ->
+                CategoryCatalog.CODE_LIFE_PICKUP
+            facts?.domain == DOMAIN_DELIVERY && (hasReliableCode || hasDeliveryScene) ->
+                CategoryCatalog.CODE_LIFE_DELIVERY
+            normalizedCategory == CategoryCatalog.CODE_LIFE_PICKUP && !hasReliableCode && !hasPickupScene ->
+                CategoryCatalog.CODE_QUICK_NOTE
+            normalizedCategory == CategoryCatalog.CODE_LIFE_DELIVERY && !hasReliableCode && !hasDeliveryScene ->
+                CategoryCatalog.CODE_QUICK_NOTE
+            else -> normalizedCategory
+        }
+        return normalizeCategoryCodeForText(
+            resolved,
+            evidence,
+            looksLikeInformationalDocument(normalizeVisibleText(evidence).lowercase(Locale.ROOT))
+        )
+    }
+
     private fun domainForCategory(categoryCode: String?): String {
         return when (categoryCode) {
             CategoryCatalog.CODE_LIFE_PICKUP -> DOMAIN_PICKUP
@@ -601,37 +737,49 @@ object MemoryFactReconciler {
         documentRich: Boolean
     ): String {
         val normalizedCategory = categoryCode ?: CategoryCatalog.CODE_QUICK_NOTE
-        if (normalizedCategory != CategoryCatalog.CODE_LIFE_TICKET) {
-            return normalizedCategory
-        }
         val source = normalizeVisibleText(sourceText).lowercase(Locale.ROOT)
-        if (source.isBlank() || hasStrongTicketSignal(source)) {
+        if (source.isBlank()) {
             return normalizedCategory
         }
-        return if (documentRich || looksLikeInformationalDocument(source)) {
-            CategoryCatalog.CODE_QUICK_NOTE
-        } else {
-            normalizedCategory
+        return when (normalizedCategory) {
+            CategoryCatalog.CODE_LIFE_TICKET -> {
+                if (hasStrongTicketSignal(source)) {
+                    normalizedCategory
+                } else if (documentRich || looksLikeInformationalDocument(source)) {
+                    CategoryCatalog.CODE_QUICK_NOTE
+                } else {
+                    normalizedCategory
+                }
+            }
+            CategoryCatalog.CODE_LIFE_PICKUP -> {
+                if (looksLikeInformationalDocument(source) && !hasStrongPickupScene(source)) {
+                    CategoryCatalog.CODE_QUICK_NOTE
+                } else {
+                    normalizedCategory
+                }
+            }
+            CategoryCatalog.CODE_LIFE_DELIVERY -> {
+                if (looksLikeInformationalDocument(source) && !hasStrongDeliveryScene(source)) {
+                    CategoryCatalog.CODE_QUICK_NOTE
+                } else {
+                    normalizedCategory
+                }
+            }
+            else -> normalizedCategory
         }
     }
 
     @JvmStatic
     fun normalizeCategoryCodeForRecord(record: MemoryRecord): String {
-        val normalizedCategory = normalizeCategoryCode(record.categoryCode, record.structuredFactsJson)
         val facts = MemoryStructuredFactsJson.parse(record.structuredFactsJson)
         val source = listOf(
-            record.title,
-            record.summary,
+            facts?.rawVisibleText,
+            cleanLegacyStructuredTemplateText(record.sourceText),
+            cleanLegacyStructuredTemplateText(record.note),
             record.memory,
-            record.analysis,
-            record.sourceText,
-            facts?.rawVisibleText
+            record.analysis
         ).filterNotNull().joinToString("\n")
-        return normalizeCategoryCodeForText(
-            normalizedCategory,
-            source,
-            looksLikeInformationalDocument(normalizeVisibleText(source).lowercase(Locale.ROOT))
-        )
+        return normalizeCategoryCode(record.categoryCode, record.structuredFactsJson, source)
     }
 
     fun structuredPickupInfo(categoryCode: String?, structuredFactsJson: String?): StructuredPickupInfo? {
@@ -672,22 +820,26 @@ object MemoryFactReconciler {
     private fun reconcile(
         aiFacts: MemoryStructuredFacts?,
         localFacts: MemoryStructuredFacts,
-        supportText: String,
-        categoryCode: String?
+        supportText: String
     ): MemoryStructuredFacts {
-        val domain = displayDomain(
-            categoryCode,
-            aiFacts?.domain?.takeUnless { it == DOMAIN_NOTE } ?: localFacts.domain
-        )
         val pickupCode = chooseCode(aiFacts, localFacts, supportText)
-        val location = chooseValue(
+        val location = chooseLocation(
             aiValue = aiFacts?.location,
             aiConfidence = aiFacts?.locationConfidence ?: 0.0,
+            aiEvidence = aiFacts?.locationEvidence,
             localValue = localFacts.location,
             localConfidence = localFacts.locationConfidence,
             supportText = supportText,
             minAiConfidence = 0.62,
             minLocalConfidence = 0.48
+        )
+        val preferredDomain = aiFacts?.domain?.takeUnless { it == DOMAIN_NOTE } ?: localFacts.domain
+        val domain = resolveEvidenceDomain(
+            preferredDomain = preferredDomain,
+            localDomain = localFacts.domain,
+            codeType = pickupCode?.second,
+            hasCode = pickupCode != null,
+            supportText = supportText
         )
         return MemoryStructuredFacts(
             domain = domain,
@@ -698,8 +850,18 @@ object MemoryFactReconciler {
             location = location?.first,
             locationConfidence = location?.second ?: 0.0,
             locationEvidence = if (location?.first == aiFacts?.location) aiFacts?.locationEvidence else localFacts.locationEvidence,
-            merchantOrCompany = choosePlainFact(aiFacts?.merchantOrCompany, localFacts.merchantOrCompany, supportText),
-            itemName = choosePlainFact(aiFacts?.itemName, localFacts.itemName, supportText),
+            merchantOrCompany = choosePlainFact(
+                aiFacts?.merchantOrCompany,
+                localFacts.merchantOrCompany,
+                supportText,
+                aiFacts.hasManualEditEvidence()
+            ),
+            itemName = choosePlainFact(
+                aiFacts?.itemName,
+                localFacts.itemName,
+                supportText,
+                aiFacts.hasManualEditEvidence()
+            ),
             orderNumber = choosePlainFact(aiFacts?.orderNumber, localFacts.orderNumber, supportText),
             trackingNumber = choosePlainFact(aiFacts?.trackingNumber, localFacts.trackingNumber, supportText),
             amount = choosePlainFact(aiFacts?.amount, localFacts.amount, supportText),
@@ -719,19 +881,25 @@ object MemoryFactReconciler {
         if (
             aiCode != null &&
             aiConfidence >= 0.72 &&
-            isSupportedBySource(aiCode, supportText)
+            (aiFacts?.pickupCodeEvidence == "manual_edit" ||
+                isCodeSupportedBySource(aiCode, supportText, aiFacts?.pickupCodeType))
         ) {
             return Triple(aiCode, aiFacts?.pickupCodeType, aiConfidence.coerceIn(0.0, 1.0))
         }
-        if (localCode != null && localFacts.pickupCodeConfidence >= 0.55) {
+        if (
+            localCode != null &&
+            localFacts.pickupCodeConfidence >= 0.55 &&
+            isCodeSupportedBySource(localCode, supportText, localFacts.pickupCodeType)
+        ) {
             return Triple(localCode, localFacts.pickupCodeType, localFacts.pickupCodeConfidence.coerceIn(0.0, 1.0))
         }
         return null
     }
 
-    private fun chooseValue(
+    private fun chooseLocation(
         aiValue: String?,
         aiConfidence: Double,
+        aiEvidence: String?,
         localValue: String?,
         localConfidence: Double,
         supportText: String,
@@ -742,23 +910,36 @@ object MemoryFactReconciler {
         if (
             cleanedAi != null &&
             aiConfidence >= minAiConfidence &&
-            isSupportedBySource(cleanedAi, supportText)
+            (aiEvidence == "manual_edit" || isLocationSupportedBySource(cleanedAi, supportText))
         ) {
             return cleanedAi to aiConfidence.coerceIn(0.0, 1.0)
         }
         val cleanedLocal = sanitizeFactValue(localValue)
-        if (cleanedLocal != null && localConfidence >= minLocalConfidence) {
+        if (
+            cleanedLocal != null &&
+            localConfidence >= minLocalConfidence &&
+            isLocationSupportedBySource(cleanedLocal, supportText)
+        ) {
             return cleanedLocal to localConfidence.coerceIn(0.0, 1.0)
         }
         return null
     }
 
-    private fun choosePlainFact(aiValue: String?, localValue: String?, supportText: String): String? {
+    private fun choosePlainFact(
+        aiValue: String?,
+        localValue: String?,
+        supportText: String,
+        preserveAiValue: Boolean = false
+    ): String? {
         val cleanedAi = sanitizeFactValue(aiValue) ?: sanitizeCodeValue(aiValue)
-        if (cleanedAi != null && isSupportedBySource(cleanedAi, supportText)) {
+        if (cleanedAi != null && (preserveAiValue || isSupportedBySource(cleanedAi, supportText))) {
             return cleanedAi
         }
         return sanitizeFactValue(localValue) ?: sanitizeCodeValue(localValue)
+    }
+
+    private fun MemoryStructuredFacts?.hasManualEditEvidence(): Boolean {
+        return this?.pickupCodeEvidence == "manual_edit" || this?.locationEvidence == "manual_edit"
     }
 
     private fun displayDomain(categoryCode: String?, domain: String?): String {
@@ -768,6 +949,140 @@ object MemoryFactReconciler {
             categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY -> DOMAIN_DELIVERY
             else -> DOMAIN_NOTE
         }
+    }
+
+    private fun resolveEvidenceDomain(
+        preferredDomain: String?,
+        localDomain: String?,
+        codeType: String?,
+        hasCode: Boolean,
+        supportText: String
+    ): String {
+        val source = normalizeVisibleText(supportText)
+        val pickupScene = hasStrongPickupScene(source)
+        val deliveryScene = hasStrongDeliveryScene(source)
+        if (looksLikeInformationalDocument(source.lowercase(Locale.ROOT)) && !pickupScene && !deliveryScene) {
+            return DOMAIN_NOTE
+        }
+        if (hasCode) {
+            if (codeType == "meal" || pickupScene && !deliveryScene) return DOMAIN_PICKUP
+            if (codeType == "package" || codeType == "shelf" || deliveryScene) return DOMAIN_DELIVERY
+        }
+        if (pickupScene && !deliveryScene) return DOMAIN_PICKUP
+        if (deliveryScene && !pickupScene) return DOMAIN_DELIVERY
+        return when {
+            preferredDomain == DOMAIN_PICKUP || preferredDomain == DOMAIN_DELIVERY -> DOMAIN_NOTE
+            localDomain != null -> localDomain
+            else -> DOMAIN_NOTE
+        }
+    }
+
+    private fun isCodeSupportedBySource(code: String, supportText: String, codeType: String?): Boolean {
+        val cleanedCode = sanitizeCodeValue(code) ?: return false
+        val source = normalizeVisibleText(supportText)
+        if (source.isBlank()) return false
+        if (!hasStrongTransactionScene(source, codeType)) return false
+        val pattern = Regex(buildCodeEvidencePattern(cleanedCode), RegexOption.IGNORE_CASE)
+        return pattern.findAll(source).any { match ->
+            !isBlockedCodeContext(source, match.range)
+        }
+    }
+
+    private fun buildCodeEvidencePattern(code: String): String {
+        val builder = StringBuilder("(?<![A-Za-z0-9])")
+        code.forEachIndexed { index, char ->
+            if (char == '-' || char == '_') {
+                builder.append("""[ \t]*""")
+                    .append(Regex.escape(char.toString()))
+                    .append("""[ \t]*""")
+            } else {
+                builder.append(Regex.escape(char.toString()))
+                val next = code.getOrNull(index + 1)
+                if (next != null && next != '-' && next != '_') {
+                    builder.append("""[ \t]*""")
+                }
+            }
+        }
+        builder.append("(?![A-Za-z0-9])")
+        return builder.toString()
+    }
+
+    private fun isBlockedCodeContext(source: String, range: IntRange): Boolean {
+        val lineStart = source.lastIndexOf('\n', (range.first - 1).coerceAtLeast(0)).let { if (it < 0) 0 else it + 1 }
+        val lineEnd = source.indexOf('\n', range.last + 1).let { if (it < 0) source.length else it }
+        val line = source.substring(lineStart, lineEnd)
+        val hasExplicitPickupLabel = line.containsAny(
+            "取件码", "取件号", "取餐码", "取餐号", "提货码", "提货号",
+            "取货码", "取货号", "自提码", "自提号", "核销码", "货架号", "架位号"
+        )
+        if (source.getOrNull(range.first - 1) == '/' || source.getOrNull(range.last + 1) == '/') return true
+        if (
+            !hasExplicitPickupLabel &&
+            (source.getOrNull(range.first - 1) in listOf(':', '：') ||
+                source.getOrNull(range.last + 1) in listOf(':', '：'))
+        ) {
+            return true
+        }
+        if (codeDateTimePatterns.any { pattern -> pattern.findAll(source).any { it.range.overlaps(range) } }) {
+            return true
+        }
+        if (phonePattern.findAll(source).any { it.range.overlaps(range) }) return true
+        if (amountPattern.findAll(source).any { it.range.overlaps(range) }) return true
+        return !hasExplicitPickupLabel && line.containsAny(
+            "订单号", "订单编号", "运单号", "快递单号", "物流单号", "手机号", "电话", "金额", "应付", "实付"
+        )
+    }
+
+    private fun IntRange.overlaps(other: IntRange): Boolean {
+        return first <= other.last && other.first <= last
+    }
+
+    private fun hasStrongTransactionScene(source: String, codeType: String?): Boolean {
+        return when (codeType) {
+            "meal" -> hasStrongPickupScene(source)
+            "package", "shelf" -> hasStrongDeliveryScene(source)
+            else -> hasStrongPickupScene(source) || hasStrongDeliveryScene(source)
+        }
+    }
+
+    private fun hasStrongPickupScene(source: String): Boolean {
+        return source.containsAny(
+            "取餐码", "待取餐", "取餐", "外卖", "餐品", "菜品", "门店已接单",
+            "订单详情", "订单已完成", "商品总价", "咖啡", "奶茶", "饮品", "饮料", "到店自取",
+            "喜茶", "瑞幸", "星巴克", "库迪", "肯德基", "麦当劳", "美团", "饿了么"
+        )
+    }
+
+    private fun hasStrongDeliveryScene(source: String): Boolean {
+        return source.containsAny(
+            "取件码", "待取件", "取件", "快递", "包裹", "驿站", "菜鸟", "丰巢",
+            "快递柜", "自提点", "物流", "运单", "派送", "签收", "货架号", "架位号"
+        )
+    }
+
+    private fun isLocationSupportedBySource(value: String, supportText: String): Boolean {
+        val cleaned = sanitizeFactValue(value) ?: return false
+        if (!hasAddressSemantics(cleaned, supportText)) return false
+        val normalizedValue = normalizeVisibleText(cleaned)
+            .lowercase(Locale.ROOT)
+            .replace(Regex("""\s+"""), "")
+        val normalizedSource = normalizeVisibleText(supportText)
+            .lowercase(Locale.ROOT)
+            .replace(Regex("""\s+"""), "")
+        return normalizedValue.isNotBlank() && normalizedSource.contains(normalizedValue)
+    }
+
+    private fun hasAddressSemantics(value: String, supportText: String): Boolean {
+        val normalizedValue = normalizeVisibleText(value)
+        if (normalizedValue.length !in 2..80) return false
+        if (!strongLocationPattern.containsMatchIn(normalizedValue)) return false
+        if (
+            normalizedValue.containsAny("这是", "我们", "活动", "计划", "申请", "参与", "发放", "内容", "权益", "将在") &&
+            !supportText.containsAny("地址:", "地址：", "地点:", "地点：", "取件地址", "取餐地址", "门店地址")
+        ) {
+            return false
+        }
+        return true
     }
 
     private fun isSupportedBySource(value: String, supportText: String): Boolean {

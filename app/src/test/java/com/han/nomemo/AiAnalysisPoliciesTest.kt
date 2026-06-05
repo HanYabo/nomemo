@@ -37,7 +37,7 @@ class AiAnalysisPoliciesTest {
     }
 
     @Test
-    fun `reanalyze economy policy keeps rescue budget even when auto retry setting is off`() {
+    fun `reanalyze economy policy uses one attempt when auto retry is off`() {
         val policy = AiAnalysisPolicies.resolve(
             true,
             false,
@@ -45,17 +45,32 @@ class AiAnalysisPoliciesTest {
         )
 
         assertEquals(AiCostMode.ECONOMY, policy.costMode)
-        assertEquals(2, policy.cloudAttemptLimit)
-        assertEquals(3, policy.totalAttemptLimit)
+        assertEquals(1, policy.cloudAttemptLimit)
+        assertEquals(1, policy.totalAttemptLimit)
         assertFalse(policy.isAllowLocalFallback)
-        assertTrue(policy.isAllowFullPromptRescue)
+        assertFalse(policy.isAllowFullPromptRescue)
     }
 
     @Test
-    fun `reanalyze standard policy uses bounded retry budget`() {
+    fun `reanalyze standard policy uses one attempt when auto retry is off`() {
         val policy = AiAnalysisPolicies.resolve(
             false,
             false,
+            AiOperationKind.REANALYZE
+        )
+
+        assertEquals(AiCostMode.STANDARD, policy.costMode)
+        assertEquals(1, policy.cloudAttemptLimit)
+        assertEquals(1, policy.totalAttemptLimit)
+        assertFalse(policy.isAllowLocalFallback)
+        assertFalse(policy.isAllowFullPromptRescue)
+    }
+
+    @Test
+    fun `reanalyze standard policy uses three attempts when auto retry is enabled`() {
+        val policy = AiAnalysisPolicies.resolve(
+            false,
+            true,
             AiOperationKind.REANALYZE
         )
 
@@ -121,5 +136,19 @@ class AiAnalysisPoliciesTest {
         assertEquals(3, policy.totalAttemptLimit)
         assertFalse(policy.isAllowLocalFallback)
         assertTrue(policy.isAllowFullPromptRescue)
+    }
+
+    @Test
+    fun `restore keeps single-attempt economy reanalysis without rescue`() {
+        val policy = AiAnalysisPolicies.restore(
+            AiOperationKind.REANALYZE,
+            AiCostMode.ECONOMY,
+            1
+        )
+
+        assertEquals(1, policy.cloudAttemptLimit)
+        assertEquals(1, policy.totalAttemptLimit)
+        assertFalse(policy.isAllowLocalFallback)
+        assertFalse(policy.isAllowFullPromptRescue)
     }
 }

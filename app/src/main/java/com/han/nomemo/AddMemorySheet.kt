@@ -122,6 +122,7 @@ fun AddMemorySheet(
     var visible by remember(useInternalTransition) { mutableStateOf(!useInternalTransition) }
     var dismissCommitted by remember { mutableStateOf(false) }
     var showExitConfirm by remember { mutableStateOf(false) }
+    val hasChanges = inputText.isNotBlank() || selectedImageUri != null
 
     val defaultCategory = remember { CategoryCatalog.getQuickCategories().first() }
     val allCategories = remember { CategoryCatalog.getAllCategories() }
@@ -365,7 +366,8 @@ fun AddMemorySheet(
                         iconRes = R.drawable.ic_sheet_check,
                         contentDescription = "确认",
                         onClick = performSaveAndDismiss,
-                        size = adaptive.topActionButtonSize
+                        size = adaptive.topActionButtonSize,
+                        tint = if (hasChanges) if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null
                     )
                 }
                 Column(
@@ -592,13 +594,15 @@ private fun SheetHeaderButton(
     iconRes: Int,
     contentDescription: String,
     onClick: () -> Unit,
-    size: androidx.compose.ui.unit.Dp
+    size: androidx.compose.ui.unit.Dp,
+    tint: Color? = null
 ) {
     GlassIconCircleButton(
         iconRes = iconRes,
         contentDescription = contentDescription,
         onClick = onClick,
-        size = size
+        size = size,
+        tint = tint
     )
 }
 

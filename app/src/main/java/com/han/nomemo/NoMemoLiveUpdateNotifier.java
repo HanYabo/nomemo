@@ -1,6 +1,7 @@
 package com.han.nomemo;
 
 import android.Manifest;
+import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
@@ -84,7 +85,24 @@ public final class NoMemoLiveUpdateNotifier {
         }
         Context appContext = context.getApplicationContext();
         ensureChannel(appContext);
+        cancelMemoryLiveStatus(appContext, record.getRecordId());
+        Notification notification = buildAiAnalysisNotification(
+                appContext,
+                record,
+                attempt,
+                attemptLimit
+        );
+        safeNotify(appContext, aiAnalysisNotificationId(record.getRecordId()), notification);
+    }
 
+    public static Notification buildAiAnalysisNotification(
+            Context context,
+            MemoryRecord record,
+            int attempt,
+            int attemptLimit
+    ) {
+        Context appContext = context.getApplicationContext();
+        ensureChannel(appContext);
         AiAnalysisState state = AiAnalysisStateJson.parse(record.getAiAnalysisStateJson());
         boolean reanalyze = state != null && state.getOperationKind() == AiOperationKind.REANALYZE;
         boolean retrying = Math.max(1, attempt) >= 2;
@@ -96,7 +114,6 @@ public final class NoMemoLiveUpdateNotifier {
         String bigText = content + "，完成后会自动更新记忆详情。";
 
         PendingIntent contentIntent = buildMemoryDetailPendingIntent(appContext, record.getRecordId());
-        cancelMemoryLiveStatus(appContext, record.getRecordId());
         NotificationCompat.Builder builder = baseBuilder(appContext)
                 .setSmallIcon(resolveAiAnalysisIcon(record, reanalyze))
                 .setColor(resolveAiAnalysisColor(record, reanalyze))
@@ -109,7 +126,8 @@ public final class NoMemoLiveUpdateNotifier {
                 .setContentIntent(contentIntent)
                 .setWhen(System.currentTimeMillis())
                 .setShowWhen(true)
-                .setUsesChronometer(true);
+                .setUsesChronometer(true)
+                .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE);
 
         if (!reanalyze) {
             builder.addAction(
@@ -119,7 +137,7 @@ public final class NoMemoLiveUpdateNotifier {
             );
         }
 
-        safeNotify(appContext, buildAiNotificationId(record.getRecordId()), builder);
+        return builder.build();
     }
 
     public static void cancelAiAnalysis(Context context, String recordId) {
@@ -127,7 +145,7 @@ public final class NoMemoLiveUpdateNotifier {
             return;
         }
         NotificationManagerCompat.from(context.getApplicationContext())
-                .cancel(buildAiNotificationId(recordId));
+                .cancel(aiAnalysisNotificationId(recordId));
     }
 
     public static void notifyAssistantAiAnalysis(
@@ -322,8 +340,16 @@ public final class NoMemoLiveUpdateNotifier {
             int notificationId,
             NotificationCompat.Builder builder
     ) {
+        safeNotify(context, notificationId, builder.build());
+    }
+
+    private static void safeNotify(
+            Context context,
+            int notificationId,
+            Notification notification
+    ) {
         try {
-            NotificationManagerCompat.from(context).notify(notificationId, builder.build());
+            NotificationManagerCompat.from(context).notify(notificationId, notification);
         } catch (SecurityException ignored) {
         }
     }
@@ -436,7 +462,7 @@ public final class NoMemoLiveUpdateNotifier {
                 | (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M ? PendingIntent.FLAG_IMMUTABLE : 0);
     }
 
-    private static int buildAiNotificationId(String recordId) {
+    public static int aiAnalysisNotificationId(String recordId) {
         return ("live:ai:" + recordId).hashCode();
     }
 

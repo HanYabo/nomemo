@@ -1,6 +1,7 @@
 package com.han.nomemo
 
 import android.app.Activity
+import android.graphics.Color
 import android.os.Build
 import android.view.WindowManager
 import androidx.core.view.WindowCompat
@@ -19,7 +20,11 @@ object WindowStyleManager {
         )
         window.statusBarColor = config.statusBarColor
         window.navigationBarColor = config.navigationBarColor
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            window.navigationBarDividerColor = Color.TRANSPARENT
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isStatusBarContrastEnforced = false
             window.isNavigationBarContrastEnforced = false
         }
 

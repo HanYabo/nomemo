@@ -18,6 +18,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.text.SimpleDateFormat;
@@ -37,7 +38,6 @@ public class AiMemoryService {
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 30_000;
     private static final int MIN_REPAIR_MAX_TOKENS = 900;
-    private static final long RETRY_BASE_DELAY_MS = 1_500L;
     private static final long RETRY_MAX_DELAY_MS = 8_000L;
     private static final int GROUP_ORGANIZE_BATCH_SIZE = 18;
     private static final int GROUP_ORGANIZE_FIELD_MAX = 160;
@@ -166,6 +166,7 @@ public class AiMemoryService {
         boolean fullPromptRescueUsed = false;
         int attemptsPerformed = 0;
         int totalAttemptLimit = policy.getTotalAttemptLimit();
+        AiPreparedRequest primaryPreparedRequest = null;
         if (hasCloudConfigFor(requestMode)) {
             for (int attempt = 1; attempt <= policy.getCloudAttemptLimit(); attempt++) {
                 attemptsPerformed = attempt;
@@ -173,16 +174,26 @@ public class AiMemoryService {
                     attemptListener.onAttempt(attempt, totalAttemptLimit);
                 }
                 try {
+                    if (primaryPreparedRequest == null) {
+                        primaryPreparedRequest = prepareCloudRequest(
+                                safeText,
+                                imageUri,
+                                enhanced,
+                                safeContext,
+                                requestMode,
+                                policy.getCostMode() == AiCostMode.ECONOMY,
+                                localEvidence,
+                                analysisStyleHint,
+                                null
+                        );
+                        warmEndpointDnsBeforeFirstRequest();
+                    }
                     CloudGenerationResult cloudResult = generateByCloud(
+                            primaryPreparedRequest,
                             safeText,
                             imageUri,
-                            enhanced,
-                            safeContext,
                             policy,
-                            requestMode,
-                            policy.getCostMode() == AiCostMode.ECONOMY,
-                            localEvidence,
-                            analysisStyleHint
+                            localEvidence
                     );
                     repairUsed = repairUsed || cloudResult.isRepairUsed();
                     logAttemptSuccess(policy, attempt, totalAttemptLimit, cloudResult);
@@ -203,31 +214,53 @@ public class AiMemoryService {
                     logAttemptFailure(policy, attempt, totalAttemptLimit, exception, requestMode, resolveModelForMode(requestMode));
                 }
                 if (attempt < policy.getCloudAttemptLimit()) {
-                    if (!shouldRetryCloudFailure(lastCloudError, lastFailureStage)) {
+                    if (!shouldRetryCloudFailure(
+                            lastCloudError,
+                            lastFailureStage,
+                            attempt,
+                            totalAttemptLimit
+                    )) {
                         logRetrySkipped(policy, attempt, totalAttemptLimit, lastCloudError, lastFailureStage);
                         break;
                     }
-                    if (!sleepBeforeRetry(attempt)) {
+                    if (!sleepBeforeRetry(attempt, lastCloudError, lastFailureStage)) {
                         break;
                     }
                 }
             }
             if (lastCloudError != null
                     && policy.isAllowFullPromptRescue()
-                    && shouldUseFullPromptRescue(lastCloudError, lastFailureStage)) {
+                    && shouldUseFullPromptRescue(
+                            lastCloudError,
+                            lastFailureStage,
+                            policy.getCloudAttemptLimit(),
+                            totalAttemptLimit
+                    )) {
                 fullPromptRescueUsed = true;
                 attemptsPerformed = totalAttemptLimit;
+                if (attemptListener != null) {
+                    attemptListener.onAttempt(totalAttemptLimit, totalAttemptLimit);
+                }
                 try {
-                    CloudGenerationResult cloudResult = generateByCloud(
+                    AiPreparedRequest rescuePreparedRequest = prepareCloudRequest(
                             safeText,
                             imageUri,
                             enhanced,
                             safeContext,
-                            policy,
                             requestMode,
                             false,
                             localEvidence,
-                            analysisStyleHint
+                            analysisStyleHint,
+                            primaryPreparedRequest == null
+                                    ? null
+                                    : primaryPreparedRequest.getImagePayload()
+                    );
+                    CloudGenerationResult cloudResult = generateByCloud(
+                            rescuePreparedRequest,
+                            safeText,
+                            imageUri,
+                            policy,
+                            localEvidence
                     );
                     repairUsed = repairUsed || cloudResult.isRepairUsed();
                     logAttemptSuccess(policy, totalAttemptLimit, totalAttemptLimit, cloudResult);
@@ -336,8 +369,87 @@ public class AiMemoryService {
         );
     }
 
-    private boolean sleepBeforeRetry(int retryIndex) {
-        long delayMs = Math.min(RETRY_BASE_DELAY_MS * retryIndex, RETRY_MAX_DELAY_MS);
+    private boolean sleepBeforeRetry(
+            int retryIndex,
+            @Nullable Exception exception,
+            @Nullable AiFailureStage failureStage
+    ) {
+        Throwable cause = exception;
+        if (exception instanceof AiGenerationException && exception.getCause() != null) {
+            cause = exception.getCause();
+        }
+        long delayMs = AiCloudFailureClassifier.retryDelayMillis(
+                failureStage,
+                cause,
+                retryIndex
+        );
+        if (!AiCloudFailureClassifier.containsDnsFailure(cause)) {
+            delayMs = Math.min(delayMs, RETRY_MAX_DELAY_MS);
+        }
+        Log.d(
+                TAG,
+                "AI retry scheduled delayMs=" + delayMs
+                        + " failureStage=" + (failureStage == null ? "" : failureStage.name())
+                        + " causeType=" + AiCloudFailureClassifier.causeType(cause)
+        );
+        try {
+            Thread.sleep(delayMs);
+            if (AiCloudFailureClassifier.containsDnsFailure(cause)) {
+                warmEndpointDnsAfterFailure();
+            }
+            return true;
+        } catch (InterruptedException interruptedException) {
+            Thread.currentThread().interrupt();
+            return false;
+        }
+    }
+
+    private void warmEndpointDnsBeforeFirstRequest() {
+        String host = resolveEndpointHost();
+        if (TextUtils.isEmpty(host) || resolveEndpointHostOnce(host)) {
+            return;
+        }
+        Log.d(TAG, "AI endpoint DNS cold; waiting for resolver cache recovery host=" + host);
+        if (!sleepQuietly(12_000L)) {
+            return;
+        }
+        resolveEndpointHostOnce(host);
+    }
+
+    private void warmEndpointDnsAfterFailure() {
+        String host = resolveEndpointHost();
+        if (TextUtils.isEmpty(host)) {
+            return;
+        }
+        resolveEndpointHostOnce(host);
+    }
+
+    private boolean resolveEndpointHostOnce(String host) {
+        try {
+            InetAddress[] addresses = InetAddress.getAllByName(host);
+            boolean resolved = addresses != null && addresses.length > 0;
+            Log.d(TAG, "AI endpoint DNS warmup host=" + host + " resolved=" + resolved);
+            return resolved;
+        } catch (Exception exception) {
+            Log.d(
+                    TAG,
+                    "AI endpoint DNS warmup failed host=" + host
+                            + " causeType=" + AiCloudFailureClassifier.causeType(exception)
+                            + " causeMessage=" + AiCloudFailureClassifier.safeCauseMessage(exception)
+            );
+            return false;
+        }
+    }
+
+    private String resolveEndpointHost() {
+        try {
+            return new URL(resolveChatCompletionsUrl()).getHost();
+        } catch (Exception ignored) {
+            return "";
+        }
+    }
+
+    private boolean sleepQuietly(long delayMs) {
         try {
             Thread.sleep(delayMs);
             return true;
@@ -349,68 +461,38 @@ public class AiMemoryService {
 
     private boolean shouldRetryCloudFailure(
             @Nullable Exception exception,
-            @Nullable AiFailureStage failureStage
+            @Nullable AiFailureStage failureStage,
+            int attempt,
+            int attemptLimit
     ) {
-        if (failureStage == AiFailureStage.JSON_PARSE
-                || failureStage == AiFailureStage.SCHEMA_VALIDATE
-                || failureStage == AiFailureStage.JSON_REPAIR
-                || failureStage == AiFailureStage.TOKEN_EXHAUSTED) {
-            return true;
-        }
-        if (failureStage == AiFailureStage.CONFIGURATION
-                || failureStage == AiFailureStage.IMAGE_INPUT
-                || failureStage == AiFailureStage.MODEL_CAPABILITY
-                || failureStage == AiFailureStage.LOCAL_FALLBACK) {
-            return false;
-        }
-        if (failureStage != AiFailureStage.CLOUD_REQUEST) {
-            return false;
-        }
+        int httpStatus = 0;
+        String providerErrorCode = null;
+        String message = exception == null ? null : exception.getMessage();
+        Throwable cause = exception;
         if (exception instanceof AiGenerationException) {
             AiGenerationException aiException = (AiGenerationException) exception;
-            int httpStatus = aiException.getHttpStatus();
-            if (httpStatus == 408 || httpStatus == 409 || httpStatus == 425 || httpStatus == 429 || httpStatus >= 500) {
-                return true;
-            }
-            if (httpStatus >= 400) {
-                return false;
-            }
-            return looksTransientCloudFailure(
-                    nullToEmpty(aiException.getProviderErrorCode()) + " " + nullToEmpty(aiException.getMessage())
-            );
+            httpStatus = aiException.getHttpStatus();
+            providerErrorCode = aiException.getProviderErrorCode();
+            cause = aiException.getCause() == null ? aiException : aiException.getCause();
         }
-        return looksTransientCloudFailure(exception == null ? "" : exception.getMessage());
+        return AiCloudFailureClassifier.shouldRetry(
+                failureStage,
+                httpStatus,
+                providerErrorCode,
+                message,
+                cause,
+                attempt,
+                attemptLimit
+        );
     }
 
     private boolean shouldUseFullPromptRescue(
             @Nullable Exception exception,
-            @Nullable AiFailureStage failureStage
+            @Nullable AiFailureStage failureStage,
+            int attempt,
+            int attemptLimit
     ) {
-        if (failureStage == AiFailureStage.JSON_PARSE
-                || failureStage == AiFailureStage.SCHEMA_VALIDATE
-                || failureStage == AiFailureStage.JSON_REPAIR
-                || failureStage == AiFailureStage.TOKEN_EXHAUSTED) {
-            return true;
-        }
-        return shouldRetryCloudFailure(exception, failureStage);
-    }
-
-    private boolean looksTransientCloudFailure(@Nullable String rawMessage) {
-        String message = rawMessage == null ? "" : rawMessage.toLowerCase(Locale.ROOT);
-        return message.contains("timeout")
-                || message.contains("timed out")
-                || message.contains("temporary")
-                || message.contains("temporarily")
-                || message.contains("unavailable")
-                || message.contains("overload")
-                || message.contains("overloaded")
-                || message.contains("rate limit")
-                || message.contains("rate_limit")
-                || message.contains("too many requests")
-                || message.contains("connection reset")
-                || message.contains("connection refused")
-                || message.contains("network is unreachable")
-                || message.contains("no route to host");
+        return shouldRetryCloudFailure(exception, failureStage, attempt, attemptLimit);
     }
 
     private boolean hasCloudConfigFor(CloudRequestMode requestMode) {
@@ -632,16 +714,16 @@ public class AiMemoryService {
         return normalized.substring(0, maxLength).trim();
     }
 
-    private CloudGenerationResult generateByCloud(
+    private AiPreparedRequest prepareCloudRequest(
             String userText,
             @Nullable Uri imageUri,
             boolean enhanced,
             @Nullable String detailContext,
-            AiExecutionPolicy policy,
             CloudRequestMode requestMode,
             boolean economyMode,
             LocalEvidenceBundle localEvidence,
-            AiAnalysisStyleHint analysisStyleHint
+            AiAnalysisStyleHint analysisStyleHint,
+            @Nullable EncodedImagePayload cachedImagePayload
     ) throws Exception {
         String localCandidatesJson = localEvidence.getLocalCandidatesJson();
         AiPromptSpec promptSpec = AiPromptBuilder.build(
@@ -653,7 +735,17 @@ public class AiMemoryService {
                 localCandidatesJson,
                 analysisStyleHint
         );
-        AiPreparedRequest preparedRequest = buildPreparedRequest(requestMode, imageUri, promptSpec);
+        return buildPreparedRequest(requestMode, imageUri, promptSpec, cachedImagePayload);
+    }
+
+    private CloudGenerationResult generateByCloud(
+            AiPreparedRequest preparedRequest,
+            String userText,
+            @Nullable Uri imageUri,
+            AiExecutionPolicy policy,
+            LocalEvidenceBundle localEvidence
+    ) throws Exception {
+        preparedRequest = alignPreparedRequestWithCurrentCapabilities(preparedRequest, imageUri);
 
         Exception firstError = null;
         AiModelCapabilityRegistry.ModelCapabilities capabilities =
@@ -667,7 +759,12 @@ public class AiMemoryService {
                     firstError = exception;
                 } else if (isSystemRoleUnsupported(exception) && capabilities.supportsSystemRole()) {
                     AiModelCapabilityRegistry.markSystemRoleUnsupported(preparedRequest.getModel());
-                    preparedRequest = buildPreparedRequest(requestMode, imageUri, promptSpec);
+                    preparedRequest = buildPreparedRequest(
+                            preparedRequest.getRequestMode(),
+                            imageUri,
+                            preparedRequest.getPromptSpec(),
+                            preparedRequest.getImagePayload()
+                    );
                     firstError = exception;
                 } else {
                     throw exception;
@@ -681,7 +778,12 @@ public class AiMemoryService {
             if (isSystemRoleUnsupported(exception)
                     && AiModelCapabilityRegistry.resolve(preparedRequest.getModel()).supportsSystemRole()) {
                 AiModelCapabilityRegistry.markSystemRoleUnsupported(preparedRequest.getModel());
-                AiPreparedRequest adjustedRequest = buildPreparedRequest(requestMode, imageUri, promptSpec);
+                AiPreparedRequest adjustedRequest = buildPreparedRequest(
+                        preparedRequest.getRequestMode(),
+                        imageUri,
+                        preparedRequest.getPromptSpec(),
+                        preparedRequest.getImagePayload()
+                );
                 return requestCloudGeneration(adjustedRequest, userText, imageUri, policy, localEvidence, false);
             }
             if (firstError != null) {
@@ -696,10 +798,36 @@ public class AiMemoryService {
         }
     }
 
+    private AiPreparedRequest alignPreparedRequestWithCurrentCapabilities(
+            AiPreparedRequest preparedRequest,
+            @Nullable Uri imageUri
+    ) throws Exception {
+        AiModelCapabilityRegistry.ModelCapabilities capabilities =
+                AiModelCapabilityRegistry.resolve(preparedRequest.getModel());
+        if (preparedRequest.isUsingSystemRole() && !capabilities.supportsSystemRole()) {
+            return buildPreparedRequest(
+                    preparedRequest.getRequestMode(),
+                    imageUri,
+                    preparedRequest.getPromptSpec(),
+                    preparedRequest.getImagePayload()
+            );
+        }
+        return preparedRequest;
+    }
+
     private AiPreparedRequest buildPreparedRequest(
             CloudRequestMode requestMode,
             @Nullable Uri imageUri,
             AiPromptSpec promptSpec
+    ) throws Exception {
+        return buildPreparedRequest(requestMode, imageUri, promptSpec, null);
+    }
+
+    private AiPreparedRequest buildPreparedRequest(
+            CloudRequestMode requestMode,
+            @Nullable Uri imageUri,
+            AiPromptSpec promptSpec,
+            @Nullable EncodedImagePayload cachedImagePayload
     ) throws Exception {
         String model = resolveModelForMode(requestMode);
         AiModelCapabilityRegistry.ModelCapabilities capabilities = AiModelCapabilityRegistry.resolve(model);
@@ -720,7 +848,13 @@ public class AiMemoryService {
         }
         BuiltMessages builtMessages;
         try {
-            builtMessages = buildMessages(requestMode, imageUri, promptSpec, capabilities.supportsSystemRole());
+            builtMessages = buildMessages(
+                    requestMode,
+                    imageUri,
+                    promptSpec,
+                    capabilities.supportsSystemRole(),
+                    cachedImagePayload
+            );
         } catch (AiGenerationException exception) {
             throw exception;
         } catch (Exception exception) {
@@ -751,7 +885,14 @@ public class AiMemoryService {
             payload.put("max_tokens", maxTokens);
         }
         payload.put("messages", builtMessages.getMessages());
-        return new AiPreparedRequest(requestMode, model, promptSpec, payload, builtMessages.getImageBytes());
+        return new AiPreparedRequest(
+                requestMode,
+                model,
+                promptSpec,
+                payload,
+                builtMessages.getImagePayload(),
+                capabilities.supportsSystemRole()
+        );
     }
 
     private LocalEvidenceBundle buildLocalEvidence(String userText, @Nullable Uri imageUri) {
@@ -898,7 +1039,11 @@ public class AiMemoryService {
                 memory,
                 suggestedCategoryCode
         );
-        suggestedCategoryCode = normalizeCategoryCodeSafely(suggestedCategoryCode, structuredFactsJson);
+        suggestedCategoryCode = normalizeCategoryCodeSafely(
+                suggestedCategoryCode,
+                structuredFactsJson,
+                effectiveText
+        );
         suggestedCategoryCode = normalizeInformationalCategoryCodeSafely(
                 suggestedCategoryCode,
                 effectiveText,
@@ -1080,13 +1225,14 @@ public class AiMemoryService {
             CloudRequestMode requestMode,
             @Nullable Uri imageUri,
             AiPromptSpec promptSpec,
-            boolean supportsSystemRole
+            boolean supportsSystemRole,
+            @Nullable EncodedImagePayload cachedImagePayload
     ) throws Exception {
         switch (requestMode) {
             case IMAGE:
-                return buildImageMessages(imageUri, promptSpec, supportsSystemRole);
+                return buildImageMessages(imageUri, promptSpec, supportsSystemRole, cachedImagePayload);
             case MULTIMODAL:
-                return buildMultimodalMessages(imageUri, promptSpec, supportsSystemRole);
+                return buildMultimodalMessages(imageUri, promptSpec, supportsSystemRole, cachedImagePayload);
             case TEXT:
             default:
                 return buildTextMessages(promptSpec, supportsSystemRole);
@@ -1107,7 +1253,7 @@ public class AiMemoryService {
                     .put("role", "user")
                     .put("content", composeSingleUserPrompt(promptSpec)));
         }
-        return new BuiltMessages(messages, 0);
+        return new BuiltMessages(messages, null);
     }
 
     private String composeSingleUserPrompt(AiPromptSpec promptSpec) {
@@ -1117,9 +1263,12 @@ public class AiMemoryService {
     private BuiltMessages buildImageMessages(
             @Nullable Uri imageUri,
             AiPromptSpec promptSpec,
-            boolean supportsSystemRole
+            boolean supportsSystemRole,
+            @Nullable EncodedImagePayload cachedImagePayload
     ) throws Exception {
-        EncodedImagePayload imagePayload = requireImagePayload(imageUri, promptSpec);
+        EncodedImagePayload imagePayload = cachedImagePayload == null
+                ? requireImagePayload(imageUri, promptSpec)
+                : cachedImagePayload;
         JSONArray messages = new JSONArray();
         if (supportsSystemRole) {
             messages.put(new JSONObject()
@@ -1138,15 +1287,18 @@ public class AiMemoryService {
         messages.put(new JSONObject()
                 .put("role", "user")
                 .put("content", userContent));
-        return new BuiltMessages(messages, imagePayload.getByteSize());
+        return new BuiltMessages(messages, imagePayload);
     }
 
     private BuiltMessages buildMultimodalMessages(
             @Nullable Uri imageUri,
             AiPromptSpec promptSpec,
-            boolean supportsSystemRole
+            boolean supportsSystemRole,
+            @Nullable EncodedImagePayload cachedImagePayload
     ) throws Exception {
-        EncodedImagePayload imagePayload = requireImagePayload(imageUri, promptSpec);
+        EncodedImagePayload imagePayload = cachedImagePayload == null
+                ? requireImagePayload(imageUri, promptSpec)
+                : cachedImagePayload;
         JSONArray messages = new JSONArray();
         if (supportsSystemRole) {
             messages.put(new JSONObject()
@@ -1165,7 +1317,7 @@ public class AiMemoryService {
         messages.put(new JSONObject()
                 .put("role", "user")
                 .put("content", userContent));
-        return new BuiltMessages(messages, imagePayload.getByteSize());
+        return new BuiltMessages(messages, imagePayload);
     }
 
     private EncodedImagePayload requireImagePayload(@Nullable Uri uri, AiPromptSpec promptSpec) {
@@ -1621,6 +1773,8 @@ public class AiMemoryService {
                         + " finishReason=" + nullToEmpty(exception.getFinishReason())
                         + " providerErrorCode=" + nullToEmpty(exception.getProviderErrorCode())
                         + " message=" + nullToEmpty(exception.getMessage())
+                        + " causeType=" + AiCloudFailureClassifier.causeType(exception.getCause())
+                        + " causeMessage=" + AiCloudFailureClassifier.safeCauseMessage(exception.getCause())
         );
     }
 
@@ -1641,6 +1795,8 @@ public class AiMemoryService {
                         + " attempt=" + attempt + "/" + attemptLimit
                         + " failureStage=" + AiFailureStage.CLOUD_REQUEST
                         + " message=" + nullToEmpty(exception.getMessage())
+                        + " causeType=" + AiCloudFailureClassifier.causeType(exception)
+                        + " causeMessage=" + AiCloudFailureClassifier.safeCauseMessage(exception)
         );
     }
 
@@ -1658,6 +1814,8 @@ public class AiMemoryService {
                         + " attempt=" + attempt + "/" + attemptLimit
                         + " failureStage=" + (failureStage == null ? "" : failureStage.name())
                         + " message=" + nullToEmpty(exception == null ? "" : exception.getMessage())
+                        + " causeType=" + AiCloudFailureClassifier.causeType(exception)
+                        + " causeMessage=" + AiCloudFailureClassifier.safeCauseMessage(exception)
         );
     }
 
@@ -1680,12 +1838,16 @@ public class AiMemoryService {
                     + " httpStatus=" + aiException.getHttpStatus()
                     + " finishReason=" + nullToEmpty(aiException.getFinishReason())
                     + " providerErrorCode=" + nullToEmpty(aiException.getProviderErrorCode())
-                    + " message=" + nullToEmpty(aiException.getMessage());
+                    + " message=" + nullToEmpty(aiException.getMessage())
+                    + " causeType=" + AiCloudFailureClassifier.causeType(aiException.getCause())
+                    + " causeMessage=" + AiCloudFailureClassifier.safeCauseMessage(aiException.getCause());
         }
         if (exception == null) {
             return "Cloud AI request failed";
         }
-        return nullToEmpty(exception.getMessage());
+        return nullToEmpty(exception.getMessage())
+                + " causeType=" + AiCloudFailureClassifier.causeType(exception)
+                + " causeMessage=" + AiCloudFailureClassifier.safeCauseMessage(exception);
     }
 
     private String nullToEmpty(@Nullable String value) {
@@ -1767,7 +1929,11 @@ public class AiMemoryService {
                 memory,
                 suggestedCategoryCode
         );
-        suggestedCategoryCode = normalizeCategoryCodeSafely(suggestedCategoryCode, structuredFactsJson);
+        suggestedCategoryCode = normalizeCategoryCodeSafely(
+                suggestedCategoryCode,
+                structuredFactsJson,
+                effectiveText
+        );
         suggestedCategoryCode = normalizeInformationalCategoryCodeSafely(
                 suggestedCategoryCode,
                 effectiveText,
@@ -1816,7 +1982,8 @@ public class AiMemoryService {
         );
         String normalizedCategoryCode = normalizeCategoryCodeSafely(
                 base.getSuggestedCategoryCode(),
-                structuredFactsJson
+                structuredFactsJson,
+                effectiveText
         );
         normalizedCategoryCode = normalizeInformationalCategoryCodeSafely(
                 normalizedCategoryCode,
@@ -1886,6 +2053,11 @@ public class AiMemoryService {
                     ? null
                     : new JSONObject(structuredFactsJson);
             if (facts != null) {
+                String pickupCode = facts.optString("pickupCode", "").trim();
+                double pickupCodeConfidence = facts.optDouble("pickupCodeConfidence", 0.0);
+                if (TextUtils.isEmpty(pickupCode) || pickupCodeConfidence < 0.55) {
+                    return normalizedTitle;
+                }
                 String target = firstNonEmpty(
                         facts.optString("merchantOrCompany", ""),
                         facts.optString("itemName", ""),
@@ -1949,10 +2121,11 @@ public class AiMemoryService {
 
     private String normalizeCategoryCodeSafely(
             @Nullable String categoryCode,
-            @Nullable String structuredFactsJson
+            @Nullable String structuredFactsJson,
+            @Nullable String evidenceText
     ) {
         try {
-            return MemoryFactReconciler.normalizeCategoryCode(categoryCode, structuredFactsJson);
+            return MemoryFactReconciler.normalizeCategoryCode(categoryCode, structuredFactsJson, evidenceText);
         } catch (Exception ignored) {
             return categoryCode == null ? "" : categoryCode;
         }
@@ -2011,7 +2184,11 @@ public class AiMemoryService {
                 memory,
                 suggestedCategoryCode
         );
-        suggestedCategoryCode = normalizeCategoryCodeSafely(suggestedCategoryCode, structuredFactsJson);
+        suggestedCategoryCode = normalizeCategoryCodeSafely(
+                suggestedCategoryCode,
+                structuredFactsJson,
+                effectiveText
+        );
         suggestedCategoryCode = normalizeInformationalCategoryCodeSafely(
                 suggestedCategoryCode,
                 effectiveText,
@@ -2289,11 +2466,12 @@ public class AiMemoryService {
 
     private static final class BuiltMessages {
         private final JSONArray messages;
-        private final int imageBytes;
+        @Nullable
+        private final EncodedImagePayload imagePayload;
 
-        private BuiltMessages(JSONArray messages, int imageBytes) {
+        private BuiltMessages(JSONArray messages, @Nullable EncodedImagePayload imagePayload) {
             this.messages = messages;
-            this.imageBytes = Math.max(0, imageBytes);
+            this.imagePayload = imagePayload;
         }
 
         private JSONArray getMessages() {
@@ -2301,7 +2479,12 @@ public class AiMemoryService {
         }
 
         private int getImageBytes() {
-            return imageBytes;
+            return imagePayload == null ? 0 : imagePayload.getByteSize();
+        }
+
+        @Nullable
+        private EncodedImagePayload getImagePayload() {
+            return imagePayload;
         }
     }
 
@@ -2328,20 +2511,24 @@ public class AiMemoryService {
         private final String model;
         private final AiPromptSpec promptSpec;
         private final JSONObject payload;
-        private final int imageBytes;
+        @Nullable
+        private final EncodedImagePayload imagePayload;
+        private final boolean usingSystemRole;
 
         private AiPreparedRequest(
                 CloudRequestMode requestMode,
                 String model,
                 AiPromptSpec promptSpec,
                 JSONObject payload,
-                int imageBytes
+                @Nullable EncodedImagePayload imagePayload,
+                boolean usingSystemRole
         ) {
             this.requestMode = requestMode;
             this.model = model;
             this.promptSpec = promptSpec;
             this.payload = payload;
-            this.imageBytes = Math.max(0, imageBytes);
+            this.imagePayload = imagePayload;
+            this.usingSystemRole = usingSystemRole;
         }
 
         private CloudRequestMode getRequestMode() {
@@ -2361,7 +2548,16 @@ public class AiMemoryService {
         }
 
         private int getImageBytes() {
-            return imageBytes;
+            return imagePayload == null ? 0 : imagePayload.getByteSize();
+        }
+
+        @Nullable
+        private EncodedImagePayload getImagePayload() {
+            return imagePayload;
+        }
+
+        private boolean isUsingSystemRole() {
+            return usingSystemRole;
         }
     }
 

@@ -392,29 +392,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
         )
     }
 
-    private fun buildStructuredOverrideText(
-        category: CategoryCatalog.CategoryOption,
-        currentRecord: MemoryRecord,
-        draft: EditableStructuredFields?
-    ): String? {
-        val presentation = structuredPresentation(category.categoryCode) ?: return null
-        val existing = buildEditableStructuredFields(
-            category.categoryCode,
-            MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
-        )
-        val effective = draft ?: existing
-        val code = effective.code.trim().ifBlank { existing.code }
-        val primaryValue = effective.primaryValue.trim()
-        val secondaryValue = effective.secondaryValue.trim()
-        val locationText = effective.locationText.trim()
-        return buildList {
-            add("${presentation.sectionTitle}：$code")
-            add("${presentation.primaryLabel}：$primaryValue")
-            add("${presentation.secondaryLabel}：$secondaryValue")
-            add("地点：$locationText")
-        }.joinToString("\n")
-    }
-
     private fun saveEditedRecord(
         currentRecord: MemoryRecord,
         title: String,
@@ -424,16 +401,19 @@ class MemoryDetailActivity : BaseComposeActivity() {
         structuredFields: EditableStructuredFields?
     ): Boolean {
         val trimmedDetail = summary.trim()
-        val structuredOverride = buildStructuredOverrideText(category, currentRecord, structuredFields)
-        val reconciledStructuredFactsJson = if (structuredOverride != null) {
-            MemoryFactReconciler.reconcileToJson(
-                structuredOverride,
+        val existingStructuredFields = buildEditableStructuredFields(
+            category.categoryCode,
+            MemoryDetailParser.parseStructuredPickupInfo(currentRecord)
+        )
+        val effectiveStructuredFields = structuredFields ?: existingStructuredFields
+        val reconciledStructuredFactsJson = if (structuredPresentation(category.categoryCode) != null) {
+            MemoryFactReconciler.mergeEditedStructuredFacts(
                 currentRecord.structuredFactsJson,
-                title,
-                trimmedDetail,
-                currentRecord.analysis,
-                currentRecord.memory,
-                category.categoryCode
+                category.categoryCode,
+                effectiveStructuredFields.code,
+                effectiveStructuredFields.primaryValue,
+                effectiveStructuredFields.secondaryValue,
+                effectiveStructuredFields.locationText
             )
         } else {
             currentRecord.structuredFactsJson
@@ -448,8 +428,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
             currentRecord.mode,
             title.trim().ifBlank { deriveTitle(currentRecord) },
             if (currentRecord.mode == MemoryRecord.MODE_AI) currentRecord.summary else trimmedDetail,
-            structuredOverride ?: currentRecord.sourceText,
-            structuredOverride ?: currentRecord.note,
+            currentRecord.sourceText,
+            currentRecord.note,
             imageUri.orEmpty(),
             if (currentRecord.mode == MemoryRecord.MODE_AI) trimmedDetail else currentRecord.analysis,
             currentRecord.memory,
@@ -575,6 +555,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
             1,
             initialAttemptLimit
         )
+        runCatching {
+            AiReanalysisForegroundService.start(appContext, recordId)
+        }.onFailure { error ->
+            Log.e("MemoryDetailActivity", "Unable to start foreground reanalysis protection", error)
+        }
         reanalyzing = true
         reanalyzeJob?.cancel()
         reanalyzeJob = MemoryDetailReanalyzeScope.scope.launch {
@@ -673,7 +658,8 @@ class MemoryDetailActivity : BaseComposeActivity() {
                             .trim()
                             .takeIf { it.isNotEmpty() }
                             ?: previousRecord.categoryCode,
-                        resolvedFactsJson
+                        resolvedFactsJson,
+                        reanalyzeRequest.input
                     )
                     val resolvedCategoryGroup = CategoryCatalog.getGroupByCategoryCode(resolvedCategoryCode)
                     val resolvedCategoryName = CategoryCatalog.getCategoryName(resolvedCategoryCode)
@@ -804,6 +790,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
                 return@launch
             } finally {
+                AiReanalysisForegroundService.stop(appContext)
                 withContext(Dispatchers.Main.immediate) {
                     if (isReanalyzeSessionActive(sessionId)) {
                         reanalyzing = false
@@ -1251,18 +1238,20 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun buildAiInput(record: MemoryRecord): String {
         val economyMode = settingsStore.economyMode
+        val cleanedSourceText = MemoryFactReconciler.cleanLegacyStructuredTemplateText(record.sourceText)
+        val cleanedNote = MemoryFactReconciler.cleanLegacyStructuredTemplateText(record.note)
         val parts = buildList {
-            record.sourceText
+            cleanedSourceText
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() }
                 ?.let { add(compactAiField(it, if (economyMode) 240 else 1200)) }
-            record.note
+            cleanedNote
                 ?.trim()
-                ?.takeIf { it.isNotEmpty() && it != record.sourceText }
+                ?.takeIf { it.isNotEmpty() && it != cleanedSourceText }
                 ?.let { add(compactAiField(it, if (economyMode) 120 else 600)) }
             record.memory
                 ?.trim()
-                ?.takeIf { it.isNotEmpty() && it != record.sourceText }
+                ?.takeIf { it.isNotEmpty() && it != cleanedSourceText }
                 ?.let { add(compactAiField(it, if (economyMode) 120 else 600)) }
         }
         return parts.joinToString("\n")
@@ -1272,15 +1261,30 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun buildEnhancedAiContext(record: MemoryRecord): String {
         val economyMode = settingsStore.economyMode
+        val evidenceText = listOf(
+            MemoryStructuredFactsJson.parse(record.structuredFactsJson)?.rawVisibleText,
+            MemoryFactReconciler.cleanLegacyStructuredTemplateText(record.sourceText),
+            MemoryFactReconciler.cleanLegacyStructuredTemplateText(record.note)
+        ).filterNotNull().filter { it.isNotBlank() }.joinToString("\n")
+        val sanitizedFactsJson = MemoryFactReconciler.sanitizeFactsAgainstEvidence(
+            evidenceText,
+            record.structuredFactsJson,
+            record.categoryCode
+        )
+        val sanitizedCategoryCode = MemoryFactReconciler.normalizeCategoryCode(
+            record.categoryCode,
+            sanitizedFactsJson,
+            evidenceText
+        )
         val parts = buildList {
-            add("当前分类: ${record.categoryName ?: "小记"}")
+            add("当前分类: ${CategoryCatalog.getCategoryName(sanitizedCategoryCode)}")
             record.title?.trim()?.takeIf { it.isNotEmpty() }?.let {
                 add("现有标题: ${compactAiField(it, if (economyMode) 24 else 80)}")
             }
             record.summary?.trim()?.takeIf { it.isNotEmpty() }?.let {
                 add("现有摘要: ${compactAiField(it, if (economyMode) 42 else 140)}")
             }
-            record.structuredFactsJson?.trim()?.takeIf { it.isNotEmpty() }?.let {
+            sanitizedFactsJson.trim().takeIf { it.isNotEmpty() }?.let {
                 add("现有结构化事实: ${compactAiField(it, if (economyMode) 120 else 600)}")
             }
             if (economyMode) {

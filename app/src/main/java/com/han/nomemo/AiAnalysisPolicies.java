@@ -22,10 +22,12 @@ public final class AiAnalysisPolicies {
     ) {
         AiCostMode costMode = economyMode ? AiCostMode.ECONOMY : AiCostMode.STANDARD;
         if (operationKind == AiOperationKind.REANALYZE) {
-            int cloudAttemptLimit = economyMode
-                    ? ECONOMY_REANALYZE_ATTEMPTS_WITH_RETRY
-                    : STANDARD_REANALYZE_ATTEMPTS_WITH_RETRY;
-            boolean allowFullPromptRescue = economyMode;
+            int cloudAttemptLimit = autoRetry
+                    ? (economyMode
+                            ? ECONOMY_REANALYZE_ATTEMPTS_WITH_RETRY
+                            : STANDARD_REANALYZE_ATTEMPTS_WITH_RETRY)
+                    : 1;
+            boolean allowFullPromptRescue = autoRetry && economyMode;
             return new AiExecutionPolicy(
                     operationKind,
                     costMode,

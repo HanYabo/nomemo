@@ -17,6 +17,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -106,7 +107,6 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.colorResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -125,13 +125,15 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FlashOn
 import androidx.compose.ui.draw.shadow
-import androidx.core.view.WindowCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import coil3.SingletonImageLoader
 import coil3.compose.AsyncImage
 import coil3.request.ImageRequest
@@ -1081,6 +1083,7 @@ fun GlassIconCircleButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     size: Dp = 56.dp,
+    tint: Color? = null,
     onBoundsChanged: ((IntRect) -> Unit)? = null
 ) {
     val isDark = isSystemInDarkTheme()
@@ -1185,7 +1188,7 @@ fun GlassIconCircleButton(
         Icon(
             painter = painterResource(id = iconRes),
             contentDescription = contentDescription,
-            tint = iconTint,
+            tint = tint ?: iconTint,
             modifier = Modifier.size(iconSize)
         )
     }
@@ -1441,8 +1444,6 @@ private fun NoMemoDialogShell(
     flowingTitle: Boolean = false,
     actions: List<NoMemoDialogActionSpec>
 ) {
-    val context = LocalContext.current
-    val hostView = LocalView.current
     val palette = rememberNoMemoPalette()
     val isDark = isSystemInDarkTheme()
     val panelShape = noMemoG2RoundedShape(34.dp)
@@ -1464,80 +1465,6 @@ private fun NoMemoDialogShell(
     val scrimColor = Color.Black.copy(alpha = if (isDark) 0.56f else 0.32f)
     val outsideInteraction = remember { MutableInteractionSource() }
     val panelInteraction = remember { MutableInteractionSource() }
-    var overlayBoundsInWindow by remember { mutableStateOf(Rect.Zero) }
-    val dialogPositionReady = overlayBoundsInWindow != Rect.Zero
-    val dialogWindowCenterOffset = remember(
-        overlayBoundsInWindow,
-        hostView.rootView.width,
-        hostView.rootView.height
-    ) {
-        val windowWidth = hostView.rootView.width
-        val windowHeight = hostView.rootView.height
-        if (
-            windowWidth <= 0
-            || windowHeight <= 0
-            || overlayBoundsInWindow == Rect.Zero
-        ) {
-            IntOffset.Zero
-        } else {
-            val leftGap = overlayBoundsInWindow.left
-            val topGap = overlayBoundsInWindow.top
-            val rightGap = windowWidth - overlayBoundsInWindow.right
-            val bottomGap = windowHeight - overlayBoundsInWindow.bottom
-            IntOffset(
-                x = ((rightGap - leftGap) * 0.5f).roundToInt(),
-                y = ((bottomGap - topGap) * 0.5f).roundToInt()
-            )
-        }
-    }
-
-    DisposableEffect(context) {
-        val activity = context.findActivity()
-        val window = activity?.window
-        val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
-        val previousStatusBarColor = window?.statusBarColor
-        val previousNavigationBarColor = window?.navigationBarColor
-        val previousLightStatusBars = controller?.isAppearanceLightStatusBars
-        val previousLightNavigationBars = controller?.isAppearanceLightNavigationBars
-        val previousNavigationContrastEnforced = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            window?.isNavigationBarContrastEnforced
-        } else {
-            null
-        }
-        if (window != null && controller != null) {
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            window.statusBarColor = android.graphics.Color.TRANSPARENT
-            window.navigationBarColor = android.graphics.Color.TRANSPARENT
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                window.isNavigationBarContrastEnforced = false
-            }
-            controller.isAppearanceLightStatusBars = !isDark
-            controller.isAppearanceLightNavigationBars = !isDark
-        }
-
-        onDispose {
-            if (window != null && controller != null) {
-                WindowCompat.setDecorFitsSystemWindows(window, true)
-                if (previousStatusBarColor != null) {
-                    window.statusBarColor = previousStatusBarColor
-                }
-                if (previousNavigationBarColor != null) {
-                    window.navigationBarColor = previousNavigationBarColor
-                }
-                if (previousLightStatusBars != null) {
-                    controller.isAppearanceLightStatusBars = previousLightStatusBars
-                }
-                if (previousLightNavigationBars != null) {
-                    controller.isAppearanceLightNavigationBars = previousLightNavigationBars
-                }
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && previousNavigationContrastEnforced != null) {
-                    window.isNavigationBarContrastEnforced = previousNavigationContrastEnforced
-                }
-            } else if (activity != null) {
-                WindowStyleManager.apply(activity, UiConfig.windowStyleFor(activity))
-            }
-        }
-    }
 
     BackHandler(enabled = dismissible, onBack = onDismissRequest)
     var animPlayed by remember { mutableStateOf(false) }
@@ -1552,33 +1479,34 @@ private fun NoMemoDialogShell(
         animationSpec = tween(250, easing = FastOutSlowInEasing),
         label = "dialogPanel"
     )
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .zIndex(1000f)
-            .background(scrimColor.copy(alpha = scrimColor.alpha * scrimAlpha))
-            .onGloballyPositioned { coordinates ->
-                overlayBoundsInWindow = coordinates.boundsInWindow()
-            }
+    Dialog(
+        onDismissRequest = { if (dismissible) onDismissRequest() },
+        properties = DialogProperties(
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false
+        )
     ) {
         Box(
             modifier = Modifier
-                .matchParentSize()
-                .clickable(
-                    interactionSource = outsideInteraction,
-                    indication = null,
-                    onClick = {
-                        if (dismissible) {
-                            onDismissRequest()
-                        }
-                    }
-                )
+                .fillMaxSize()
+                .background(scrimColor.copy(alpha = scrimColor.alpha * scrimAlpha))
         ) {
-            if (dialogPositionReady) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clickable(
+                        interactionSource = outsideInteraction,
+                        indication = null,
+                        onClick = {
+                            if (dismissible) {
+                                onDismissRequest()
+                            }
+                        }
+                    )
+            ) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.Center)
-                        .offset { dialogWindowCenterOffset }
                         .padding(horizontal = 18.dp)
                         .fillMaxWidth()
                         .widthIn(max = 560.dp)
@@ -2858,6 +2786,8 @@ fun RecordCard(
     selectionMode: Boolean = false,
     onClick: (() -> Unit)? = null,
     onLongPress: (() -> Unit)? = null,
+    onSwipeDelete: (() -> Unit)? = null,
+    onSwipeToggleLive: (() -> Unit)? = null,
     palette: NoMemoPalette = rememberNoMemoPalette(),
     adaptive: NoMemoAdaptiveSpec = rememberNoMemoAdaptiveSpec(),
     allowImageLoading: Boolean = true,
@@ -2947,6 +2877,10 @@ fun RecordCard(
     } else {
         Color.Black.copy(alpha = 0.04f * pressHighlightAlpha)
     }
+    val swipeOffset = remember(record.recordId) { Animatable(0f) }
+    val coroutineScope = rememberCoroutineScope()
+    val swipeThreshold = with(LocalDensity.current) { 120.dp.toPx() }
+    val swipeEnabled = !selectionMode && (onSwipeDelete != null || onSwipeToggleLive != null)
     val gestureModifier = if (onLongPress == null && onClick == null) {
         Modifier
     } else {
@@ -2974,10 +2908,83 @@ fun RecordCard(
     Box(
         modifier = modifier.fillMaxWidth()
     ) {
+        val swipeValue = swipeOffset.value
+        if (swipeValue < -1f && onSwipeDelete != null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(cardShape)
+                    .background(Color(0xFFFF4A43))
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.CenterEnd
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Delete,
+                    contentDescription = "删除",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        } else if (swipeValue > 1f && onSwipeToggleLive != null) {
+            Box(
+                modifier = Modifier
+                    .matchParentSize()
+                    .clip(cardShape)
+                    .background(Color(0xFF1677FF))
+                    .padding(horizontal = 24.dp),
+                contentAlignment = Alignment.CenterStart
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.FlashOn,
+                    contentDescription = "实时",
+                    tint = Color.White,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+        }
         Card(
             modifier = Modifier
                 .fillMaxWidth()
-                .then(gestureModifier),
+                .offset { IntOffset(swipeOffset.value.roundToInt(), 0) }
+                .then(gestureModifier)
+                .then(
+                    if (swipeEnabled) {
+                        Modifier.pointerInput(onSwipeDelete, onSwipeToggleLive) {
+                            detectHorizontalDragGestures(
+                                onDragEnd = {
+                                    val offset = swipeOffset.value
+                                    val triggered = when {
+                                        offset < -swipeThreshold && onSwipeDelete != null -> {
+                                            onSwipeDelete.invoke()
+                                            true
+                                        }
+                                        offset > swipeThreshold && onSwipeToggleLive != null -> {
+                                            onSwipeToggleLive.invoke()
+                                            true
+                                        }
+                                        else -> false
+                                    }
+                                    coroutineScope.launch {
+                                        swipeOffset.animateTo(
+                                            targetValue = 0f,
+                                            animationSpec = spring(
+                                                dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                stiffness = Spring.StiffnessMedium
+                                            )
+                                        )
+                                    }
+                                },
+                                onHorizontalDrag = { _, dragAmount ->
+                                    val newOffset = (swipeOffset.value + dragAmount)
+                                        .coerceIn(-size.width * 0.6f, size.width * 0.6f)
+                                    coroutineScope.launch {
+                                        swipeOffset.snapTo(newOffset)
+                                    }
+                                }
+                            )
+                        }
+                    } else Modifier
+                ),
             shape = cardShape,
             colors = CardDefaults.cardColors(containerColor = Color.Transparent),
             elevation = CardDefaults.cardElevation(defaultElevation = cardShadow)
@@ -3039,7 +3046,8 @@ fun RecordCard(
                         categoryCode = resolvedCategoryCode,
                         categoryText = categoryText,
                         metaColor = metaColor,
-                        failureText = if (aiAnalysisFailed) "分析失败" else null
+                        failureText = if (aiAnalysisFailed) "分析失败" else null,
+                        liveStatusText = if (record.isLiveStatusActive) "实时" else null
                     )
                 }
 
@@ -3293,23 +3301,44 @@ fun RecordGridCard(
                             fontSize = 12.sp,
                             fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f)
+                            overflow = TextOverflow.Ellipsis
                         )
+                        val gridAiFailed = remember(record.recordId, record.mode, record.engine, record.analysis, record.aiAnalysisStateJson) {
+                            isAiAnalysisFailedRecord(record)
+                        }
+                        val gridLiveActive = record.isLiveStatusActive
+                        val gridStatusText = when {
+                            gridLiveActive -> "实时"
+                            gridAiFailed -> "分析失败"
+                            else -> null
+                        }
+                        if (gridStatusText != null) {
+                            MetaDividerDot(color = metaColor)
+                            Text(
+                                text = gridStatusText,
+                                color = if (gridLiveActive) Color(0xFF1677FF) else Color(0xFFFF4A43),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
+                        Spacer(modifier = Modifier.weight(1f))
                         Icon(
                             imageVector = recordCategoryMetaIcon(resolvedCategoryCode),
                             contentDescription = null,
                             tint = metaColor.copy(alpha = 0.86f),
                             modifier = Modifier.size(12.dp)
                         )
-                        Spacer(modifier = Modifier.width(4.dp))
-                        Text(
-                            text = categoryText,
-                            color = metaColor,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
-                            maxLines = 1
-                        )
+                        if (gridStatusText == null) {
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text(
+                                text = categoryText,
+                                color = metaColor,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1
+                            )
+                        }
                     }
                 }
             }
@@ -3698,7 +3727,8 @@ fun RecordMetaLine(
     categoryCode: String,
     categoryText: String,
     metaColor: Color,
-    failureText: String? = null
+    failureText: String? = null,
+    liveStatusText: String? = null
 ) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text(
@@ -3721,6 +3751,15 @@ fun RecordMetaLine(
             fontSize = 12.sp,
             fontWeight = FontWeight.SemiBold
         )
+        liveStatusText?.takeIf { it.isNotBlank() }?.let { text ->
+            MetaDividerDot(color = metaColor)
+            Text(
+                text = text,
+                color = Color(0xFF1677FF),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
         failureText?.takeIf { it.isNotBlank() }?.let { text ->
             Spacer(modifier = Modifier.width(10.dp))
             Text(

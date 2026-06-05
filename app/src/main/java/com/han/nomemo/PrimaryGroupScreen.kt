@@ -16,7 +16,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -282,25 +281,17 @@ internal fun GroupPrimaryScreenRoute(
     }
     val groupHeaderCollapseProgress by animateFloatAsState(
         targetValue = groupHeaderCollapseTarget,
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 110, easing = FastOutSlowInEasing),
         label = "primaryGroupHeaderCollapse"
     )
-    val groupExpandedTitleAlpha = (1f - (groupHeaderCollapseProgress / 0.28f)).coerceIn(0f, 1f)
-    val groupCollapsedTitleAlpha = ((groupHeaderCollapseProgress - 0.90f) / 0.08f).coerceIn(0f, 1f)
+    val groupExpandedTitleAlpha = (1f - (groupHeaderCollapseProgress / 0.42f)).coerceIn(0f, 1f)
+    val groupCollapsedTitleAlpha = ((groupHeaderCollapseProgress - 0.74f) / 0.22f).coerceIn(0f, 1f)
     val groupExpandedTitleTranslateY =
-        with(density) { (-12).dp.toPx() * (groupHeaderCollapseProgress / 0.28f).coerceIn(0f, 1f) }
-    val groupExpandedTitleMaxHeight = if (adaptive.isNarrow) 44.dp else 50.dp
-    val groupExpandedTitleHeight by animateDpAsState(
-        targetValue = lerp(
-            groupExpandedTitleMaxHeight,
-            0.dp,
-            (groupHeaderCollapseProgress / 0.24f).coerceIn(0f, 1f)
-        ),
-        animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing),
-        label = "primaryGroupExpandedTitleHeight"
-    )
+        with(density) { (-22).dp.toPx() * groupHeaderCollapseProgress }
+    val groupExpandedTitleMaxHeight = if (adaptive.isNarrow) 44.dp else 52.dp
+    val groupExpandedTitleHeight = lerp(groupExpandedTitleMaxHeight, 0.dp, groupHeaderCollapseProgress)
     val groupListSpacing = 14.dp
-    val groupListTopPadding = 8.dp
+    val groupListTopPadding = lerp(12.dp, 4.dp, groupHeaderCollapseProgress)
     val albumSortLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {

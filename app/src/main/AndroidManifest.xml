@@ -5,6 +5,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <application
         android:name=".NoMemoApp"
@@ -17,8 +19,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.NoMemo"
         android:resizeableActivity="true"
-        android:enableOnBackInvokedCallback="true"
-        android:fitsSystemWindows="true">
+        android:enableOnBackInvokedCallback="true">
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -41,6 +42,11 @@
         <receiver
             android:name=".NoMemoLiveUpdateActionReceiver"
             android:exported="false" />
+        <service
+            android:name=".AiReanalysisForegroundService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync"
+            android:stopWithTask="false" />
         <activity
             android:name=".GroupActivity"
             android:exported="false"

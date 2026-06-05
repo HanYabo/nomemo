@@ -950,6 +950,7 @@ class MainActivity : BaseComposeActivity() {
         var selectedRecordIds by remember { mutableStateOf(setOf<String>()) }
         var selectionModeActive by remember { mutableStateOf(false) }
         var showDeleteConfirm by remember { mutableStateOf(false) }
+        var swipeDeleteTarget by remember { mutableStateOf<MemoryRecord?>(null) }
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var moreMenuAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
         var selectedSecondaryByPrimary by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -1096,6 +1097,17 @@ class MainActivity : BaseComposeActivity() {
                             selectedRecordIds - record.recordId
                         } else {
                             selectedRecordIds + record.recordId
+                        }
+                    },
+                    onSwipeDelete = { swipeDeleteTarget = record },
+                    onSwipeToggleLive = {
+                        val updated = if (record.isLiveStatusActive) {
+                            record.withLiveStatusState(MemoryRecord.LIVE_STATUS_INACTIVE)
+                        } else {
+                            record.withLiveStatusState(MemoryRecord.LIVE_STATUS_ACTIVE)
+                        }
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            memoryStore.updateRecord(updated)
                         }
                     }
                 )
@@ -1561,6 +1573,17 @@ class MainActivity : BaseComposeActivity() {
                                 exitSelectionMode()
                             },
                             onDismiss = { showDeleteConfirm = false }
+                        )
+                    }
+                    swipeDeleteTarget?.let { target ->
+                        NoMemoDeleteConfirmDialog(
+                            title = stringResource(R.string.delete_selected_title),
+                            message = "确定删除「${target.title?.takeIf { it.isNotBlank() } ?: target.summary?.take(18) ?: "这条记忆"}」？",
+                            onConfirm = {
+                                onDeleteRecords(setOf(target.recordId))
+                                swipeDeleteTarget = null
+                            },
+                            onDismiss = { swipeDeleteTarget = null }
                         )
                     }
                     NoMemoAnchoredMenu(
