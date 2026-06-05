@@ -13,7 +13,9 @@ data class AiAnalysisState(
     val operationKind: AiOperationKind,
     val costMode: AiCostMode,
     val attemptCount: Int,
-    val attemptLimit: Int
+    val attemptLimit: Int,
+    val failureStage: AiFailureStage? = null,
+    val failureMessage: String? = null
 ) {
     val isActive: Boolean
         get() = status == AI_STATE_PENDING || status == AI_STATE_RUNNING || status == AI_STATE_RETRYING
@@ -38,7 +40,11 @@ object AiAnalysisStateJson {
                 operationKind = operationKind,
                 costMode = costMode,
                 attemptCount = json.optInt("attemptCount", 0).coerceAtLeast(0),
-                attemptLimit = json.optInt("attemptLimit", 1).coerceAtLeast(1)
+                attemptLimit = json.optInt("attemptLimit", 1).coerceAtLeast(1),
+                failureStage = parseFailureStage(json.optString("failureStage", "")),
+                failureMessage = json.optString("failureMessage", "")
+                    .trim()
+                    .takeIf { it.isNotEmpty() }
             )
         }.getOrNull()
     }
@@ -52,6 +58,13 @@ object AiAnalysisStateJson {
             .put("costMode", state.costMode.name)
             .put("attemptCount", state.attemptCount.coerceAtLeast(0))
             .put("attemptLimit", state.attemptLimit.coerceAtLeast(1))
+            .apply {
+                state.failureStage?.let { put("failureStage", it.name) }
+                state.failureMessage
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
+                    ?.let { put("failureMessage", it) }
+            }
             .toString()
     }
 
@@ -84,14 +97,25 @@ object AiAnalysisStateJson {
     }
 
     @JvmStatic
-    fun failed(operationKind: AiOperationKind, costMode: AiCostMode, attemptCount: Int, attemptLimit: Int): String {
+    fun failed(
+        operationKind: AiOperationKind,
+        costMode: AiCostMode,
+        attemptCount: Int,
+        attemptLimit: Int,
+        failureStage: AiFailureStage? = null,
+        failureMessage: String? = null
+    ): String {
         return toJson(
             AiAnalysisState(
                 status = AI_STATE_FAILED,
                 operationKind = operationKind,
                 costMode = costMode,
                 attemptCount = attemptCount.coerceAtLeast(1),
-                attemptLimit = attemptLimit.coerceAtLeast(1)
+                attemptLimit = attemptLimit.coerceAtLeast(1),
+                failureStage = failureStage,
+                failureMessage = failureMessage
+                    ?.trim()
+                    ?.takeIf { it.isNotEmpty() }
             )
         )
     }
@@ -127,5 +151,11 @@ object AiAnalysisStateJson {
             AI_STATE_DISMISSED -> AI_STATE_DISMISSED
             else -> AI_STATE_PENDING
         }
+    }
+
+    private fun parseFailureStage(raw: String?): AiFailureStage? {
+        val value = raw?.trim().orEmpty()
+        if (value.isEmpty()) return null
+        return runCatching { AiFailureStage.valueOf(value) }.getOrNull()
     }
 }

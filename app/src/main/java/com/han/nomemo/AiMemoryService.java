@@ -212,7 +212,9 @@ public class AiMemoryService {
                     }
                 }
             }
-            if (lastCloudError != null && policy.isAllowFullPromptRescue()) {
+            if (lastCloudError != null
+                    && policy.isAllowFullPromptRescue()
+                    && shouldUseFullPromptRescue(lastCloudError, lastFailureStage)) {
                 fullPromptRescueUsed = true;
                 attemptsPerformed = totalAttemptLimit;
                 try {
@@ -252,7 +254,7 @@ public class AiMemoryService {
                     totalAttemptLimit,
                     false,
                     false,
-                    AiFailureStage.CLOUD_REQUEST,
+                    AiFailureStage.CONFIGURATION,
                     "Cloud AI config unavailable"
             );
         }
@@ -349,6 +351,18 @@ public class AiMemoryService {
             @Nullable Exception exception,
             @Nullable AiFailureStage failureStage
     ) {
+        if (failureStage == AiFailureStage.JSON_PARSE
+                || failureStage == AiFailureStage.SCHEMA_VALIDATE
+                || failureStage == AiFailureStage.JSON_REPAIR
+                || failureStage == AiFailureStage.TOKEN_EXHAUSTED) {
+            return true;
+        }
+        if (failureStage == AiFailureStage.CONFIGURATION
+                || failureStage == AiFailureStage.IMAGE_INPUT
+                || failureStage == AiFailureStage.MODEL_CAPABILITY
+                || failureStage == AiFailureStage.LOCAL_FALLBACK) {
+            return false;
+        }
         if (failureStage != AiFailureStage.CLOUD_REQUEST) {
             return false;
         }
@@ -366,6 +380,19 @@ public class AiMemoryService {
             );
         }
         return looksTransientCloudFailure(exception == null ? "" : exception.getMessage());
+    }
+
+    private boolean shouldUseFullPromptRescue(
+            @Nullable Exception exception,
+            @Nullable AiFailureStage failureStage
+    ) {
+        if (failureStage == AiFailureStage.JSON_PARSE
+                || failureStage == AiFailureStage.SCHEMA_VALIDATE
+                || failureStage == AiFailureStage.JSON_REPAIR
+                || failureStage == AiFailureStage.TOKEN_EXHAUSTED) {
+            return true;
+        }
+        return shouldRetryCloudFailure(exception, failureStage);
     }
 
     private boolean looksTransientCloudFailure(@Nullable String rawMessage) {
@@ -678,12 +705,12 @@ public class AiMemoryService {
         AiModelCapabilityRegistry.ModelCapabilities capabilities = AiModelCapabilityRegistry.resolve(model);
         if (requestMode != CloudRequestMode.TEXT && !capabilities.supportsImageInput()) {
             throw new AiGenerationException(
-                    AiFailureStage.CLOUD_REQUEST,
+                    AiFailureStage.MODEL_CAPABILITY,
                     "Selected AI model does not support image input",
                     null,
                     requestMode.name(),
                     model,
-                    promptSpec.getMaxTokens(),
+                    promptSpec.getMaxTokens() == null ? 0 : promptSpec.getMaxTokens(),
                     0,
                     false,
                     0,
@@ -691,7 +718,31 @@ public class AiMemoryService {
                     null
             );
         }
-        BuiltMessages builtMessages = buildMessages(requestMode, imageUri, promptSpec, capabilities.supportsSystemRole());
+        BuiltMessages builtMessages;
+        try {
+            builtMessages = buildMessages(requestMode, imageUri, promptSpec, capabilities.supportsSystemRole());
+        } catch (AiGenerationException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            if (requestMode != CloudRequestMode.TEXT
+                    && exception.getMessage() != null
+                    && exception.getMessage().contains("Image content is unavailable")) {
+                throw new AiGenerationException(
+                        AiFailureStage.IMAGE_INPUT,
+                        "Image content is unavailable for the selected AI route",
+                        exception,
+                        requestMode.name(),
+                        model,
+                        promptSpec.getMaxTokens() == null ? 0 : promptSpec.getMaxTokens(),
+                        0,
+                        false,
+                        0,
+                        "image_unavailable",
+                        null
+                );
+            }
+            throw exception;
+        }
         JSONObject payload = new JSONObject();
         payload.put("model", model);
         payload.put("temperature", promptSpec.getTemperature());
@@ -1611,6 +1662,15 @@ public class AiMemoryService {
     }
 
     private String buildFailureMessage(@Nullable Exception exception, @Nullable AiFailureStage failureStage) {
+        if (failureStage == AiFailureStage.CONFIGURATION) {
+            return "Cloud AI config unavailable";
+        }
+        if (failureStage == AiFailureStage.IMAGE_INPUT) {
+            return "Image content is unavailable for the selected AI route";
+        }
+        if (failureStage == AiFailureStage.MODEL_CAPABILITY) {
+            return "Selected AI model does not support image input";
+        }
         if (exception instanceof AiGenerationException) {
             AiGenerationException aiException = (AiGenerationException) exception;
             return "Cloud AI request failed"

@@ -185,7 +185,7 @@ class AiInitialAnalysisWorker(
             val resolved = if (outcome != null && outcome.isSuccess && outcome.generationResult != null) {
                 buildResolvedRecord(latestRecord, outcome.generationResult!!)
             } else {
-                buildLocalFallbackRecord(appContext, latestRecord)
+                buildLocalFallbackRecord(appContext, latestRecord, outcome)
             }
             if (isStopped || !isCurrentInitialAnalysisStillActive(memoryStore, recordId)) {
                 return Result.success()
@@ -309,7 +309,11 @@ class AiInitialAnalysisWorker(
         )
     }
 
-    private fun buildLocalFallbackRecord(context: Context, placeholder: MemoryRecord): MemoryRecord {
+    private fun buildLocalFallbackRecord(
+        context: Context,
+        placeholder: MemoryRecord,
+        outcome: AiAnalysisOutcome?
+    ): MemoryRecord {
         val fallbackCategory = findCategoryByCode(placeholder.categoryCode)
             ?: CategoryCatalog.getQuickCategories().first()
         val sourceText = placeholder.sourceText.orEmpty()
@@ -333,8 +337,10 @@ class AiInitialAnalysisWorker(
         val failedState = AiAnalysisStateJson.failed(
             operationKind = persistedState?.operationKind ?: AiOperationKind.INITIAL_ANALYSIS,
             costMode = persistedState?.costMode ?: AiCostMode.STANDARD,
-            attemptCount = persistedState?.attemptCount ?: 1,
-            attemptLimit = persistedState?.attemptLimit ?: 1
+            attemptCount = outcome?.attemptCount?.takeIf { it > 0 } ?: persistedState?.attemptCount ?: 1,
+            attemptLimit = outcome?.attemptLimit?.takeIf { it > 0 } ?: persistedState?.attemptLimit ?: 1,
+            failureStage = outcome?.failureStage,
+            failureMessage = outcome?.failureMessage
         )
         return MemoryRecord(
             placeholder.recordId,

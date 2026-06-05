@@ -68,6 +68,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -328,6 +329,20 @@ class GroupActivity : BaseComposeActivity() {
         var albumSelectionModeActive by remember { mutableStateOf(false) }
         var showRemoveFromAlbumConfirm by remember { mutableStateOf(false) }
         var showDeleteSelectedConfirm by remember { mutableStateOf(false) }
+        val albumSelectionAnimationScope = rememberCoroutineScope()
+        var pendingAlbumSelectionClearJob by remember { mutableStateOf<Job?>(null) }
+        val selectionExitDurationMs = 240L
+        fun exitAlbumSelectionMode() {
+            pendingAlbumSelectionClearJob?.cancel()
+            albumSelectionModeActive = false
+            showRemoveFromAlbumConfirm = false
+            showDeleteSelectedConfirm = false
+            pendingAlbumSelectionClearJob = albumSelectionAnimationScope.launch {
+                delay(selectionExitDurationMs)
+                selectedAlbumRecordIds = emptySet()
+                pendingAlbumSelectionClearJob = null
+            }
+        }
         var showEditAlbumDialog by remember { mutableStateOf(false) }
         var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
         var organizeHistoryDialogAlbumId by remember { mutableStateOf<String?>(null) }
@@ -474,10 +489,14 @@ class GroupActivity : BaseComposeActivity() {
             if (sanitized != selectedAlbumRecordIds) {
                 selectedAlbumRecordIds = sanitized
             }
-            if (sanitized.isEmpty() && openedRecords.isNotEmpty()) {
-                albumSelectionModeActive = false
-                showRemoveFromAlbumConfirm = false
-                showDeleteSelectedConfirm = false
+            if (albumSelectionModeActive && sanitized.isEmpty() && openedRecords.isNotEmpty()) {
+                exitAlbumSelectionMode()
+            }
+        }
+        LaunchedEffect(albumSelectionModeActive) {
+            if (albumSelectionModeActive) {
+                pendingAlbumSelectionClearJob?.cancel()
+                pendingAlbumSelectionClearJob = null
             }
         }
         BackHandler(
@@ -497,10 +516,7 @@ class GroupActivity : BaseComposeActivity() {
             resetDoubleBackExitState()
         }
         BackHandler(enabled = albumSelectionModeActive) {
-            albumSelectionModeActive = false
-            selectedAlbumRecordIds = emptySet()
-            showRemoveFromAlbumConfirm = false
-            showDeleteSelectedConfirm = false
+            exitAlbumSelectionMode()
         }
         LaunchedEffect(openedAsStandaloneDetail, openedAlbumId, openedAlbum) {
             if (openedAsStandaloneDetail && openedAlbumId != null && openedAlbum == null) {
@@ -640,8 +656,26 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             }
                         } else if (openedAlbum != null) {
-                            if (albumSelectionModeActive) {
-                                Box(
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(spec.topActionButtonSize + 12.dp)
+                                    .zIndex(1f)
+                            ) {
+                                Column(modifier = Modifier.fillMaxWidth()) {
+                            AnimatedVisibility(
+                                visible = albumSelectionModeActive,
+                                enter = slideInVertically(
+                                    initialOffsetY = { -it / 3 },
+                                    animationSpec = tween(durationMillis = 210, easing = FastOutSlowInEasing)
+                                ) + fadeIn(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)),
+                                exit = slideOutVertically(
+                                    targetOffsetY = { -it / 3 },
+                                    animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                                ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing))
+                            ) {
+                                Column {
+                                    Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .height(spec.topActionButtonSize)
@@ -649,12 +683,7 @@ class GroupActivity : BaseComposeActivity() {
                                     GlassIconCircleButton(
                                         iconRes = R.drawable.ic_sheet_close,
                                         contentDescription = stringResource(R.string.cancel),
-                                        onClick = {
-                                            albumSelectionModeActive = false
-                                            selectedAlbumRecordIds = emptySet()
-                                            showRemoveFromAlbumConfirm = false
-                                            showDeleteSelectedConfirm = false
-                                        },
+                                        onClick = { exitAlbumSelectionMode() },
                                         size = spec.topActionButtonSize,
                                         modifier = Modifier.align(Alignment.CenterStart)
                                     )
@@ -686,7 +715,19 @@ class GroupActivity : BaseComposeActivity() {
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-                            } else {
+                                }
+                            }
+                            AnimatedVisibility(
+                                visible = !albumSelectionModeActive,
+                                enter = slideInVertically(
+                                    initialOffsetY = { -it / 4 },
+                                    animationSpec = tween(durationMillis = 230, delayMillis = 40, easing = FastOutSlowInEasing)
+                                ) + fadeIn(animationSpec = tween(durationMillis = 190, delayMillis = 40, easing = FastOutSlowInEasing)),
+                                exit = slideOutVertically(
+                                    targetOffsetY = { -it / 4 },
+                                    animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)
+                                ) + fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing))
+                            ) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -736,6 +777,9 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             }
 
+                                }
+                            }
+
                             if (openedRecords.isNotEmpty()) {
                                 LazyColumn(
                                     modifier = Modifier.weight(1f),
@@ -757,6 +801,7 @@ class GroupActivity : BaseComposeActivity() {
                                             palette = albumPalette,
                                             adaptive = albumAdaptive,
                                             selected = selected,
+                                            selectionMode = albumSelectionModeActive,
                                             allowImageLoading = true,
                                             showShadow = false,
                                             darkCardBackgroundOverride = noMemoCardSurfaceColor(
@@ -853,7 +898,19 @@ class GroupActivity : BaseComposeActivity() {
                                 ),
                             sharedBackdrop = backdrop  // 传入共享的 backdrop，实现真实玻璃效果
                         )
-                    } else if (albumSelectionModeActive && selectedAlbumRecords.isNotEmpty()) {
+                    } else {
+                        AnimatedVisibility(
+                            visible = albumSelectionModeActive && selectedAlbumRecords.isNotEmpty(),
+                            modifier = Modifier.align(Alignment.BottomCenter),
+                            enter = slideInVertically(
+                                initialOffsetY = { it / 2 },
+                                animationSpec = tween(durationMillis = 230, easing = FastOutSlowInEasing)
+                            ) + fadeIn(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)),
+                            exit = slideOutVertically(
+                                targetOffsetY = { it / 2 },
+                                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                            ) + fadeOut(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing))
+                        ) {
                         NoMemoSelectionActionDock(
                             selectedRecords = selectedAlbumRecords,
                             allSelected = allOpenedRecordsSelected,
@@ -862,7 +919,6 @@ class GroupActivity : BaseComposeActivity() {
                             onDeleteClick = { showDeleteSelectedConfirm = true },
                             backdrop = backdrop,
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(
                                     start = spec.pageHorizontalPadding,
@@ -870,6 +926,7 @@ class GroupActivity : BaseComposeActivity() {
                                     bottom = if (spec.isNarrow) 18.dp else 22.dp
                                 )
                         )
+                        }
                     }
 
                     NoMemoAnchoredMenu(
@@ -1134,8 +1191,7 @@ class GroupActivity : BaseComposeActivity() {
                                 showRemoveFromAlbumConfirm = false
                                 if (removed) {
                                     albumList = albumStore.loadAlbums()
-                                    albumSelectionModeActive = false
-                                    selectedAlbumRecordIds = emptySet()
+                                    exitAlbumSelectionMode()
                                     Toast.makeText(
                                         albumContext,
                                         if (removingAll) "已全部移出" else "已移出分组",
@@ -1156,8 +1212,7 @@ class GroupActivity : BaseComposeActivity() {
                             onConfirm = {
                                 onDeleteRecords(selectedAlbumRecordIds)
                                 showDeleteSelectedConfirm = false
-                                albumSelectionModeActive = false
-                                selectedAlbumRecordIds = emptySet()
+                                exitAlbumSelectionMode()
                             },
                             onDismiss = { showDeleteSelectedConfirm = false }
                         )
@@ -1924,6 +1979,7 @@ class GroupActivity : BaseComposeActivity() {
                                     palette = palette,
                                     adaptive = adaptive,
                                     selected = selected,
+                                    selectionMode = true,
                                     allowImageLoading = true,
                                     showShadow = false,
                                     onClick = { onToggleRecord(record.recordId) },

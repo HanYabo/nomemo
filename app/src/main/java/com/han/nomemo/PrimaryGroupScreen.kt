@@ -1294,6 +1294,7 @@ internal fun PrimaryGroupAddExistingMemorySheet(
                                     palette = palette,
                                     adaptive = adaptive,
                                     selected = selected,
+                                    selectionMode = true,
                                     allowImageLoading = true,
                                     showShadow = false,
                                     onClick = { onToggleRecord(record.recordId) },

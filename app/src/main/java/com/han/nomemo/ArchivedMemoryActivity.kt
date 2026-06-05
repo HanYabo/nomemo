@@ -335,6 +335,13 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(spec.topActionButtonSize + 12.dp)
+                                .zIndex(1f)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
                         AnimatedVisibility(
                             visible = selectionModeActive,
                             enter = slideInVertically(
@@ -448,6 +455,9 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                             }
                         }
 
+                            }
+                        }
+
                         if (!hasLoadedRecords || records.isEmpty()) {
                             Box(
                                 modifier = Modifier
@@ -479,6 +489,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                     RecordCard(
                                         record = record,
                                         selected = selected,
+                                        selectionMode = selectionModeActive,
                                         palette = palette,
                                         adaptive = adaptive,
                                         allowImageLoading = true,
@@ -877,6 +888,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                         palette = palette,
                                         adaptive = adaptive,
                                         selected = selected,
+                                        selectionMode = true,
                                         allowImageLoading = true,
                                         showShadow = false,
                                         onClick = { onToggleRecord(record.recordId) },

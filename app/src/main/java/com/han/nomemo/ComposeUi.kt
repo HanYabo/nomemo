@@ -3080,20 +3080,13 @@ fun RecordCard(
             }
         }
         if (selected) {
-            val selectionOverlayColor = if (isDark) {
-                Color(0xFF2E8BFF).copy(alpha = 0.18f)
-            } else {
-                Color(0xFF1677FF).copy(alpha = 0.12f)
-            }
-            Box(
-                modifier = Modifier
-                    .matchParentSize()
-                    .clip(cardShape)
-                    .background(selectionOverlayColor)
+            NoMemoSelectedCardOverlay(
+                shape = cardShape,
+                modifier = Modifier.matchParentSize()
             )
         }
         if (selectionMode) {
-            RecordGridSelectionCheckbox(
+            NoMemoSelectionCheckbox(
                 selected = selected,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -3322,16 +3315,9 @@ fun RecordGridCard(
             }
 
             if (selected) {
-                val selectionOverlayColor = if (isDark) {
-                    Color(0xFF2E8BFF).copy(alpha = 0.18f)
-                } else {
-                    Color(0xFF1677FF).copy(alpha = 0.12f)
-                }
-                Box(
-                    modifier = Modifier
-                        .matchParentSize()
-                        .clip(cardShape)
-                        .background(selectionOverlayColor)
+                NoMemoSelectedCardOverlay(
+                    shape = cardShape,
+                    modifier = Modifier.matchParentSize()
                 )
             }
             Box(
@@ -3342,7 +3328,7 @@ fun RecordGridCard(
             }
         }
         if (selectionMode) {
-            RecordGridSelectionCheckbox(
+            NoMemoSelectionCheckbox(
                 selected = selected,
                 modifier = Modifier
                     .align(Alignment.TopEnd)
@@ -3362,7 +3348,25 @@ fun RecordGridCard(
 }
 
 @Composable
-private fun RecordGridSelectionCheckbox(
+internal fun NoMemoSelectedCardOverlay(
+    shape: androidx.compose.ui.graphics.Shape,
+    modifier: Modifier = Modifier
+) {
+    val isDark = isSystemInDarkTheme()
+    val selectionOverlayColor = if (isDark) {
+        Color(0xFF2E8BFF).copy(alpha = 0.18f)
+    } else {
+        Color(0xFF1677FF).copy(alpha = 0.12f)
+    }
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(selectionOverlayColor)
+    )
+}
+
+@Composable
+internal fun NoMemoSelectionCheckbox(
     selected: Boolean,
     modifier: Modifier = Modifier
 ) {

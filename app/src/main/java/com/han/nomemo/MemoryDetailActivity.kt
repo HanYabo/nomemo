@@ -126,6 +126,23 @@ private object MemoryDetailReanalyzeScope {
 private const val MinReanalyzeFeedbackMs = 650L
 private const val ReanalyzeStateRevealDelayMs = 120L
 
+private enum class ReanalyzeRequestMode {
+    TEXT,
+    IMAGE,
+    MULTIMODAL
+}
+
+private sealed class ReanalyzePreflight {
+    data class Success(
+        val input: String,
+        val imageUri: Uri?,
+        val requestMode: ReanalyzeRequestMode,
+        val model: String
+    ) : ReanalyzePreflight()
+
+    data class Failure(val message: String) : ReanalyzePreflight()
+}
+
 class MemoryDetailActivity : BaseComposeActivity() {
     companion object {
         private const val EXTRA_RECORD_ID = "extra_record_id"
@@ -242,13 +259,24 @@ class MemoryDetailActivity : BaseComposeActivity() {
             record = loaded
             if (loaded == null) {
                 finish()
+                return@launch
+            }
+            val loadedState = AiAnalysisStateJson.parse(loaded.aiAnalysisStateJson)
+            if (loadedState?.isActive == true
+                && loadedState.operationKind == AiOperationKind.REANALYZE
+                && AiProcessingStateRegistry.isProcessing(recordId)
+            ) {
+                reanalyzing = true
+            } else if (reanalyzing) {
+                reanalyzing = false
             }
         }
     }
 
     private fun normalizeLoadedRecordForDetail(loaded: MemoryRecord): MemoryRecord {
         val state = AiAnalysisStateJson.parse(loaded.aiAnalysisStateJson) ?: return loaded
-        if (!state.isActive || state.operationKind != AiOperationKind.REANALYZE || reanalyzing) {
+        if (!state.isActive || state.operationKind != AiOperationKind.REANALYZE || reanalyzing
+            || AiProcessingStateRegistry.isProcessing(loaded.recordId)) {
             return loaded
         }
         val normalizedBase = normalizeStableAiRecord(loaded)
@@ -511,8 +539,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
 
     private fun reanalyzeRecord(currentRecord: MemoryRecord) {
         val recordId = currentRecord.recordId
+        if (!aiEnabled) {
+            Toast.makeText(applicationContext, "AI 未开启或配置不可用", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (
-            !aiEnabled ||
             reanalyzing ||
             AiProcessingStateRegistry.isProcessing(recordId) ||
             AiAnalysisStateJson.isActive(currentRecord.aiAnalysisStateJson)
@@ -520,8 +551,15 @@ class MemoryDetailActivity : BaseComposeActivity() {
             return
         }
         val previousRecord = normalizeStableAiRecord(currentRecord)
-        val sessionId = beginReanalyzeSession(previousRecord)
         val appContext = applicationContext
+        val preflight = prepareReanalyzePreflight(previousRecord)
+        if (preflight is ReanalyzePreflight.Failure) {
+            record = previousRecord
+            Toast.makeText(appContext, preflight.message, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val reanalyzeRequest = preflight as ReanalyzePreflight.Success
+        val sessionId = beginReanalyzeSession(previousRecord)
         val reanalyzePolicy = AiAnalysisPolicies.resolve(settingsStore, AiOperationKind.REANALYZE)
         val initialAttemptLimit = reanalyzePolicy.totalAttemptLimit
         val pendingRecord = buildReanalyzePendingRecord(
@@ -543,6 +581,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
             val startedAt = SystemClock.elapsedRealtime()
             var lastAttemptCount = 1
             var lastAttemptLimit = initialAttemptLimit
+            var lastFailureStage: AiFailureStage? = null
+            var lastFailureMessage: String? = null
+            var failureToast = "重新分析失败，已保留原记忆"
             delay(ReanalyzeStateRevealDelayMs)
             try {
                 ensureActiveReanalyzeSession(sessionId)
@@ -551,10 +592,6 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
                 val updated = withContext(Dispatchers.IO) {
                     val orchestrator = AiAnalysisOrchestrator(appContext)
-                    val input = buildAiInput(previousRecord)
-                    val imageUri = previousRecord.imageUri
-                        ?.takeIf { it.isNotBlank() }
-                        ?.let(Uri::parse)
                     val detailContext = buildEnhancedAiContext(previousRecord)
                     val progressListener =
                         AiMemoryService.AttemptListener { attempt, attemptLimit ->
@@ -583,10 +620,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     AiProcessingStateRegistry.markProcessing(recordId, attempt, attemptLimit)
                                 }
                             }
-                        }
+                    }
                     val outcome = orchestrator.runReanalysis(
-                        input,
-                        imageUri,
+                        reanalyzeRequest.input,
+                        reanalyzeRequest.imageUri,
                         detailContext,
                         progressListener
                     )
@@ -602,6 +639,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                 "costMode=${orchestrator.reanalyzePolicy().costMode} attempts=${outcome.attemptCount}/${outcome.attemptLimit} " +
                                 "failureStage=${outcome.failureStage} message=${outcome.failureMessage}"
                         )
+                        lastFailureStage = outcome.failureStage
+                        lastFailureMessage = outcome.failureMessage
+                        failureToast = describeReanalyzeFailure(outcome.failureStage, outcome.failureMessage)
                         return@withContext null
                     }
                     val result = outcome.generationResult ?: return@withContext null
@@ -667,7 +707,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         baseRecord = previousRecord,
                         costMode = reanalyzePolicy.costMode,
                         attemptCount = lastAttemptCount,
-                        attemptLimit = lastAttemptLimit
+                        attemptLimit = lastAttemptLimit,
+                        failureStage = lastFailureStage,
+                        failureMessage = lastFailureMessage
                     )
                     withContext(Dispatchers.IO) {
                         memoryStore.updateRecord(clearedRecord)
@@ -679,7 +721,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         }
                         if (isReanalyzeSessionActive(sessionId)) {
                             reanalyzing = false
-                            Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(appContext, failureToast, Toast.LENGTH_SHORT).show()
                         }
                     }
                     return@launch
@@ -690,11 +732,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 }
                 ensureActiveReanalyzeSession(sessionId)
                 if (!updateSuccess) {
+                    failureToast = "重新分析结果写入失败，已保留原记忆"
                     val clearedRecord = markAiReanalyzeFailed(
                         baseRecord = previousRecord,
                         costMode = reanalyzePolicy.costMode,
                         attemptCount = lastAttemptCount,
-                        attemptLimit = lastAttemptLimit
+                        attemptLimit = lastAttemptLimit,
+                        failureStage = lastFailureStage,
+                        failureMessage = lastFailureMessage
                     )
                     withContext(Dispatchers.IO) {
                         memoryStore.updateRecord(clearedRecord)
@@ -706,7 +751,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         }
                         if (isReanalyzeSessionActive(sessionId)) {
                             reanalyzing = false
-                            Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(appContext, failureToast, Toast.LENGTH_SHORT).show()
                         }
                     }
                     return@launch
@@ -733,11 +778,16 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     return@launch
                 }
                 Log.e("MemoryDetailActivity", "Reanalyze failed for recordId=$recordId", exception)
+                lastFailureStage = AiFailureStage.CLOUD_REQUEST
+                lastFailureMessage = exception.message
+                failureToast = "重新分析异常，已保留原记忆"
                 val clearedRecord = markAiReanalyzeFailed(
                     baseRecord = previousRecord,
                     costMode = reanalyzePolicy.costMode,
                     attemptCount = lastAttemptCount,
-                    attemptLimit = lastAttemptLimit
+                    attemptLimit = lastAttemptLimit,
+                    failureStage = lastFailureStage,
+                    failureMessage = lastFailureMessage
                 )
                 withContext(Dispatchers.IO) {
                     memoryStore.updateRecord(clearedRecord)
@@ -749,7 +799,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                     }
                     if (isReanalyzeSessionActive(sessionId)) {
                         reanalyzing = false
-                        Toast.makeText(appContext, "重新分析失败", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(appContext, failureToast, Toast.LENGTH_SHORT).show()
                     }
                 }
                 return@launch
@@ -799,6 +849,79 @@ class MemoryDetailActivity : BaseComposeActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             memoryStore.updateRecord(canceledRecord)
         }
+    }
+
+    private fun prepareReanalyzePreflight(baseRecord: MemoryRecord): ReanalyzePreflight {
+        if (!settingsStore.isAiAvailable()) {
+            return ReanalyzePreflight.Failure("AI 未开启或配置不可用")
+        }
+        if (settingsStore.resolvedApiBaseUrl().isBlank() || settingsStore.resolvedApiKey().isBlank()) {
+            return ReanalyzePreflight.Failure("AI Base URL 或 API Key 为空")
+        }
+
+        val input = buildAiInput(baseRecord)
+        val imageUri = baseRecord.imageUri
+            ?.trim()
+            ?.takeIf { it.isNotEmpty() }
+            ?.let { runCatching { Uri.parse(it) }.getOrNull() }
+
+        if (imageUri != null && !canReadImageForReanalysis(imageUri)) {
+            return ReanalyzePreflight.Failure("原图片无法读取，已保留原记忆")
+        }
+
+        val requestMode = resolveReanalyzeRequestMode(input, imageUri)
+        val model = resolveReanalyzeModel(requestMode).trim()
+        if (model.isBlank()) {
+            return ReanalyzePreflight.Failure("当前 AI 模型配置为空")
+        }
+        if (requestMode != ReanalyzeRequestMode.TEXT &&
+            !AiModelCapabilityRegistry.resolve(model).supportsImageInput()
+        ) {
+            return ReanalyzePreflight.Failure("当前图片模型不支持图片输入，已保留原记忆")
+        }
+
+        return ReanalyzePreflight.Success(
+            input = input,
+            imageUri = imageUri,
+            requestMode = requestMode,
+            model = model
+        )
+    }
+
+    private fun resolveReanalyzeRequestMode(
+        input: String,
+        imageUri: Uri?
+    ): ReanalyzeRequestMode {
+        val hasImage = imageUri != null
+        val hasText = input.isNotBlank()
+        return when {
+            hasImage && hasText -> ReanalyzeRequestMode.MULTIMODAL
+            hasImage -> ReanalyzeRequestMode.IMAGE
+            else -> ReanalyzeRequestMode.TEXT
+        }
+    }
+
+    private fun resolveReanalyzeModel(requestMode: ReanalyzeRequestMode): String {
+        return when (requestMode) {
+            ReanalyzeRequestMode.IMAGE -> settingsStore.resolvedImageModel()
+            ReanalyzeRequestMode.MULTIMODAL -> settingsStore.resolvedMultimodalModel()
+            ReanalyzeRequestMode.TEXT -> settingsStore.resolvedTextModel()
+        }
+    }
+
+    private fun canReadImageForReanalysis(imageUri: Uri): Boolean {
+        return runCatching {
+            contentResolver.openInputStream(imageUri)?.use { input ->
+                BitmapFactory.decodeStream(input) != null
+            } ?: false
+        }.getOrDefault(false)
+    }
+
+    private fun describeReanalyzeFailure(
+        failureStage: AiFailureStage?,
+        failureMessage: String?
+    ): String {
+        return describeAiReanalysisFailure(failureStage, failureMessage)
     }
 
     private fun beginReanalyzeSession(baseRecord: MemoryRecord): Long {
@@ -871,17 +994,17 @@ class MemoryDetailActivity : BaseComposeActivity() {
         baseRecord: MemoryRecord,
         costMode: AiCostMode,
         attemptCount: Int,
-        attemptLimit: Int
+        attemptLimit: Int,
+        failureStage: AiFailureStage? = null,
+        failureMessage: String? = null
     ): MemoryRecord {
-        return copyRecordWithAiState(
+        return buildFailedReanalysisRecord(
             baseRecord = baseRecord,
-            aiAnalysisStateJson = AiAnalysisStateJson.failed(
-                AiOperationKind.REANALYZE,
-                costMode,
-                attemptCount = attemptCount.coerceAtLeast(1),
-                attemptLimit = attemptLimit.coerceAtLeast(1)
-            ),
-            aiVisualStateJson = ""
+            costMode = costMode,
+            attemptCount = attemptCount,
+            attemptLimit = attemptLimit,
+            failureStage = failureStage,
+            failureMessage = failureMessage
         )
     }
 
@@ -921,7 +1044,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
             reanalyzing -> DetailAiActionState(
                 text = detailAiProcessingLabel(persistedState),
                 processing = true,
-                cancelable = true
+                cancelable = reanalyzeBaseRecord != null
             )
 
             activeInitialAnalysis != null -> DetailAiActionState(
@@ -2107,7 +2230,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
             if (showAiFailureHint) {
                 NoMemoPersistentMessageDialog(
                     title = "AI分析失败",
-                    message = "AI分析失败，点击AI分析按钮可进行重试",
+                    message = describeAiAnalysisFailureDialog(
+                        AiAnalysisStateJson.parse(record?.aiAnalysisStateJson)
+                    ),
                     onTemporaryDismiss = {
                         showAiFailureHint = false
                     },

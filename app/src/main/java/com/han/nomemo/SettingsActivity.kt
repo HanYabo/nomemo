@@ -96,6 +96,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.util.fastCoerceIn
 import androidx.compose.ui.zIndex
 import com.kyant.backdrop.backdrops.layerBackdrop
+import com.kyant.backdrop.catalog.utils.DampedDragAnimation
+import com.kyant.backdrop.catalog.utils.inspectDragGestures
 import com.kyant.backdrop.backdrops.rememberBackdrop
 import com.kyant.backdrop.backdrops.rememberCombinedBackdrop
 import com.kyant.backdrop.backdrops.rememberLayerBackdrop
@@ -3295,7 +3297,7 @@ class SettingsActivity : BaseComposeActivity() {
         var fraction by remember { mutableFloatStateOf(if (checked) 1f else 0f) }
 
         val dampedDragAnimation = remember(animationScope, enabled, isLtr, dragWidth) {
-            LiquidGlassDampedDragAnimation(
+            DampedDragAnimation(
                 animationScope = animationScope,
                 initialValue = fraction,
                 valueRange = 0f..1f,
@@ -3308,7 +3310,7 @@ class SettingsActivity : BaseComposeActivity() {
                 onDragStopped = {
                     if (!enabled) {
                         didDrag = false
-                        return@LiquidGlassDampedDragAnimation
+                        return@DampedDragAnimation
                     }
                     val nextFraction = if (didDrag) {
                         if (targetValue >= 0.5f) 1f else 0f
@@ -3322,7 +3324,7 @@ class SettingsActivity : BaseComposeActivity() {
                 },
                 onDrag = { _, dragAmount ->
                     if (!enabled) {
-                        return@LiquidGlassDampedDragAnimation
+                        return@DampedDragAnimation
                     }
                     if (!didDrag) {
                         didDrag = dragAmount.x != 0f

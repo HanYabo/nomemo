@@ -1,6 +1,9 @@
 package com.han.nomemo;
 
 public enum AiFailureStage {
+    CONFIGURATION,
+    IMAGE_INPUT,
+    MODEL_CAPABILITY,
     CLOUD_REQUEST,
     TOKEN_EXHAUSTED,
     JSON_PARSE,

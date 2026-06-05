@@ -1027,18 +1027,14 @@ class MainActivity : BaseComposeActivity() {
             }
         }
         val headerCollapseDistancePx = with(density) { 68.dp.toPx() }
-        val headerCollapseTarget by remember(selectionModeActive, viewMode, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset) {
+        val headerCollapseTarget by remember(viewMode, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset, gridState.firstVisibleItemIndex, gridState.firstVisibleItemScrollOffset) {
             derivedStateOf {
-                if (selectionModeActive) {
-                    0f
-                } else {
-                    val firstVisibleIndex = if (viewMode == SettingsStore.VIEW_MODE_GRID) gridState.firstVisibleItemIndex else listState.firstVisibleItemIndex
-                    val firstVisibleOffset = if (viewMode == SettingsStore.VIEW_MODE_GRID) gridState.firstVisibleItemScrollOffset else listState.firstVisibleItemScrollOffset
-                    when {
-                        firstVisibleIndex > 0 -> 1f
-                        headerCollapseDistancePx <= 0f -> 0f
-                        else -> (firstVisibleOffset / headerCollapseDistancePx).coerceIn(0f, 1f)
-                    }
+                val firstVisibleIndex = if (viewMode == SettingsStore.VIEW_MODE_GRID) gridState.firstVisibleItemIndex else listState.firstVisibleItemIndex
+                val firstVisibleOffset = if (viewMode == SettingsStore.VIEW_MODE_GRID) gridState.firstVisibleItemScrollOffset else listState.firstVisibleItemScrollOffset
+                when {
+                    firstVisibleIndex > 0 -> 1f
+                    headerCollapseDistancePx <= 0f -> 0f
+                    else -> (firstVisibleOffset / headerCollapseDistancePx).coerceIn(0f, 1f)
                 }
             }
         }

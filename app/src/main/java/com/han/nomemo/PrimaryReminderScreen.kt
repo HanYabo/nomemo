@@ -8,9 +8,16 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -74,6 +81,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -256,24 +264,32 @@ private fun ReminderPrimaryScreen(
     var moreMenuExpanded by remember { mutableStateOf(false) }
     var moreMenuAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
     var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
+    val selectionAnimationScope = rememberCoroutineScope()
+    var pendingSelectionClearJob by remember { mutableStateOf<Job?>(null) }
+    val selectionExitDurationMs = 240L
+    fun exitSelectionMode() {
+        pendingSelectionClearJob?.cancel()
+        selectionModeActive = false
+        showDeleteConfirm = false
+        pendingSelectionClearJob = selectionAnimationScope.launch {
+            delay(selectionExitDurationMs)
+            selectedRecordIds = emptySet()
+            pendingSelectionClearJob = null
+        }
+    }
     val listState = rememberLazyListState()
     val filteredRecords = records
     val headerCollapseDistancePx = with(density) { 68.dp.toPx() }
     val headerCollapseTarget by remember(
-        selectionModeActive,
         listState.firstVisibleItemIndex,
         listState.firstVisibleItemScrollOffset
     ) {
         derivedStateOf {
-            if (selectionModeActive) {
-                0f
-            } else {
-                when {
-                    listState.firstVisibleItemIndex > 0 -> 1f
-                    headerCollapseDistancePx <= 0f -> 0f
-                    else -> (listState.firstVisibleItemScrollOffset / headerCollapseDistancePx)
-                        .coerceIn(0f, 1f)
-                }
+            when {
+                listState.firstVisibleItemIndex > 0 -> 1f
+                headerCollapseDistancePx <= 0f -> 0f
+                else -> (listState.firstVisibleItemScrollOffset / headerCollapseDistancePx)
+                    .coerceIn(0f, 1f)
             }
         }
     }
@@ -287,6 +303,9 @@ private fun ReminderPrimaryScreen(
     val expandedTitleTranslateY = with(density) { (-22).dp.toPx() * headerCollapseProgress }
     val chipsTopPadding = lerp(12.dp, 11.dp, headerCollapseProgress)
     val chipBottomPadding = 12.dp
+    val headerReservedHeight =
+        adaptive.topActionButtonSize + titleBlockHeight + 12.dp + chipBottomPadding +
+            if (adaptive.isNarrow) 44.dp else 46.dp
     val selectedRecords = remember(filteredRecords, selectedRecordIds) {
         filteredRecords.filter { selectedRecordIds.contains(it.recordId) }
     }
@@ -330,11 +349,15 @@ private fun ReminderPrimaryScreen(
             onPrimaryOverlayChanged(overlay)
         }
     }
+    LaunchedEffect(selectionModeActive) {
+        if (selectionModeActive) {
+            pendingSelectionClearJob?.cancel()
+            pendingSelectionClearJob = null
+        }
+    }
 
     BackHandler(enabled = selectionModeActive) {
-        selectionModeActive = false
-        selectedRecordIds = emptySet()
-        showDeleteConfirm = false
+        exitSelectionMode()
         onResetDoubleBackExitState()
     }
 
@@ -353,8 +376,26 @@ private fun ReminderPrimaryScreen(
                             bottom = 0.dp
                         )
                 ) {
-                    if (selectionModeActive) {
-                        Box(
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(headerReservedHeight)
+                            .zIndex(1f)
+                    ) {
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                    AnimatedVisibility(
+                        visible = selectionModeActive,
+                        enter = expandVertically(
+                            expandFrom = Alignment.Top,
+                            animationSpec = tween(durationMillis = 210, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)),
+                        exit = shrinkVertically(
+                            shrinkTowards = Alignment.Top,
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing))
+                    ) {
+                        Column {
+                            Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(spec.topActionButtonSize)
@@ -362,11 +403,7 @@ private fun ReminderPrimaryScreen(
                             GlassIconCircleButton(
                                 iconRes = R.drawable.ic_sheet_close,
                                 contentDescription = stringResource(R.string.cancel),
-                                onClick = {
-                                    selectionModeActive = false
-                                    selectedRecordIds = emptySet()
-                                    showDeleteConfirm = false
-                                },
+                                onClick = { exitSelectionMode() },
                                 modifier = Modifier.align(Alignment.CenterStart),
                                 size = spec.topActionButtonSize
                             )
@@ -404,8 +441,21 @@ private fun ReminderPrimaryScreen(
                             )
                         }
                         Spacer(modifier = Modifier.height(12.dp))
-                    } else {
-                        Box(
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = !selectionModeActive,
+                        enter = expandVertically(
+                            expandFrom = Alignment.Top,
+                            animationSpec = tween(durationMillis = 230, delayMillis = 40, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 190, delayMillis = 40, easing = FastOutSlowInEasing)),
+                        exit = shrinkVertically(
+                            shrinkTowards = Alignment.Top,
+                            animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing))
+                    ) {
+                        Column {
+                            Box(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(spec.topActionButtonSize)
@@ -447,7 +497,19 @@ private fun ReminderPrimaryScreen(
                             )
                         }
                     }
+                    }
 
+                    AnimatedVisibility(
+                        visible = !selectionModeActive,
+                        enter = expandVertically(
+                            expandFrom = Alignment.Top,
+                            animationSpec = tween(durationMillis = 190, delayMillis = 40, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 160, delayMillis = 40, easing = FastOutSlowInEasing)),
+                        exit = shrinkVertically(
+                            shrinkTowards = Alignment.Top,
+                            animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing))
+                    ) {
                     Row(
                         modifier = Modifier
                             .padding(top = chipsTopPadding, bottom = chipBottomPadding)
@@ -478,6 +540,10 @@ private fun ReminderPrimaryScreen(
                             onFilterSelected(PrimaryReminderFilter.DONE)
                         }
                     }
+                    }
+
+                        }
+                    }
 
                     if (!hasLoadedRecords || filteredRecords.isEmpty()) {
                         Spacer(modifier = Modifier.weight(1f))
@@ -505,6 +571,7 @@ private fun ReminderPrimaryScreen(
                                 ReminderPrimaryItem(
                                     record = record,
                                     selected = selectedRecordIds.contains(record.recordId),
+                                    selectionMode = selectionModeActive,
                                     adaptive = adaptive,
                                     palette = palette,
                                     onDoneChanged = onDoneChanged,
@@ -547,7 +614,18 @@ private fun ReminderPrimaryScreen(
                     )
                 }
 
-                if (selectionModeActive && selectedRecords.isNotEmpty()) {
+                AnimatedVisibility(
+                    visible = selectionModeActive && selectedRecords.isNotEmpty(),
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                    enter = slideInVertically(
+                        initialOffsetY = { it / 2 },
+                        animationSpec = tween(durationMillis = 230, easing = FastOutSlowInEasing)
+                    ) + fadeIn(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)),
+                    exit = slideOutVertically(
+                        targetOffsetY = { it / 2 },
+                        animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                    ) + fadeOut(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing))
+                ) {
                     NoMemoSelectionActionDock(
                         selectedRecords = selectedRecords,
                         onArchiveClick = {},
@@ -556,7 +634,6 @@ private fun ReminderPrimaryScreen(
                         showArchiveAction = false,
                         backdrop = backdrop,
                         modifier = Modifier
-                            .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
                             .padding(
                                 start = spec.pageHorizontalPadding,
@@ -575,9 +652,8 @@ private fun ReminderPrimaryScreen(
                         ),
                         onConfirm = {
                             onDeleteRecords(selectedRecordIds)
-                            selectionModeActive = false
-                            selectedRecordIds = emptySet()
                             showDeleteConfirm = false
+                            exitSelectionMode()
                         },
                         onDismiss = { showDeleteConfirm = false }
                     )
@@ -656,6 +732,7 @@ private fun ReminderPrimaryChip(
 private fun ReminderPrimaryItem(
     record: MemoryRecord,
     selected: Boolean,
+    selectionMode: Boolean,
     adaptive: NoMemoAdaptiveSpec,
     palette: NoMemoPalette,
     onDoneChanged: (MemoryRecord, Boolean) -> Unit,
@@ -667,11 +744,7 @@ private fun ReminderPrimaryItem(
     val isDark = isSystemInDarkTheme()
     val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
     val cardShape = noMemoG2RoundedShape(if (adaptive.isNarrow) 28.dp else 30.dp)
-    val cardBackground = if (selected) {
-        noMemoSelectedCardGradient(isDark).first()
-    } else {
-        if (isDark) noMemoCardSurfaceColor(true) else Color.White.copy(alpha = 0.995f)
-    }
+    val cardBackground = if (isDark) noMemoCardSurfaceColor(true) else Color.White.copy(alpha = 0.995f)
     val title = when {
         !record.title.isNullOrBlank() -> record.title
         !record.memory.isNullOrBlank() -> record.memory
@@ -698,7 +771,7 @@ private fun ReminderPrimaryItem(
                 shape = cardShape
             )
     ) {
-        androidx.compose.foundation.layout.Row(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .pointerInput(onLongPressSelect, onClickItem) {
@@ -751,6 +824,20 @@ private fun ReminderPrimaryItem(
                     )
                 }
             }
+        }
+        if (selected) {
+            NoMemoSelectedCardOverlay(
+                shape = cardShape,
+                modifier = Modifier.matchParentSize()
+            )
+        }
+        if (selectionMode) {
+            NoMemoSelectionCheckbox(
+                selected = selected,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 12.dp)
+            )
         }
     }
 }

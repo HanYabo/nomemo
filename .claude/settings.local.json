@@ -34,7 +34,15 @@
       "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR==1140||NR==1360\\)print NR\": depth \"d}' app/src/main/java/com/han/nomemo/MainActivity.kt)",
       "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR>=1125&&NR<=1145\\)print NR\": depth \"d}')",
       "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR>=1108&&NR<=1145\\)print NR\": depth \"d, $0}')",
-      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR>=1118&&NR<=1145\\)print NR\": depth \"d, $0}' app/src/main/java/com/han/nomemo/MainActivity.kt)"
+      "Bash(awk 'BEGIN{d=0} {for\\(i=1;i<=length\\($0\\);i++\\){c=substr\\($0,i,1\\);if\\(c==\"{\"\\)d++;if\\(c==\"}\"\\)d--}if\\(NR>=1118&&NR<=1145\\)print NR\": depth \"d, $0}' app/src/main/java/com/han/nomemo/MainActivity.kt)",
+      "WebFetch(domain:github.com)",
+      "Read(//f/tmp/**)",
+      "Bash(jar tf *)",
+      "Bash(grep -E \"\\\\.kt$\")",
+      "Bash(cygpath -w /tmp/commonMain/com/kyant/backdrop/Backdrop.kt)",
+      "Read(//tmp/**)",
+      "Bash(unzip -q \"C:/Users/MuY1eee/.gradle/caches/modules-2/files-2.1/io.github.kyant0/backdrop-android/2.0.0-alpha03/ef35ed0bc59b1189bbcdea7d65d7661477a2049d/backdrop-android-sources.jar\" \"commonMain/com/kyant/backdrop/DrawBackdropModifier.kt\")",
+      "Bash(./gradlew testDebugUnitTest --tests \"com.han.nomemo.AiAnalysisPoliciesTest\" --tests \"com.han.nomemo.AiAnalysisStateJsonTest\" --tests \"com.han.nomemo.AiMemoryServiceTest\")"
     ]
   }
 }

@@ -14,10 +14,14 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -53,6 +57,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -80,6 +85,7 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.abs
@@ -283,19 +289,28 @@ class ReminderActivity : BaseComposeActivity() {
         var moreMenuExpanded by remember { mutableStateOf(false) }
         var moreMenuAnchorBounds by remember { mutableStateOf<androidx.compose.ui.unit.IntRect?>(null) }
         var pendingScrollToTopAfterAdd by remember { mutableStateOf(false) }
+        val selectionAnimationScope = rememberCoroutineScope()
+        var pendingSelectionClearJob by remember { mutableStateOf<Job?>(null) }
+        val selectionExitDurationMs = 240L
+        fun exitSelectionMode() {
+            pendingSelectionClearJob?.cancel()
+            selectionModeActive = false
+            showDeleteConfirm = false
+            pendingSelectionClearJob = selectionAnimationScope.launch {
+                delay(selectionExitDurationMs)
+                selectedRecordIds = emptySet()
+                pendingSelectionClearJob = null
+            }
+        }
         val listState = rememberLazyListState()
         val filteredRecords = records
         val headerCollapseDistancePx = with(density) { 68.dp.toPx() }
-        val headerCollapseTarget by remember(selectionModeActive, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+        val headerCollapseTarget by remember(listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
             derivedStateOf {
-                if (selectionModeActive) {
-                    0f
-                } else {
-                    when {
-                        listState.firstVisibleItemIndex > 0 -> 1f
-                        headerCollapseDistancePx <= 0f -> 0f
-                        else -> (listState.firstVisibleItemScrollOffset / headerCollapseDistancePx).coerceIn(0f, 1f)
-                    }
+                when {
+                    listState.firstVisibleItemIndex > 0 -> 1f
+                    headerCollapseDistancePx <= 0f -> 0f
+                    else -> (listState.firstVisibleItemScrollOffset / headerCollapseDistancePx).coerceIn(0f, 1f)
                 }
             }
         }
@@ -309,6 +324,9 @@ class ReminderActivity : BaseComposeActivity() {
         val expandedTitleTranslateY = with(density) { (-22).dp.toPx() * headerCollapseProgress }
         val chipsTopPadding = lerp(12.dp, 11.dp, headerCollapseProgress)
         val chipBottomPadding = 12.dp
+        val headerReservedHeight =
+            adaptive.topActionButtonSize + titleBlockHeight + 12.dp + chipBottomPadding +
+                if (adaptive.isNarrow) 44.dp else 46.dp
         val selectedRecords = remember(filteredRecords, selectedRecordIds) {
             filteredRecords.filter { selectedRecordIds.contains(it.recordId) }
         }
@@ -331,10 +349,14 @@ class ReminderActivity : BaseComposeActivity() {
                 pendingScrollToTopAfterAdd = false
             }
         }
+        LaunchedEffect(selectionModeActive) {
+            if (selectionModeActive) {
+                pendingSelectionClearJob?.cancel()
+                pendingSelectionClearJob = null
+            }
+        }
         BackHandler(enabled = selectionModeActive) {
-            selectionModeActive = false
-            selectedRecordIds = emptySet()
-            showDeleteConfirm = false
+            exitSelectionMode()
             resetDoubleBackExitState()
         }
 
@@ -358,8 +380,26 @@ class ReminderActivity : BaseComposeActivity() {
                                 bottom = 0.dp
                             )
                     ) {
-                        if (selectionModeActive) {
-                            Box(
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(headerReservedHeight)
+                                .zIndex(1f)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                        AnimatedVisibility(
+                            visible = selectionModeActive,
+                            enter = expandVertically(
+                                expandFrom = Alignment.Top,
+                                animationSpec = tween(durationMillis = 210, easing = FastOutSlowInEasing)
+                            ) + fadeIn(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing)),
+                            exit = shrinkVertically(
+                                shrinkTowards = Alignment.Top,
+                                animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                            ) + fadeOut(animationSpec = tween(durationMillis = 180, easing = FastOutSlowInEasing))
+                        ) {
+                            Column {
+                                Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(spec.topActionButtonSize)
@@ -367,11 +407,7 @@ class ReminderActivity : BaseComposeActivity() {
                                 GlassIconCircleButton(
                                     iconRes = R.drawable.ic_sheet_close,
                                     contentDescription = stringResource(R.string.cancel),
-                                    onClick = {
-                                        selectionModeActive = false
-                                        selectedRecordIds = emptySet()
-                                        showDeleteConfirm = false
-                                    },
+                                    onClick = { exitSelectionMode() },
                                     modifier = Modifier.align(Alignment.CenterStart),
                                     size = spec.topActionButtonSize
                                 )
@@ -402,8 +438,21 @@ class ReminderActivity : BaseComposeActivity() {
                                 )
                             }
                             Spacer(modifier = Modifier.height(12.dp))
-                        } else {
-                            Box(
+                            }
+                        }
+                        AnimatedVisibility(
+                            visible = !selectionModeActive,
+                            enter = expandVertically(
+                                expandFrom = Alignment.Top,
+                                animationSpec = tween(durationMillis = 230, delayMillis = 40, easing = FastOutSlowInEasing)
+                            ) + fadeIn(animationSpec = tween(durationMillis = 190, delayMillis = 40, easing = FastOutSlowInEasing)),
+                            exit = shrinkVertically(
+                                shrinkTowards = Alignment.Top,
+                                animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)
+                            ) + fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing))
+                        ) {
+                            Column {
+                                Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(spec.topActionButtonSize)
@@ -444,8 +493,20 @@ class ReminderActivity : BaseComposeActivity() {
                                     fontWeight = FontWeight.Bold
                                 )
                             }
+                            }
                         }
 
+                        AnimatedVisibility(
+                            visible = !selectionModeActive,
+                            enter = expandVertically(
+                                expandFrom = Alignment.Top,
+                                animationSpec = tween(durationMillis = 190, delayMillis = 40, easing = FastOutSlowInEasing)
+                            ) + fadeIn(animationSpec = tween(durationMillis = 160, delayMillis = 40, easing = FastOutSlowInEasing)),
+                            exit = shrinkVertically(
+                                shrinkTowards = Alignment.Top,
+                                animationSpec = tween(durationMillis = 150, easing = FastOutSlowInEasing)
+                            ) + fadeOut(animationSpec = tween(durationMillis = 120, easing = FastOutSlowInEasing))
+                        ) {
                         Row(
                             modifier = Modifier
                                 .padding(top = chipsTopPadding, bottom = chipBottomPadding)
@@ -462,6 +523,10 @@ class ReminderActivity : BaseComposeActivity() {
                             Spacer(modifier = Modifier.width(10.dp))
                             ReminderChip(stringResource(R.string.reminder_filter_done), selectedFilter == FILTER_DONE, spec.chipTextSize) {
                                 onFilterSelected(FILTER_DONE)
+                            }
+                        }
+                        }
+
                             }
                         }
 
@@ -490,6 +555,7 @@ class ReminderActivity : BaseComposeActivity() {
                                     ReminderItem(
                                         record = record,
                                         selected = selectedRecordIds.contains(record.recordId),
+                                        selectionMode = selectionModeActive,
                                         adaptive = adaptive,
                                         palette = palette,
                                         onDoneChanged = onDoneChanged,
@@ -531,7 +597,18 @@ class ReminderActivity : BaseComposeActivity() {
                         )
                     }
 
-                    if (!selectionModeActive) {
+                    AnimatedVisibility(
+                        visible = !selectionModeActive,
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        enter = slideInVertically(
+                            initialOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 240, delayMillis = 50, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 180, delayMillis = 50, easing = FastOutSlowInEasing)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 140, easing = FastOutSlowInEasing))
+                    ) {
                         LiquidGlassDock(
                             selectedTab = NoMemoDockTab.REMINDER,
                             onOpenMemory = onOpenMemory,
@@ -542,7 +619,6 @@ class ReminderActivity : BaseComposeActivity() {
                             startupPulseTab = startupDockPulseTab,
                             startupPulseDelayMs = 140L,
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(
                                     start = spec.pageHorizontalPadding,
@@ -551,7 +627,19 @@ class ReminderActivity : BaseComposeActivity() {
                                 ),
                             sharedBackdrop = backdrop  // 传入共享的 backdrop，实现真实玻璃效果
                         )
-                    } else if (selectedRecords.isNotEmpty()) {
+                    }
+                    AnimatedVisibility(
+                        visible = selectionModeActive && selectedRecords.isNotEmpty(),
+                        modifier = Modifier.align(Alignment.BottomCenter),
+                        enter = slideInVertically(
+                            initialOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 230, easing = FastOutSlowInEasing)
+                        ) + fadeIn(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing)),
+                        exit = slideOutVertically(
+                            targetOffsetY = { it / 2 },
+                            animationSpec = tween(durationMillis = 220, easing = FastOutSlowInEasing)
+                        ) + fadeOut(animationSpec = tween(durationMillis = 170, easing = FastOutSlowInEasing))
+                    ) {
                         NoMemoSelectionActionDock(
                             selectedRecords = selectedRecords,
                             onArchiveClick = {},
@@ -560,7 +648,6 @@ class ReminderActivity : BaseComposeActivity() {
                             showArchiveAction = false,
                             backdrop = backdrop,
                             modifier = Modifier
-                                .align(Alignment.BottomCenter)
                                 .navigationBarsPadding()
                                 .padding(
                                     start = spec.pageHorizontalPadding,
@@ -576,9 +663,8 @@ class ReminderActivity : BaseComposeActivity() {
                             message = getString(R.string.delete_selected_batch_message, selectedRecordIds.size),
                             onConfirm = {
                                 onDeleteRecords(selectedRecordIds)
-                                selectionModeActive = false
-                                selectedRecordIds = emptySet()
                                 showDeleteConfirm = false
+                                exitSelectionMode()
                             },
                             onDismiss = { showDeleteConfirm = false }
                         )
@@ -663,6 +749,7 @@ class ReminderActivity : BaseComposeActivity() {
     private fun ReminderItem(
         record: MemoryRecord,
         selected: Boolean,
+        selectionMode: Boolean,
         adaptive: NoMemoAdaptiveSpec,
         palette: NoMemoPalette,
         onDoneChanged: (MemoryRecord, Boolean) -> Unit,
@@ -673,11 +760,7 @@ class ReminderActivity : BaseComposeActivity() {
         val isDark = isSystemInDarkTheme()
         val dateFormat = remember { SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault()) }
         val cardShape = noMemoG2RoundedShape(if (adaptive.isNarrow) 28.dp else 30.dp)
-        val cardBackground = if (selected) {
-            noMemoSelectedCardGradient(isDark).first()
-        } else {
-            if (isDark) noMemoCardSurfaceColor(true) else Color.White.copy(alpha = 0.995f)
-        }
+        val cardBackground = if (isDark) noMemoCardSurfaceColor(true) else Color.White.copy(alpha = 0.995f)
         val title = when {
             !record.title.isNullOrBlank() -> record.title
             !record.memory.isNullOrBlank() -> record.memory
@@ -689,11 +772,15 @@ class ReminderActivity : BaseComposeActivity() {
         val meta = "${record.categoryName} | ${dateFormat.format(Date(time))}"
         val countdown = if (hasReminderTime) buildCountdownLabel(time) else getString(R.string.reminder_not_set)
 
-        Row(
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(cardShape)
                 .background(cardBackground)
+        ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
                 .pointerInput(onLongPressSelect, onClickItem) {
                     detectTapGestures(
                         onTap = { onClickItem() },
@@ -736,6 +823,21 @@ class ReminderActivity : BaseComposeActivity() {
                     )
                 }
             }
+        }
+        if (selected) {
+            NoMemoSelectedCardOverlay(
+                shape = cardShape,
+                modifier = Modifier.matchParentSize()
+            )
+        }
+        if (selectionMode) {
+            NoMemoSelectionCheckbox(
+                selected = selected,
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(top = 12.dp, end = 12.dp)
+            )
+        }
         }
     }
 

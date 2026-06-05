@@ -46,7 +46,9 @@ class AiAnalysisStateJsonTest {
             AiOperationKind.REANALYZE,
             AiCostMode.ECONOMY,
             attemptCount = 2,
-            attemptLimit = 3
+            attemptLimit = 3,
+            failureStage = AiFailureStage.CLOUD_REQUEST,
+            failureMessage = "Cloud AI request failed httpStatus=500"
         )
 
         val parsed = AiAnalysisStateJson.parse(raw)
@@ -54,6 +56,8 @@ class AiAnalysisStateJsonTest {
         assertEquals("failed", parsed?.status)
         assertEquals(2, parsed?.attemptCount)
         assertEquals(3, parsed?.attemptLimit)
+        assertEquals(AiFailureStage.CLOUD_REQUEST, parsed?.failureStage)
+        assertEquals("Cloud AI request failed httpStatus=500", parsed?.failureMessage)
         assertFalse(parsed?.isActive == true)
         assertTrue(AiAnalysisStateJson.isFailed(raw))
     }
