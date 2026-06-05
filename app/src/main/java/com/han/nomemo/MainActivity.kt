@@ -34,6 +34,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -1214,6 +1215,7 @@ class MainActivity : BaseComposeActivity() {
                                             }
                                             showDeleteConfirm = false
                                         },
+                                        tint = if (selectedRecordIds.isNotEmpty()) if (isSystemInDarkTheme()) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null,
                                         modifier = Modifier.align(Alignment.CenterEnd),
                                         size = spec.topActionButtonSize
                                     )

@@ -3,7 +3,7 @@ package com.han.nomemo;
 import androidx.annotation.Nullable;
 
 public final class AiPromptBuilder {
-    public static final String PROMPT_VERSION = "nomemo-prompt-v5";
+    public static final String PROMPT_VERSION = "nomemo-prompt-v6";
     public static final String SCHEMA_VERSION = "memory-facts-v1";
 
     private static final int FULL_IMAGE_MAX_SIZE = 1024;
@@ -65,7 +65,7 @@ public final class AiPromptBuilder {
         return "{\n"
                 + "  \"promptVersion\": \"" + PROMPT_VERSION + "\",\n"
                 + "  \"schemaVersion\": \"" + SCHEMA_VERSION + "\",\n"
-                + "  \"title\": \"5字内核心主题\",\n"
+                + "  \"title\": \"短名词短语，不写完整句子\",\n"
                 + "  \"summary\": \"展示摘要，不作为详情卡片数据源\",\n"
                 + "  \"analysis\": \"关键点提炼，保留硬事实\",\n"
                 + "  \"memory\": \"规范化完整内容\",\n"
@@ -136,6 +136,13 @@ public final class AiPromptBuilder {
         builder.append("- On takeout or drink order-detail screenshots, an isolated 3-6 digit code near the top can be a pickupCode candidate when merchant/item/order-detail context supports it.\n");
         builder.append("- pickupCodeEvidence and locationEvidence must be short evidence snippets from input/OCR.\n");
         builder.append("- Other fields may be null without evidence when uncertain.\n\n");
+        builder.append("# Title Contract\n");
+        builder.append("- title is a compact Chinese noun phrase, not a sentence, summary, OCR transcription, or address line.\n");
+        builder.append("- Keep title within about 14 Chinese characters. Never use ellipsis.\n");
+        builder.append("- For takeout, prefer itemName + 取餐; if itemName is unavailable, use merchantOrCompany + 取餐. Keep pickupCode in structuredFacts/summary, not title.\n");
+        builder.append("- For delivery, prefer courier name + 包裹取件. Keep pickupCode, tracking number, and full address out of title.\n");
+        builder.append("- For email/invitation/document content, use sender or subject + 邮件/邀请邮件.\n");
+        builder.append("- Never copy a sentence such as 在某地某店下单，取餐号... into title.\n\n");
         builder.append("# Analysis Writing Style\n");
         builder.append("- If analysisStyleHint=TRANSACTIONAL, keep analysis concise and factual in 1-3 short Chinese sentences. Do not use themed section blocks.\n");
         builder.append("- If analysisStyleHint=DOCUMENT_RICH, keep summary short, but write analysis as one overview paragraph, a blank line, then 2-4 themed blocks.\n");
@@ -168,6 +175,7 @@ public final class AiPromptBuilder {
         builder.append("Never treat order/tracking/waybill/phone/amount/date/time as pickupCode. Unsupported facts must be null/0.0.\n");
         builder.append("Never join digits across '/', ':', date/time, phone, amount, order, or tracking boundaries. Email/invitation/document content stays QUICK_NOTE without explicit transaction evidence.\n");
         builder.append("A location needs address/place semantics; a prose fragment containing only 门, 店, or 区 is not a location.\n");
+        builder.append("title must be a short noun phrase within about 14 Chinese characters, never a sentence or OCR line. For takeout use item/merchant + 取餐; for delivery use courier + 包裹取件; keep codes and full addresses out of title.\n");
         builder.append("summary is display-only; structuredFacts drives detail cards.\n");
         builder.append("analysisStyleHint=TRANSACTIONAL means concise 1-3 sentence analysis only. analysisStyleHint=DOCUMENT_RICH means one overview paragraph plus 2-4 themed blocks using 'emoji + short title' and one explanation paragraph each.\n");
         builder.append("pickupCodeEvidence and locationEvidence must be short evidence snippets from visible input/OCR.\n");

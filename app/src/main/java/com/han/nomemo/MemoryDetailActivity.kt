@@ -418,15 +418,23 @@ class MemoryDetailActivity : BaseComposeActivity() {
         } else {
             currentRecord.structuredFactsJson
         }
-        val updatedStructuredFactsJson = MemoryFactReconciler.alignDomainToCategory(
+        val alignedStructuredFactsJson = MemoryFactReconciler.alignDomainToCategory(
             category.categoryCode,
             reconciledStructuredFactsJson
         )
+        val resolvedTitle = title.trim().ifBlank { deriveTitle(currentRecord) }
+        val updatedStructuredFactsJson = if (
+            resolvedTitle != currentRecord.title?.trim().orEmpty()
+        ) {
+            MemoryTitlePolicy.markManualTitle(alignedStructuredFactsJson)
+        } else {
+            alignedStructuredFactsJson
+        }
         val updated = MemoryRecord(
             currentRecord.recordId,
             currentRecord.createdAt,
             currentRecord.mode,
-            title.trim().ifBlank { deriveTitle(currentRecord) },
+            resolvedTitle,
             if (currentRecord.mode == MemoryRecord.MODE_AI) currentRecord.summary else trimmedDetail,
             currentRecord.sourceText,
             currentRecord.note,
@@ -630,10 +638,17 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         return@withContext null
                     }
                     val result = outcome.generationResult ?: return@withContext null
-                    val resolvedTitle = result.title
-                        .trim()
-                        .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
-                        ?: deriveTitle(previousRecord)
+                    val previousTitleWasManual = MemoryTitlePolicy.isManualTitle(
+                        previousRecord.structuredFactsJson
+                    )
+                    val resolvedTitle = if (previousTitleWasManual) {
+                        previousRecord.title?.trim().orEmpty().ifBlank { deriveTitle(previousRecord) }
+                    } else {
+                        result.title
+                            .trim()
+                            .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
+                            ?: deriveTitle(previousRecord)
+                    }
                     val resolvedSummary = result.summary
                         .trim()
                         .takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
@@ -649,10 +664,14 @@ class MemoryDetailActivity : BaseComposeActivity() {
                         .trim()
                         .takeIf { it.isNotEmpty() && !it.equals("pending", ignoreCase = true) }
                         ?: "cloud"
-                    val resolvedFactsJson = result.structuredFactsJson
+                    val generatedFactsJson = result.structuredFactsJson
                         .trim()
                         .takeIf { it.isNotEmpty() }
                         ?: previousRecord.structuredFactsJson
+                    val resolvedFactsJson = MemoryTitlePolicy.preserveManualTitleMetadata(
+                        previousRecord.structuredFactsJson,
+                        generatedFactsJson
+                    )
                     val resolvedCategoryCode = MemoryFactReconciler.normalizeCategoryCode(
                         result.suggestedCategoryCode
                             .trim()
@@ -1081,14 +1100,21 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val fallbackCategory = resolveCategoryOption(baseRecord)
         val title = rawSourceText
             .takeIf { it.isNotBlank() }
-            ?.let { compactPendingTitle(it, fallbackCategory.categoryName) }
+            ?.let {
+                MemoryTitlePolicy.resolveGeneratedTitle(
+                    fallbackCategory.categoryCode,
+                    null,
+                    it,
+                    baseRecord.structuredFactsJson
+                )
+            }
             ?: baseRecord.title
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
                 ?: if (baseRecord.imageUri.isNullOrBlank()) fallbackCategory.categoryName else "图片记忆"
         val summary = rawSourceText
             .takeIf { it.isNotBlank() }
-            ?.let { compactPendingSummary(it, memoryText) }
+            ?.let { MemoryTextCompactor.compactSummary(it, memoryText) }
             ?: baseRecord.summary
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() && !it.contains("AI 正在生成摘要") && !it.contains("AI 完成后会自动更新") }
@@ -1097,6 +1123,10 @@ class MemoryDetailActivity : BaseComposeActivity() {
             ?.trim()
             ?.takeIf { it.isNotEmpty() && !isAiPlaceholderText(it) }
             ?: summary
+        val structuredFactsJson = MemoryTitlePolicy.markGeneratedTitle(
+            baseRecord.structuredFactsJson,
+            title
+        )
         return MemoryRecord(
             baseRecord.recordId,
             baseRecord.createdAt,
@@ -1115,23 +1145,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
             baseRecord.reminderAt,
             baseRecord.isReminderDone,
             baseRecord.isArchived,
-            baseRecord.structuredFactsJson,
+            structuredFactsJson,
             "",
             "",
             baseRecord.liveStatusState
         )
-    }
-
-    private fun compactPendingTitle(text: String, fallback: String): String {
-        val value = if (text.isBlank()) fallback else text
-        val single = value.replace('\n', ' ').trim()
-        return if (single.length <= 18) single else single.substring(0, 18) + "..."
-    }
-
-    private fun compactPendingSummary(text: String, fallback: String): String {
-        val value = if (text.isBlank()) fallback else text
-        val single = value.replace('\n', ' ').trim()
-        return if (single.length <= 42) single else single.substring(0, 42) + "..."
     }
 
     private fun copyRecordWithAiState(
@@ -1752,6 +1770,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                         }
                                     },
                                     size = spec.topActionButtonSize,
+                                    tint = if (editing && hasEditDraftChanges) if (isSystemInDarkTheme()) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null,
                                     onBoundsChanged = { moreMenuAnchorBounds = it }
                                 )
                             }
@@ -1981,6 +2000,13 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                             ).show()
                                         }
                                     },
+                                    onNavigate = { navigationInfo ->
+                                        openNavigation(
+                                            query = navigationInfo.locationText,
+                                            latitude = navigationInfo.navigationLatitude,
+                                            longitude = navigationInfo.navigationLongitude
+                                        )
+                                    },
                                     modifier = Modifier.padding(
                                         start = detailTextStartPadding,
                                         end = detailTextStartPadding,
@@ -1988,7 +2014,9 @@ class MemoryDetailActivity : BaseComposeActivity() {
                                     )
                                 )
                             }
-                            displayLocationInfo?.takeIf { it.hasNavigableLocation }?.let { info ->
+                            displayLocationInfo
+                                ?.takeIf { it.hasNavigableLocation && !it.locationAlreadyShownInDetails }
+                                ?.let { info ->
                                 Text(
                                     text = "地点",
                                     color = palette.textPrimary,

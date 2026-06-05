@@ -1,10 +1,6 @@
 package com.han.nomemo
 
 object MemoryRecordEvidenceNormalizer {
-    private val generatedPickupTitle = Regex(""".*(取件码|取餐码)$""")
-    private val senderPattern = Regex("""(?:发件人|来自)\s*[:：]?\s*([^\n，,。;；]{2,32})""")
-    private val subjectPattern = Regex("""(?:邮件标题|主题|标题)\s*[:：]\s*([^\n]{2,48})""")
-
     @JvmStatic
     fun normalize(record: MemoryRecord): MemoryRecord {
         val originalFacts = MemoryStructuredFactsJson.parse(record.structuredFactsJson)
@@ -19,9 +15,11 @@ object MemoryRecordEvidenceNormalizer {
                 originalFacts.domain == "delivery" ||
                 record.categoryCode == CategoryCatalog.CODE_LIFE_PICKUP ||
                 record.categoryCode == CategoryCatalog.CODE_LIFE_DELIVERY ||
+                originalFacts.parserVersion < MemoryUnderstandingPipeline.CURRENT_PARSER_VERSION ||
                 hadLegacyTemplate
             )
-        if (!shouldNormalizeFacts && !hadLegacyTemplate) {
+        val shouldNormalizeTitle = MemoryTitlePolicy.shouldNormalizeHistorical(record)
+        if (!shouldNormalizeFacts && !hadLegacyTemplate && !shouldNormalizeTitle) {
             return record
         }
 
@@ -69,14 +67,6 @@ object MemoryRecordEvidenceNormalizer {
         } else {
             record.categoryCode ?: CategoryCatalog.CODE_QUICK_NOTE
         }
-        val normalizedTitle = if (
-            invalidStructuredFactsRemoved &&
-            generatedPickupTitle.matches(record.title?.trim().orEmpty())
-        ) {
-            deriveInformationalTitle(record, originalFacts, evidence)
-        } else {
-            record.title
-        }
         val normalizedSummary = if (
             removedCode &&
             looksGeneratedPickupSummary(record.summary, originalFacts?.pickupCode)
@@ -87,11 +77,19 @@ object MemoryRecordEvidenceNormalizer {
         }
         val normalizedGroup = CategoryCatalog.getGroupByCategoryCode(normalizedCategory)
         val normalizedCategoryName = CategoryCatalog.getCategoryName(normalizedCategory)
+        val titleNormalization = MemoryTitlePolicy.normalizeHistorical(
+            record,
+            normalizedCategory,
+            normalizedFactsJson,
+            evidence
+        )
+        val normalizedTitle = titleNormalization.title
+        val finalFactsJson = titleNormalization.structuredFactsJson
 
         if (
             cleanedSource == record.sourceText.orEmpty() &&
             cleanedNote == record.note.orEmpty() &&
-            normalizedFactsJson == record.structuredFactsJson.orEmpty() &&
+            finalFactsJson == record.structuredFactsJson.orEmpty() &&
             normalizedCategory == record.categoryCode &&
             normalizedTitle == record.title &&
             normalizedSummary == record.summary &&
@@ -119,7 +117,7 @@ object MemoryRecordEvidenceNormalizer {
             record.reminderAt,
             record.isReminderDone,
             record.isArchived,
-            normalizedFactsJson,
+            finalFactsJson,
             record.aiAnalysisStateJson,
             record.aiVisualStateJson,
             record.liveStatusState
@@ -131,35 +129,6 @@ object MemoryRecordEvidenceNormalizer {
             "邮件", "邮箱", "发件人", "收件人", "主题", "邀请", "公告", "通知",
             "计划背景", "权益说明", "使用说明", "申请方式", "规则说明"
         )
-    }
-
-    private fun deriveInformationalTitle(
-        record: MemoryRecord,
-        facts: MemoryStructuredFacts?,
-        evidence: String
-    ): String {
-        if (looksInformational(evidence)) {
-            val sender = firstNonBlank(
-                facts?.merchantOrCompany,
-                senderPattern.find(evidence)?.groupValues?.getOrNull(1)
-            )?.trim()?.take(24)
-            if (!sender.isNullOrBlank()) {
-                return "${sender}邀请邮件"
-            }
-            val subject = subjectPattern.find(evidence)?.groupValues?.getOrNull(1)
-                ?.trim()
-                ?.take(24)
-            if (!subject.isNullOrBlank()) {
-                return if (subject.contains("邀请")) subject else "${subject}邀请邮件"
-            }
-            return "活动邀请邮件"
-        }
-        return record.memory
-            ?.lineSequence()
-            ?.map { it.trim() }
-            ?.firstOrNull { it.isNotBlank() }
-            ?.take(24)
-            ?: CategoryCatalog.getCategoryName(CategoryCatalog.CODE_QUICK_NOTE)
     }
 
     private fun looksGeneratedPickupSummary(summary: String?, oldCode: String?): Boolean {

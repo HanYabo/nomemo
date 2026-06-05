@@ -66,6 +66,19 @@ data class StructuredPickupInfo(
     val hasNavigableLocation: Boolean
         get() = locationText.orEmpty().isNotBlank() ||
             (navigationLatitude != null && navigationLongitude != null)
+
+    val locationAlreadyShownInDetails: Boolean
+        get() {
+            val locationKey = locationComparisonKey(locationText)
+            return locationKey.isNotBlank() &&
+                locationKey == locationComparisonKey(secondaryValue)
+        }
+}
+
+private fun locationComparisonKey(value: String?): String {
+    return value.orEmpty()
+        .lowercase()
+        .replace(Regex("""[\s,，.。;；:：|()（）\[\]【】{}"'`·_-]+"""), "")
 }
 
 internal fun formatGpsDisplayText(
@@ -397,6 +410,7 @@ fun NoMemoPickupCodeCard(
     info: StructuredPickupInfo,
     completed: Boolean,
     onCompletedChange: (Boolean) -> Unit,
+    onNavigate: ((StructuredPickupInfo) -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val palette = rememberNoMemoPalette()
@@ -437,12 +451,30 @@ fun NoMemoPickupCodeCard(
                     fontSize = 14.sp,
                     modifier = Modifier.padding(top = 10.dp)
                 )
-                Text(
-                    text = "${info.secondaryLabel}：${info.secondaryValue}",
-                    color = palette.textSecondary.copy(alpha = if (completed) 0.58f else 1f),
-                    fontSize = 14.sp,
-                    modifier = Modifier.padding(top = 4.dp)
-                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "${info.secondaryLabel}：${info.secondaryValue}",
+                        color = palette.textSecondary.copy(alpha = if (completed) 0.58f else 1f),
+                        fontSize = 14.sp,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (
+                        onNavigate != null &&
+                        info.hasNavigableLocation &&
+                        info.locationAlreadyShownInDetails
+                    ) {
+                        Spacer(modifier = Modifier.width(12.dp))
+                        NoMemoLocationNavigateButton(
+                            text = "导航",
+                            onClick = { onNavigate(info) }
+                        )
+                    }
+                }
             }
         }
     }

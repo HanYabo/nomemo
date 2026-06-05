@@ -154,17 +154,29 @@ class AiAssistantMemoryRepository private constructor(
         }
 
         if (!settingsStore.isAiAvailable()) {
-            val title = compactTitle(inputText, quickNoteCategory.categoryName)
-            val summary = compactSummary(inputText, memoryText)
-            val factsJson = MemoryFactReconciler.reconcileToJson(
+            val provisionalTitle = MemoryTitlePolicy.resolveGeneratedTitle(
+                quickNoteCategory.categoryCode,
+                null,
+                inputText.ifBlank { memoryText },
+                ""
+            )
+            val summary = MemoryTextCompactor.compactSummary(inputText, memoryText)
+            var factsJson = MemoryFactReconciler.reconcileToJson(
                 inputText,
                 "",
-                title,
+                provisionalTitle,
                 summary,
                 "",
                 memoryText,
                 quickNoteCategory.categoryCode
             )
+            val title = MemoryTitlePolicy.resolveGeneratedTitle(
+                quickNoteCategory.categoryCode,
+                provisionalTitle,
+                inputText.ifBlank { memoryText },
+                factsJson
+            )
+            factsJson = MemoryTitlePolicy.markGeneratedTitle(factsJson, title)
             val record = MemoryRecord(
                 createdAt,
                 MemoryRecord.MODE_NORMAL,
@@ -189,10 +201,20 @@ class AiAssistantMemoryRepository private constructor(
         }
 
         val initialPolicy = AiAnalysisPolicies.resolve(settingsStore, AiOperationKind.INITIAL_ANALYSIS)
+        val placeholderTitle = if (inputText.isBlank()) {
+            "AI 分析中"
+        } else {
+            MemoryTitlePolicy.resolveGeneratedTitle(
+                quickNoteCategory.categoryCode,
+                null,
+                inputText,
+                ""
+            )
+        }
         val placeholder = MemoryRecord(
             createdAt,
             MemoryRecord.MODE_AI,
-            if (inputText.isBlank()) "AI 分析中" else compactTitle(inputText, quickNoteCategory.categoryName),
+            placeholderTitle,
             if (inputText.isBlank()) "图片已添加，AI 正在生成摘要" else "已创建条目，AI 完成后会自动更新",
             inputText,
             inputText,
@@ -206,7 +228,7 @@ class AiAssistantMemoryRepository private constructor(
             0L,
             false,
             false,
-            "",
+            MemoryTitlePolicy.markGeneratedTitle("", placeholderTitle),
             AiAnalysisStateJson.pending(
                 AiOperationKind.INITIAL_ANALYSIS,
                 initialPolicy.costMode,
@@ -282,18 +304,6 @@ class AiAssistantMemoryRepository private constructor(
             .lowercase(Locale.ROOT)
             .replace(Regex("""\s+"""), " ")
             .trim()
-    }
-
-    private fun compactTitle(text: String, fallback: String): String {
-        val value = text.ifBlank { fallback }
-        val single = value.replace('\n', ' ').trim()
-        return if (single.length <= 18) single else single.substring(0, 18) + "..."
-    }
-
-    private fun compactSummary(text: String, fallback: String): String {
-        val value = text.ifBlank { fallback }
-        val single = value.replace('\n', ' ').trim()
-        return if (single.length <= 42) single else single.substring(0, 42) + "..."
     }
 
     companion object {

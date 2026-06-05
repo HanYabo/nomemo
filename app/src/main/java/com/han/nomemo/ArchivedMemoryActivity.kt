@@ -298,8 +298,8 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
             if (sanitized != selectedRecordIds) {
                 selectedRecordIds = sanitized
             }
-            if (selectionModeActive && sanitized.isEmpty() && records.isNotEmpty()) {
-                exitSelectionMode()
+            if (sanitized.isEmpty()) {
+                showDeleteConfirm = false
             }
         }
         LaunchedEffect(selectionModeActive) {
@@ -390,6 +390,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                         }
                                         showDeleteConfirm = false
                                     },
+                                    tint = if (selectedRecordIds.isNotEmpty()) if (isSystemInDarkTheme()) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null,
                                     modifier = Modifier.align(Alignment.CenterEnd),
                                     size = spec.topActionButtonSize
                                 )
@@ -795,7 +796,8 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                                 iconRes = R.drawable.ic_sheet_check,
                                 contentDescription = stringResource(R.string.confirm),
                                 onClick = requestConfirm,
-                                size = adaptive.topActionButtonSize
+                                size = adaptive.topActionButtonSize,
+                                tint = if (selectedRecordIds.isNotEmpty()) if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null
                             )
                         }
 

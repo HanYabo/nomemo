@@ -1049,7 +1049,13 @@ public class AiMemoryService {
                 effectiveText,
                 preparedRequest.getPromptSpec().getAnalysisStyleHint()
         );
-        title = stableTitleSafely(suggestedCategoryCode, title, structuredFactsJson);
+        title = MemoryTitlePolicy.resolveGeneratedTitle(
+                suggestedCategoryCode,
+                title,
+                effectiveText,
+                structuredFactsJson
+        );
+        structuredFactsJson = MemoryTitlePolicy.markGeneratedTitle(structuredFactsJson, title);
         summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
         return new CloudGenerationResult(
                 new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "cloud", structuredFactsJson),
@@ -1939,6 +1945,13 @@ public class AiMemoryService {
                 effectiveText,
                 analysisStyleHint
         );
+        title = MemoryTitlePolicy.resolveGeneratedTitle(
+                suggestedCategoryCode,
+                title,
+                effectiveText,
+                structuredFactsJson
+        );
+        structuredFactsJson = MemoryTitlePolicy.markGeneratedTitle(structuredFactsJson, title);
         summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
         return new GenerationResult(title, summary, analysis, memory, suggestedCategoryCode, "local", structuredFactsJson);
     }
@@ -1995,8 +2008,15 @@ public class AiMemoryService {
                 base.getSummary(),
                 structuredFactsJson
         );
-        return new GenerationResult(
+        String title = MemoryTitlePolicy.resolveGeneratedTitle(
+                normalizedCategoryCode,
                 base.getTitle(),
+                effectiveText,
+                structuredFactsJson
+        );
+        structuredFactsJson = MemoryTitlePolicy.markGeneratedTitle(structuredFactsJson, title);
+        return new GenerationResult(
+                title,
                 summary,
                 analysis,
                 memory,
@@ -2040,83 +2060,6 @@ public class AiMemoryService {
         } catch (Exception ignored) {
             return fallbackSummary == null ? "" : fallbackSummary;
         }
-    }
-
-    private String stableTitleSafely(
-            @Nullable String categoryCode,
-            @Nullable String fallbackTitle,
-            @Nullable String structuredFactsJson
-    ) {
-        String normalizedTitle = compactSingleLine(fallbackTitle);
-        try {
-            JSONObject facts = TextUtils.isEmpty(structuredFactsJson)
-                    ? null
-                    : new JSONObject(structuredFactsJson);
-            if (facts != null) {
-                String pickupCode = facts.optString("pickupCode", "").trim();
-                double pickupCodeConfidence = facts.optDouble("pickupCodeConfidence", 0.0);
-                if (TextUtils.isEmpty(pickupCode) || pickupCodeConfidence < 0.55) {
-                    return normalizedTitle;
-                }
-                String target = firstNonEmpty(
-                        facts.optString("merchantOrCompany", ""),
-                        facts.optString("itemName", ""),
-                        facts.optString("location", "")
-                );
-                if (!TextUtils.isEmpty(target)) {
-                    if (CategoryCatalog.CODE_LIFE_PICKUP.equals(categoryCode)) {
-                        return cropSingleLine(target + "\u53d6\u9910\u7801", 18);
-                    }
-                    if (CategoryCatalog.CODE_LIFE_DELIVERY.equals(categoryCode)) {
-                        return cropSingleLine(target + "\u53d6\u4ef6\u7801", 18);
-                    }
-                }
-            }
-        } catch (Exception ignored) {
-            // Fall back to the model title below.
-        }
-        if (TextUtils.isEmpty(normalizedTitle)) {
-            return "";
-        }
-        if (isOverlongGeneratedTitle(normalizedTitle)) {
-            return cropSingleLine(normalizedTitle, 18);
-        }
-        return normalizedTitle;
-    }
-
-    private String compactSingleLine(@Nullable String value) {
-        if (TextUtils.isEmpty(value)) {
-            return "";
-        }
-        return value
-                .replace('\r', ' ')
-                .replace('\n', ' ')
-                .replaceAll("\\s+", " ")
-                .trim();
-    }
-
-    private boolean isOverlongGeneratedTitle(String title) {
-        return title.length() > 22
-                || title.contains("\u3002")
-                || title.contains("\uff0c")
-                || title.contains("\uff1b")
-                || title.contains(";")
-                || title.contains(".");
-    }
-
-    private String firstNonEmpty(String... values) {
-        if (values == null) {
-            return "";
-        }
-        for (String value : values) {
-            if (!TextUtils.isEmpty(value)) {
-                String normalized = value.trim();
-                if (!normalized.isEmpty() && !"null".equalsIgnoreCase(normalized)) {
-                    return normalized;
-                }
-            }
-        }
-        return "";
     }
 
     private String normalizeCategoryCodeSafely(
@@ -2194,6 +2137,13 @@ public class AiMemoryService {
                 effectiveText,
                 analysisStyleHint
         );
+        title = MemoryTitlePolicy.resolveGeneratedTitle(
+                suggestedCategoryCode,
+                title,
+                effectiveText,
+                structuredFactsJson
+        );
+        structuredFactsJson = MemoryTitlePolicy.markGeneratedTitle(structuredFactsJson, title);
         summary = stableSummarySafely(suggestedCategoryCode, summary, structuredFactsJson);
         return new GenerationResult(
                 title,

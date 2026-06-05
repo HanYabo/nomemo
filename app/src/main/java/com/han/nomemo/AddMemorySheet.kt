@@ -1716,17 +1716,29 @@ private fun saveRecord(
     if (!(aiMode && aiEnabled)) {
         val finalCategory = if (aiEnabled) category else quickNoteCategory
         val memoryText = if (input.isBlank()) "已保存图片记忆" else input
-        val title = compactTitle(input, finalCategory.categoryName)
-        val summary = compactSummary(input, memoryText)
-        val structuredFactsJson = MemoryFactReconciler.reconcileToJson(
+        val provisionalTitle = MemoryTitlePolicy.resolveGeneratedTitle(
+            finalCategory.categoryCode,
+            null,
+            input.ifBlank { memoryText },
+            ""
+        )
+        val summary = MemoryTextCompactor.compactSummary(input, memoryText)
+        var structuredFactsJson = MemoryFactReconciler.reconcileToJson(
             input,
             "",
-            title,
+            provisionalTitle,
             summary,
             "",
             memoryText,
             finalCategory.categoryCode
         )
+        val title = MemoryTitlePolicy.resolveGeneratedTitle(
+            finalCategory.categoryCode,
+            provisionalTitle,
+            input.ifBlank { memoryText },
+            structuredFactsJson
+        )
+        structuredFactsJson = MemoryTitlePolicy.markGeneratedTitle(structuredFactsJson, title)
         memoryStore.prependRecord(
             MemoryRecord(
                 System.currentTimeMillis(),
@@ -1761,10 +1773,21 @@ private fun saveRecord(
         attemptLimit = initialPolicy.totalAttemptLimit,
         nowMs = createdAt
     )
+    val placeholderTitle = if (input.isBlank()) {
+        "AI 分析中"
+    } else {
+        MemoryTitlePolicy.resolveGeneratedTitle(
+            aiCategory.categoryCode,
+            null,
+            input,
+            ""
+        )
+    }
+    val placeholderFactsJson = MemoryTitlePolicy.markGeneratedTitle("", placeholderTitle)
     val placeholder = MemoryRecord(
         createdAt,
         MemoryRecord.MODE_AI,
-        if (input.isBlank()) "AI 分析中" else compactTitle(input, aiCategory.categoryName),
+        placeholderTitle,
         if (input.isBlank()) "图片已添加，AI 正在生成摘要" else "已创建条目，AI 完成后会自动更新",
         input,
         input,
@@ -1778,7 +1801,7 @@ private fun saveRecord(
         finalReminderAt,
         false,
         false,
-        "",
+        placeholderFactsJson,
         AiAnalysisStateJson.pending(
             AiOperationKind.INITIAL_ANALYSIS,
             initialPolicy.costMode,
@@ -1800,18 +1823,6 @@ private fun saveRecord(
 private fun shouldRequestNotificationPermission(context: Context): Boolean =
     Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
         ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
-
-private fun compactTitle(text: String, fallback: String): String {
-    val value = if (text.isBlank()) fallback else text
-    val single = value.replace('\n', ' ').trim()
-    return if (single.length <= 18) single else single.substring(0, 18) + "..."
-}
-
-private fun compactSummary(text: String, fallback: String): String {
-    val value = if (text.isBlank()) fallback else text
-    val single = value.replace('\n', ' ').trim()
-    return if (single.length <= 42) single else single.substring(0, 42) + "..."
-}
 
 private fun reminderLabel(time: Long): String {
     if (time <= 0L) return "未设置"

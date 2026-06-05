@@ -1,5 +1,6 @@
 package com.han.nomemo
 
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
 
@@ -26,7 +27,12 @@ data class MemoryStructuredFacts(
     val trackingNumber: String? = null,
     val amount: String? = null,
     val timeWindow: String? = null,
-    val rawVisibleText: String? = null
+    val rawVisibleText: String? = null,
+    val parserVersion: Int = 0,
+    val evidence: List<MemoryFactEvidence> = emptyList(),
+    val titlePolicyVersion: Int = 0,
+    val generatedTitle: String? = null,
+    val titleSource: String? = null
 )
 
 object MemoryStructuredFactsJson {
@@ -53,7 +59,7 @@ object MemoryStructuredFactsJson {
                 pickupCodeType = json.optCleanString("pickupCodeType"),
                 pickupCodeConfidence = json.optConfidence("pickupCodeConfidence"),
                 pickupCodeEvidence = json.optCleanString("pickupCodeEvidence"),
-                location = sanitizeFactValue(json.optCleanString("location")),
+                location = sanitizeLocationFactValue(json.optCleanString("location")),
                 locationConfidence = json.optConfidence("locationConfidence"),
                 locationEvidence = json.optCleanString("locationEvidence"),
                 merchantOrCompany = sanitizeFactValue(json.optCleanString("merchantOrCompany")),
@@ -62,7 +68,12 @@ object MemoryStructuredFactsJson {
                 trackingNumber = sanitizeCodeValue(json.optCleanString("trackingNumber")),
                 amount = sanitizeFactValue(json.optCleanString("amount")),
                 timeWindow = sanitizeFactValue(json.optCleanString("timeWindow")),
-                rawVisibleText = json.optCleanString("rawVisibleText")
+                rawVisibleText = json.optCleanString("rawVisibleText"),
+                parserVersion = json.optInt("parserVersion", 0).coerceAtLeast(0),
+                evidence = parseEvidence(json.optJSONArray("evidence")),
+                titlePolicyVersion = json.optInt("titlePolicyVersion", 0).coerceAtLeast(0),
+                generatedTitle = json.optCleanString("generatedTitle"),
+                titleSource = normalizeTitleSource(json.optCleanString("titleSource"))
             )
         }.getOrNull()
     }
@@ -76,7 +87,7 @@ object MemoryStructuredFactsJson {
         json.putNullable("pickupCodeType", facts.pickupCodeType)
         json.put("pickupCodeConfidence", facts.pickupCodeConfidence.coerceIn(0.0, 1.0))
         json.putNullable("pickupCodeEvidence", facts.pickupCodeEvidence)
-        json.putNullable("location", sanitizeFactValue(facts.location))
+        json.putNullable("location", sanitizeLocationFactValue(facts.location))
         json.put("locationConfidence", facts.locationConfidence.coerceIn(0.0, 1.0))
         json.putNullable("locationEvidence", facts.locationEvidence)
         json.putNullable("merchantOrCompany", sanitizeFactValue(facts.merchantOrCompany))
@@ -86,12 +97,66 @@ object MemoryStructuredFactsJson {
         json.putNullable("amount", sanitizeFactValue(facts.amount))
         json.putNullable("timeWindow", sanitizeFactValue(facts.timeWindow))
         json.putNullable("rawVisibleText", facts.rawVisibleText)
+        json.put("parserVersion", facts.parserVersion.coerceAtLeast(0))
+        json.put("evidence", evidenceToJson(facts.evidence))
+        json.put("titlePolicyVersion", facts.titlePolicyVersion.coerceAtLeast(0))
+        json.putNullable("generatedTitle", facts.generatedTitle?.trim())
+        json.putNullable("titleSource", normalizeTitleSource(facts.titleSource))
         return json.toString()
+    }
+
+    private fun parseEvidence(array: JSONArray?): List<MemoryFactEvidence> {
+        array ?: return emptyList()
+        return buildList {
+            for (index in 0 until array.length()) {
+                val item = array.optJSONObject(index) ?: continue
+                val field = item.optString("field").trim()
+                val value = item.optString("value").trim()
+                val source = item.optString("source").trim()
+                if (field.isBlank() || value.isBlank() || source.isBlank()) continue
+                add(
+                    MemoryFactEvidence(
+                        field = field,
+                        value = value,
+                        source = source,
+                        excerpt = item.optString("excerpt").trim(),
+                        start = item.optInt("start", -1),
+                        end = item.optInt("end", -1),
+                        confidence = item.optDouble("confidence", 0.0).coerceIn(0.0, 1.0)
+                    )
+                )
+            }
+        }
+    }
+
+    private fun evidenceToJson(evidence: List<MemoryFactEvidence>): JSONArray {
+        val array = JSONArray()
+        evidence.forEach { item ->
+            array.put(
+                JSONObject()
+                    .put("field", item.field)
+                    .put("value", item.value)
+                    .put("source", item.source)
+                    .put("excerpt", item.excerpt)
+                    .put("start", item.start)
+                    .put("end", item.end)
+                    .put("confidence", item.confidence.coerceIn(0.0, 1.0))
+            )
+        }
+        return array
     }
 
     private fun normalizeDomain(value: String?): String {
         val normalized = value?.trim()?.lowercase(Locale.ROOT).orEmpty()
         return if (normalized in allowedDomains) normalized else DOMAIN_NOTE
+    }
+
+    private fun normalizeTitleSource(value: String?): String? {
+        return when (value?.trim()?.lowercase(Locale.ROOT)) {
+            MemoryTitlePolicy.SOURCE_GENERATED -> MemoryTitlePolicy.SOURCE_GENERATED
+            MemoryTitlePolicy.SOURCE_MANUAL_EDIT -> MemoryTitlePolicy.SOURCE_MANUAL_EDIT
+            else -> null
+        }
     }
 }
 
@@ -442,7 +507,7 @@ object MemoryFactExtractor {
     }
 
     private fun sanitizeLocationValue(value: String): String? {
-        var result = sanitizeShortText(value) ?: return null
+        var result = sanitizeLocationFactValue(value) ?: return null
         locationStopLabels.forEach { label ->
             val index = result.indexOf(label)
             if (index > 0) {
@@ -530,6 +595,26 @@ object MemoryFactReconciler {
         memory: String?,
         categoryCode: String?
     ): String {
+        return MemoryUnderstandingPipeline.reconcileToJson(
+            userText,
+            aiStructuredFactsJson,
+            title,
+            summary,
+            analysis,
+            memory,
+            categoryCode
+        )
+    }
+
+    internal fun reconcileLegacy(
+        userText: String?,
+        aiStructuredFactsJson: String?,
+        title: String?,
+        summary: String?,
+        analysis: String?,
+        memory: String?,
+        categoryCode: String?
+    ): MemoryStructuredFacts {
         val aiFacts = MemoryStructuredFactsJson.parse(aiStructuredFactsJson)
         val cleanedUserText = cleanLegacyStructuredTemplateText(userText)
         val primaryEvidence = listOf(cleanedUserText, aiFacts?.rawVisibleText)
@@ -547,16 +632,14 @@ object MemoryFactReconciler {
             title = if (allowGeneratedTextFallback) title else null,
             categoryCode = categoryCode
         )
-        return MemoryStructuredFactsJson.toJson(
-            reconcile(
-                aiFacts = aiFacts,
-                localFacts = localFacts,
-                supportText = primaryEvidence.ifBlank {
-                    listOf(memory, analysis, summary, title)
-                        .filterNotNull()
-                        .joinToString("\n")
-                }
-            )
+        return reconcile(
+            aiFacts = aiFacts,
+            localFacts = localFacts,
+            supportText = primaryEvidence.ifBlank {
+                listOf(memory, analysis, summary, title)
+                    .filterNotNull()
+                    .joinToString("\n")
+            }
         )
     }
 
@@ -598,39 +681,14 @@ object MemoryFactReconciler {
         secondaryValue: String?,
         locationText: String?
     ): String {
-        val existing = MemoryStructuredFactsJson.parse(structuredFactsJson) ?: MemoryStructuredFacts()
-        val normalizedCode = sanitizeCodeValue(code)
-        val normalizedPrimary = sanitizeFactValue(primaryValue)
-        val normalizedSecondary = sanitizeFactValue(secondaryValue)
-        val normalizedLocation = sanitizeFactValue(locationText)
-        val domain = domainForCategory(categoryCode)
-        val updated = when (domain) {
-            DOMAIN_DELIVERY -> existing.copy(
-                domain = DOMAIN_DELIVERY,
-                pickupCode = normalizedCode,
-                pickupCodeType = normalizedCode?.let { existing.pickupCodeType ?: "package" },
-                pickupCodeConfidence = if (normalizedCode == null) 0.0 else 1.0,
-                pickupCodeEvidence = normalizedCode?.let { "manual_edit" },
-                merchantOrCompany = normalizedPrimary,
-                location = normalizedLocation ?: normalizedSecondary,
-                locationConfidence = if (normalizedLocation != null || normalizedSecondary != null) 1.0 else 0.0,
-                locationEvidence = (normalizedLocation ?: normalizedSecondary)?.let { "manual_edit" }
-            )
-            DOMAIN_PICKUP -> existing.copy(
-                domain = DOMAIN_PICKUP,
-                pickupCode = normalizedCode,
-                pickupCodeType = normalizedCode?.let { existing.pickupCodeType ?: "meal" },
-                pickupCodeConfidence = if (normalizedCode == null) 0.0 else 1.0,
-                pickupCodeEvidence = normalizedCode?.let { "manual_edit" },
-                merchantOrCompany = normalizedPrimary,
-                itemName = normalizedSecondary,
-                location = normalizedLocation,
-                locationConfidence = if (normalizedLocation == null) 0.0 else 1.0,
-                locationEvidence = normalizedLocation?.let { "manual_edit" }
-            )
-            else -> existing.copy(domain = domain)
-        }
-        return MemoryStructuredFactsJson.toJson(updated)
+        return MemoryUnderstandingPipeline.mergeManualEdits(
+            structuredFactsJson,
+            categoryCode,
+            code,
+            primaryValue,
+            secondaryValue,
+            locationText
+        )
     }
 
     @JvmStatic
@@ -784,37 +842,7 @@ object MemoryFactReconciler {
 
     fun structuredPickupInfo(categoryCode: String?, structuredFactsJson: String?): StructuredPickupInfo? {
         val facts = MemoryStructuredFactsJson.parse(structuredFactsJson) ?: return null
-        val displayDomain = displayDomain(categoryCode, facts.domain)
-        if (displayDomain != DOMAIN_PICKUP && displayDomain != DOMAIN_DELIVERY) return null
-        val code = facts.pickupCode?.trim()?.takeIf {
-            it.isNotEmpty() && facts.pickupCodeConfidence >= 0.55
-        } ?: return null
-        return if (displayDomain == DOMAIN_DELIVERY) {
-            StructuredPickupInfo(
-                sectionTitle = "取件码",
-                code = code,
-                primaryLabel = "快递公司",
-                primaryValue = fallbackStructuredValue(facts.merchantOrCompany),
-                secondaryLabel = "取件地址",
-                secondaryValue = fallbackStructuredValue(facts.location),
-                locationText = facts.location?.trim()?.takeIf { it.isNotEmpty() },
-                navigationLatitude = null,
-                navigationLongitude = null
-            )
-        } else {
-            val location = facts.location?.trim()?.takeIf { it.isNotEmpty() }
-            StructuredPickupInfo(
-                sectionTitle = "取餐码",
-                code = code,
-                primaryLabel = "店铺",
-                primaryValue = fallbackStructuredValue(facts.merchantOrCompany ?: location),
-                secondaryLabel = "商品",
-                secondaryValue = fallbackStructuredValue(facts.itemName),
-                locationText = location,
-                navigationLatitude = null,
-                navigationLongitude = null
-            )
-        }
+        return MemoryStructuredPresentationMapper.pickupInfo(categoryCode, facts)
     }
 
     private fun reconcile(
@@ -866,7 +894,10 @@ object MemoryFactReconciler {
             trackingNumber = choosePlainFact(aiFacts?.trackingNumber, localFacts.trackingNumber, supportText),
             amount = choosePlainFact(aiFacts?.amount, localFacts.amount, supportText),
             timeWindow = choosePlainFact(aiFacts?.timeWindow, localFacts.timeWindow, supportText),
-            rawVisibleText = firstNonBlank(aiFacts?.rawVisibleText, localFacts.rawVisibleText)
+            rawVisibleText = firstNonBlank(aiFacts?.rawVisibleText, localFacts.rawVisibleText),
+            titlePolicyVersion = aiFacts?.titlePolicyVersion ?: 0,
+            generatedTitle = aiFacts?.generatedTitle,
+            titleSource = aiFacts?.titleSource
         )
     }
 
@@ -906,7 +937,7 @@ object MemoryFactReconciler {
         minAiConfidence: Double,
         minLocalConfidence: Double
     ): Pair<String, Double>? {
-        val cleanedAi = sanitizeFactValue(aiValue)
+        val cleanedAi = sanitizeLocationFactValue(aiValue)
         if (
             cleanedAi != null &&
             aiConfidence >= minAiConfidence &&
@@ -914,7 +945,7 @@ object MemoryFactReconciler {
         ) {
             return cleanedAi to aiConfidence.coerceIn(0.0, 1.0)
         }
-        val cleanedLocal = sanitizeFactValue(localValue)
+        val cleanedLocal = sanitizeLocationFactValue(localValue)
         if (
             cleanedLocal != null &&
             localConfidence >= minLocalConfidence &&
@@ -1061,7 +1092,7 @@ object MemoryFactReconciler {
     }
 
     private fun isLocationSupportedBySource(value: String, supportText: String): Boolean {
-        val cleaned = sanitizeFactValue(value) ?: return false
+        val cleaned = sanitizeLocationFactValue(value) ?: return false
         if (!hasAddressSemantics(cleaned, supportText)) return false
         val normalizedValue = normalizeVisibleText(cleaned)
             .lowercase(Locale.ROOT)
@@ -1093,8 +1124,9 @@ object MemoryFactReconciler {
         return normalizedSource.contains(normalizedValue)
     }
 
-    private fun fallbackStructuredValue(value: String?): String {
-        return value?.trim()?.takeIf { it.isNotEmpty() } ?: "未识别"
+    @JvmStatic
+    fun cleanLocationForDisplay(value: String?): String? {
+        return MemoryFieldValueNormalizer.normalizeLocation(value)
     }
 
     private fun hasStrongTicketSignal(source: String): Boolean {
@@ -1200,6 +1232,10 @@ private fun sanitizeFactValue(value: String?): String? {
     if (cleaned.isBlank()) return null
     if (cleaned.equals("未识别", ignoreCase = true) || cleaned.equals("无", ignoreCase = true)) return null
     return cleaned
+}
+
+private fun sanitizeLocationFactValue(value: String?): String? {
+    return MemoryFieldValueNormalizer.normalizeLocation(value)
 }
 
 private fun sanitizeCodeValue(value: String?): String? {

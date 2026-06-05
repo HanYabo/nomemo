@@ -684,20 +684,12 @@ public class MemoryRecord {
 
     private static String deriveTitle(String memory, String sourceText, String fallbackCategoryName) {
         String candidate = !isBlank(memory) ? memory : sourceText;
-        if (isBlank(candidate)) {
-            return fallbackCategoryName;
-        }
-        String singleLine = candidate.replace('\n', ' ').trim();
-        return singleLine.length() > 24 ? singleLine.substring(0, 24) + "..." : singleLine;
+        return MemoryTitlePolicy.compactFallbackTitle(candidate, fallbackCategoryName);
     }
 
     private static String deriveSummary(String memory, String sourceText) {
         String candidate = !isBlank(sourceText) ? sourceText : memory;
-        if (isBlank(candidate)) {
-            return "";
-        }
-        String singleLine = candidate.replace('\n', ' ').trim();
-        return singleLine.length() > 48 ? singleLine.substring(0, 48) + "..." : singleLine;
+        return MemoryTextCompactor.compact(candidate, "", 48);
     }
 
     private static boolean isBlank(String value) {

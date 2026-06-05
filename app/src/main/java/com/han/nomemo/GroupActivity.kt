@@ -480,8 +480,9 @@ class GroupActivity : BaseComposeActivity() {
             if (sanitized != selectedAlbumRecordIds) {
                 selectedAlbumRecordIds = sanitized
             }
-            if (albumSelectionModeActive && sanitized.isEmpty() && openedRecords.isNotEmpty()) {
-                exitAlbumSelectionMode()
+            if (sanitized.isEmpty()) {
+                showRemoveFromAlbumConfirm = false
+                showDeleteSelectedConfirm = false
             }
         }
         LaunchedEffect(albumSelectionModeActive) {
@@ -701,6 +702,7 @@ class GroupActivity : BaseComposeActivity() {
                                             showRemoveFromAlbumConfirm = false
                                             showDeleteSelectedConfirm = false
                                         },
+                                        tint = if (selectedAlbumRecordIds.isNotEmpty()) if (isSystemInDarkTheme()) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null,
                                         size = spec.topActionButtonSize,
                                         modifier = Modifier.align(Alignment.CenterEnd)
                                     )
@@ -1877,7 +1879,8 @@ class GroupActivity : BaseComposeActivity() {
                             iconRes = R.drawable.ic_sheet_check,
                             contentDescription = stringResource(R.string.confirm),
                             onClick = requestConfirm,
-                            size = adaptive.topActionButtonSize
+                            size = adaptive.topActionButtonSize,
+                            tint = if (selectedRecordIds.isNotEmpty()) if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null
                         )
                     }
 
@@ -2031,6 +2034,8 @@ class GroupActivity : BaseComposeActivity() {
     var albumDescriptionField by remember {
         mutableStateOf(TextFieldValue(albumDescription, TextRange(albumDescription.length)))
     }
+    val initialAlbumName = remember { albumName }
+    val initialAlbumDescription = remember { albumDescription }
 
     LaunchedEffect(albumName) {
         if (albumName != albumNameField.text) {
@@ -2171,11 +2176,14 @@ class GroupActivity : BaseComposeActivity() {
                                 maxLines = 1
                             )
                         }
+                        val hasAlbumEditChanges = albumNameField.text != initialAlbumName ||
+                            albumDescriptionField.text != initialAlbumDescription
                         GlassIconCircleButton(
                             iconRes = R.drawable.ic_sheet_check,
                             contentDescription = stringResource(R.string.confirm),
                             onClick = requestConfirm,
-                            size = adaptive.topActionButtonSize
+                            size = adaptive.topActionButtonSize,
+                            tint = if (hasAlbumEditChanges) if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null
                         )
                     }
 

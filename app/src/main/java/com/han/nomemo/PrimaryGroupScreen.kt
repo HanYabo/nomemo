@@ -291,7 +291,7 @@ internal fun GroupPrimaryScreenRoute(
     val groupExpandedTitleMaxHeight = if (adaptive.isNarrow) 44.dp else 52.dp
     val groupExpandedTitleHeight = lerp(groupExpandedTitleMaxHeight, 0.dp, groupHeaderCollapseProgress)
     val groupListSpacing = 14.dp
-    val groupListTopPadding = lerp(12.dp, 4.dp, groupHeaderCollapseProgress)
+    val groupListTopPadding = lerp(12.dp, 11.dp, groupHeaderCollapseProgress)
     val albumSortLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -1191,7 +1191,8 @@ internal fun PrimaryGroupAddExistingMemorySheet(
                             iconRes = R.drawable.ic_sheet_check,
                             contentDescription = stringResource(R.string.confirm),
                             onClick = requestConfirm,
-                            size = adaptive.topActionButtonSize
+                            size = adaptive.topActionButtonSize,
+                            tint = if (selectedRecordIds.isNotEmpty()) if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null
                         )
                     }
 
@@ -2312,6 +2313,8 @@ internal fun PrimaryGroupEditAlbumSheet(
     var albumDescriptionField by remember {
         mutableStateOf(TextFieldValue(albumDescription, TextRange(albumDescription.length)))
     }
+    val initialAlbumName = remember { albumName }
+    val initialAlbumDescription = remember { albumDescription }
 
     LaunchedEffect(albumName) {
         if (albumName != albumNameField.text) {
@@ -2448,11 +2451,14 @@ internal fun PrimaryGroupEditAlbumSheet(
                                 maxLines = 1
                             )
                         }
+                        val hasAlbumEditChanges = albumNameField.text != initialAlbumName ||
+                            albumDescriptionField.text != initialAlbumDescription
                         GlassIconCircleButton(
                             iconRes = R.drawable.ic_sheet_check,
                             contentDescription = stringResource(R.string.confirm),
                             onClick = requestConfirm,
-                            size = adaptive.topActionButtonSize
+                            size = adaptive.topActionButtonSize,
+                            tint = if (hasAlbumEditChanges) if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null
                         )
                     }
 

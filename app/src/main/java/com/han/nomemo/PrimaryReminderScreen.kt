@@ -436,6 +436,7 @@ private fun ReminderPrimaryScreen(
                                     }
                                     showDeleteConfirm = false
                                 },
+                                tint = if (selectedRecordIds.isNotEmpty()) if (isSystemInDarkTheme()) Color(0xFF2E8BFF) else Color(0xFF1677FF) else null,
                                 modifier = Modifier.align(Alignment.CenterEnd),
                                 size = spec.topActionButtonSize
                             )

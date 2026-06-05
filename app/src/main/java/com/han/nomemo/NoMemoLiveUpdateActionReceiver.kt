@@ -86,14 +86,21 @@ class NoMemoLiveUpdateActionReceiver : BroadcastReceiver() {
         }
         val title = sourceText
             .takeIf { it.isNotBlank() }
-            ?.let { compactTitle(it, fallbackCategory.categoryName) }
+            ?.let {
+                MemoryTitlePolicy.resolveGeneratedTitle(
+                    fallbackCategory.categoryCode,
+                    null,
+                    it,
+                    record.structuredFactsJson
+                )
+            }
             ?: record.title
                 ?.trim()
                 ?.takeIf { it.isNotEmpty() && !it.contains("AI 分析中") }
             ?: if (record.imageUri.isNullOrBlank()) fallbackCategory.categoryName else "图片记忆"
         val summary = sourceText
             .takeIf { it.isNotBlank() }
-            ?.let { compactSummary(it, memoryText) }
+            ?.let { MemoryTextCompactor.compactSummary(it, memoryText) }
             ?: record.summary
                 ?.trim()
                 ?.takeIf {
@@ -106,6 +113,10 @@ class NoMemoLiveUpdateActionReceiver : BroadcastReceiver() {
             ?.trim()
             ?.takeIf { it.isNotEmpty() && !it.contains("AI 分析中") }
             ?: summary
+        val structuredFactsJson = MemoryTitlePolicy.markGeneratedTitle(
+            record.structuredFactsJson,
+            title
+        )
         return MemoryRecord(
             record.recordId,
             record.createdAt,
@@ -124,22 +135,11 @@ class NoMemoLiveUpdateActionReceiver : BroadcastReceiver() {
             record.reminderAt,
             record.isReminderDone,
             record.isArchived,
-            record.structuredFactsJson,
+            structuredFactsJson,
             "",
             "",
             record.liveStatusState
         )
     }
 
-    private fun compactTitle(text: String, fallback: String): String {
-        val value = if (text.isBlank()) fallback else text
-        val single = value.replace('\n', ' ').trim()
-        return if (single.length <= 18) single else single.substring(0, 18) + "..."
-    }
-
-    private fun compactSummary(text: String, fallback: String): String {
-        val value = if (text.isBlank()) fallback else text
-        val single = value.replace('\n', ' ').trim()
-        return if (single.length <= 42) single else single.substring(0, 42) + "..."
-    }
 }

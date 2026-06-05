@@ -322,17 +322,29 @@ class AiInitialAnalysisWorker(
         } else {
             sourceText
         }
-        val fallbackTitle = compactTitle(sourceText, fallbackCategory.categoryName)
-        val fallbackSummary = compactSummary(sourceText, fallbackMemory)
-        val fallbackFactsJson = MemoryFactReconciler.reconcileToJson(
+        val provisionalTitle = MemoryTitlePolicy.resolveGeneratedTitle(
+            fallbackCategory.categoryCode,
+            null,
+            sourceText.ifBlank { fallbackMemory },
+            placeholder.structuredFactsJson
+        )
+        val fallbackSummary = MemoryTextCompactor.compactSummary(sourceText, fallbackMemory)
+        var fallbackFactsJson = MemoryFactReconciler.reconcileToJson(
             sourceText,
-            "",
-            fallbackTitle,
+            placeholder.structuredFactsJson,
+            provisionalTitle,
             fallbackSummary,
             context.getString(R.string.memory_fallback_analysis),
             fallbackMemory,
             fallbackCategory.categoryCode
         )
+        val fallbackTitle = MemoryTitlePolicy.resolveGeneratedTitle(
+            fallbackCategory.categoryCode,
+            provisionalTitle,
+            sourceText.ifBlank { fallbackMemory },
+            fallbackFactsJson
+        )
+        fallbackFactsJson = MemoryTitlePolicy.markGeneratedTitle(fallbackFactsJson, fallbackTitle)
         val persistedState = AiAnalysisStateJson.parse(placeholder.aiAnalysisStateJson)
         val failedState = AiAnalysisStateJson.failed(
             operationKind = persistedState?.operationKind ?: AiOperationKind.INITIAL_ANALYSIS,
@@ -369,18 +381,6 @@ class AiInitialAnalysisWorker(
             ),
             placeholder.liveStatusState
         )
-    }
-
-    private fun compactTitle(text: String, fallback: String): String {
-        val value = if (text.isBlank()) fallback else text
-        val single = value.replace('\n', ' ').trim()
-        return if (single.length <= 18) single else single.substring(0, 18) + "..."
-    }
-
-    private fun compactSummary(text: String, fallback: String): String {
-        val value = if (text.isBlank()) fallback else text
-        val single = value.replace('\n', ' ').trim()
-        return if (single.length <= 42) single else single.substring(0, 42) + "..."
     }
 
     private fun findCategoryByCode(categoryCode: String?): CategoryCatalog.CategoryOption? {

@@ -677,6 +677,61 @@ class MemoryFactExtractorTest {
     }
 
     @Test
+    fun contaminatedDeliveryLocation_isCleanedAndStoredIdempotently() {
+        val pollutedLocation =
+            "中原工学院龙湖校区菜鸟驿站 zyq 地点:中原工学院龙湖校区菜鸟驿站 圆通快递包裹("
+        val dirtyFactsJson = """
+            {
+              "domain": "delivery",
+              "pickupCode": "71582",
+              "pickupCodeType": "package",
+              "pickupCodeConfidence": 1.0,
+              "pickupCodeEvidence": "取件码:71582",
+              "location": "$pollutedLocation",
+              "locationConfidence": 1.0,
+              "locationEvidence": "$pollutedLocation",
+              "merchantOrCompany": "圆通",
+              "rawVisibleText": "取件码:71582\n$pollutedLocation"
+            }
+        """.trimIndent()
+        val record = MemoryRecord(
+            "polluted-delivery",
+            1L,
+            MemoryRecord.MODE_AI,
+            "圆通取件码",
+            "取件码 71582｜圆通",
+            "取件码:71582\n$pollutedLocation",
+            "",
+            "",
+            "包裹已到站。",
+            "取件码:71582\n$pollutedLocation",
+            "cloud",
+            CategoryCatalog.GROUP_LIFE,
+            CategoryCatalog.CODE_LIFE_DELIVERY,
+            "快递",
+            0L,
+            false,
+            false,
+            dirtyFactsJson,
+            "",
+            "",
+            MemoryRecord.LIVE_STATUS_ACTIVE
+        )
+
+        val normalized = MemoryRecordEvidenceNormalizer.normalize(record)
+        val normalizedAgain = MemoryRecordEvidenceNormalizer.normalize(normalized)
+        val facts = MemoryStructuredFactsJson.parse(normalized.structuredFactsJson)
+        val info = MemoryDetailParser.parseStructuredPickupInfo(normalized)
+
+        assertEquals("中原工学院龙湖校区菜鸟驿站", facts?.location)
+        assertEquals("中原工学院龙湖校区菜鸟驿站", info?.secondaryValue)
+        assertEquals("中原工学院龙湖校区菜鸟驿站", info?.locationText)
+        assertTrue(info?.locationAlreadyShownInDetails == true)
+        assertFalse(facts?.location.orEmpty().contains("zyq"))
+        assertEquals(normalized.toJson().toString(), normalizedAgain.toJson().toString())
+    }
+
+    @Test
     fun historicalTakeoutRecord_recoversCodeAndCategoryFromRawEvidence() {
         val rawVisibleText = """
             8258
