@@ -119,6 +119,7 @@ import kotlin.math.abs
 internal fun GroupPrimaryScreenRoute(
     backdrop: LayerBackdrop,
     isActive: Boolean,
+    onStartAddMemory: () -> Unit,
     onPrimaryDockStateChanged: (Boolean, (() -> Unit)?) -> Unit,
     onPrimaryOverlayChanged: (PrimaryHostOverlay?) -> Unit,
     onOpenSearch: () -> Unit,
@@ -290,8 +291,7 @@ internal fun GroupPrimaryScreenRoute(
         with(density) { (-22).dp.toPx() * groupHeaderCollapseProgress }
     val groupExpandedTitleMaxHeight = if (adaptive.isNarrow) 44.dp else 52.dp
     val groupExpandedTitleHeight = lerp(groupExpandedTitleMaxHeight, 0.dp, groupHeaderCollapseProgress)
-    val groupListSpacing = 14.dp
-    val groupListTopPadding = lerp(12.dp, 11.dp, groupHeaderCollapseProgress)
+    val groupListViewportTopPadding = 12.dp
     val albumSortLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) {
@@ -318,6 +318,7 @@ internal fun GroupPrimaryScreenRoute(
         if (isActive) {
             onPrimaryDockStateChanged(true) {
                 showAddSheet = true
+                onStartAddMemory()
             }
         }
     }
@@ -521,10 +522,12 @@ internal fun GroupPrimaryScreenRoute(
                         }
                     } else {
                         LazyColumn(
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(top = groupListViewportTopPadding),
                             state = groupListState,
                             contentPadding = PaddingValues(
-                                top = groupListTopPadding,
+                                top = 0.dp,
                                 bottom = spec.pageBottomPadding + 28.dp
                             ),
                             verticalArrangement = Arrangement.spacedBy(18.dp)

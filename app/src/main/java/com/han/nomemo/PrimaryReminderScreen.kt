@@ -90,6 +90,7 @@ import kotlin.math.abs
 internal fun ReminderPrimaryScreenRoute(
     backdrop: LayerBackdrop,
     isActive: Boolean,
+    onStartAddMemory: () -> Unit,
     onPrimaryDockStateChanged: (Boolean, (() -> Unit)?) -> Unit,
     onPrimaryOverlayChanged: (PrimaryHostOverlay?) -> Unit,
     onOpenDetail: (MemoryRecord) -> Unit,
@@ -217,7 +218,10 @@ internal fun ReminderPrimaryScreenRoute(
         },
         showAddSheet = showAddSheet,
         onDismissAddSheet = { showAddSheet = false },
-        onAddClick = { showAddSheet = true },
+        onAddClick = {
+            showAddSheet = true
+            onStartAddMemory()
+        },
         backdrop = backdrop,
         isActive = isActive,
         onPrimaryDockStateChanged = onPrimaryDockStateChanged,

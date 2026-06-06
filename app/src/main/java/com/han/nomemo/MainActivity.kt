@@ -432,6 +432,7 @@ class MainActivity : BaseComposeActivity() {
                 GroupPrimaryScreenRoute(
                     backdrop = groupBackdrop,
                     isActive = currentPrimaryTab == NoMemoDockTab.GROUP,
+                    onStartAddMemory = startAddMemoryOpening,
                     onPrimaryDockStateChanged = { visible, onAddClick ->
                         updatePrimaryDockState(visible, onAddClick)
                     },
@@ -450,6 +451,7 @@ class MainActivity : BaseComposeActivity() {
                 ReminderPrimaryScreenRoute(
                     backdrop = reminderBackdrop,
                     isActive = currentPrimaryTab == NoMemoDockTab.REMINDER,
+                    onStartAddMemory = startAddMemoryOpening,
                     onPrimaryDockStateChanged = { visible, onAddClick ->
                         updatePrimaryDockState(visible, onAddClick)
                     },
@@ -491,10 +493,12 @@ class MainActivity : BaseComposeActivity() {
 
             when (val overlay = primaryOverlay) {
                 is PrimaryHostOverlay.AddMemory -> {
-                    AddMemorySheet(
-                        onDismiss = overlay.onDismiss,
-                        onSaved = overlay.onSaved
-                    )
+                    if (addMemoryPhase == AddMemoryFlowPhase.List) {
+                        AddMemorySheet(
+                            onDismiss = overlay.onDismiss,
+                            onSaved = overlay.onSaved
+                        )
+                    }
                 }
                 is PrimaryHostOverlay.GroupCreateAlbum -> {
                     PrimaryGroupEditAlbumSheet(
@@ -535,12 +539,18 @@ class MainActivity : BaseComposeActivity() {
                         } else if (addMemoryPhase == AddMemoryFlowPhase.Closing) {
                             addMemoryPhase = AddMemoryFlowPhase.List
                             addMemoryOriginBounds = null
+                            val addOverlay = primaryOverlay as? PrimaryHostOverlay.AddMemory
+                            primaryOverlay = null
+                            addOverlay?.onDismiss?.invoke()
                         }
                     }
                 ) {
                     AddMemorySheet(
                         onDismiss = { startAddMemoryClosing() },
                         onSaved = {
+                            (primaryOverlay as? PrimaryHostOverlay.AddMemory)
+                                ?.onSaved
+                                ?.invoke()
                             refreshRecords()
                             startAddMemoryClosing()
                         },

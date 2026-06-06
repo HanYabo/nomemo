@@ -801,7 +801,9 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             }
 
-                            if (openedRecords.isNotEmpty()) {
+                            if (!hasLoadedRecords) {
+                                Spacer(modifier = Modifier.weight(1f))
+                            } else if (openedRecords.isNotEmpty()) {
                                 LazyColumn(
                                     modifier = Modifier.weight(1f),
                                     state = albumDetailListState,
@@ -890,7 +892,7 @@ class GroupActivity : BaseComposeActivity() {
                                     }
                                 }
                             }
-                            if (openedRecords.isEmpty()) {
+                            if (hasLoadedRecords && openedRecords.isEmpty()) {
                                 Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
