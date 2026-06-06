@@ -15,8 +15,18 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -346,6 +356,7 @@ class GroupActivity : BaseComposeActivity() {
         var showDeleteAlbumConfirm by remember { mutableStateOf(false) }
         var organizeHistoryDialogAlbumId by remember { mutableStateOf<String?>(null) }
         var closingStandaloneDetail by remember { mutableStateOf(false) }
+        var summaryExpanded by remember { mutableStateOf(false) }
         var editingAlbumId by remember { mutableStateOf<String?>(null) }
         var albumNameInput by remember { mutableStateOf("") }
         var albumDescriptionInput by remember { mutableStateOf("") }
@@ -459,6 +470,7 @@ class GroupActivity : BaseComposeActivity() {
             showRemoveFromAlbumConfirm = false
             showDeleteSelectedConfirm = false
             organizeHistoryDialogAlbumId = null
+            summaryExpanded = false
         }
         LaunchedEffect(openedAlbum?.albumId, openedAlbum?.organizeStatus, organizeHistoryDialogAlbumId) {
             val currentAlbum = openedAlbum ?: return@LaunchedEffect
@@ -472,7 +484,23 @@ class GroupActivity : BaseComposeActivity() {
                 if (albumStore.updateOrganizeStatus(currentAlbum.albumId, GroupAlbumStore.ORGANIZE_STATUS_IDLE)) {
                     albumList = albumStore.loadAlbums()
                 }
+                if (currentAlbum.recordIds.isNotEmpty() && settingsStore.isAiAvailable()) {
+                    albumStore.updateSummaryStatus(currentAlbum.albumId, GroupAlbumStore.SUMMARY_STATUS_GENERATING)
+                    albumList = albumStore.loadAlbums()
+                    GroupSummaryWorkScheduler.enqueue(albumContext, currentAlbum.albumId)
+                }
             }
+        }
+        LaunchedEffect(openedAlbum?.albumId, openedRecords.size, openedAlbum?.summaryStatus) {
+            val currentAlbum = openedAlbum ?: return@LaunchedEffect
+            if (currentAlbum.summary.isNotBlank()) return@LaunchedEffect
+            if (currentAlbum.recordIds.isEmpty()) return@LaunchedEffect
+            if (currentAlbum.summaryStatus == GroupAlbumStore.SUMMARY_STATUS_GENERATING) return@LaunchedEffect
+            if (currentAlbum.summaryStatus == GroupAlbumStore.SUMMARY_STATUS_FAILED) return@LaunchedEffect
+            if (!settingsStore.isAiAvailable()) return@LaunchedEffect
+            albumStore.updateSummaryStatus(currentAlbum.albumId, GroupAlbumStore.SUMMARY_STATUS_GENERATING)
+            albumList = albumStore.loadAlbums()
+            GroupSummaryWorkScheduler.enqueue(albumContext, currentAlbum.albumId)
         }
         LaunchedEffect(openedRecords, selectedAlbumRecordIds) {
             val validIds = openedRecords.map { it.recordId }.toSet()
@@ -787,6 +815,39 @@ class GroupActivity : BaseComposeActivity() {
                                     ),
                                     verticalArrangement = Arrangement.spacedBy(12.dp)
                                 ) {
+                                    val albumSummary = openedAlbum?.summary?.takeIf { it.isNotBlank() }
+                                    val summaryStatus = openedAlbum?.summaryStatus ?: GroupAlbumStore.SUMMARY_STATUS_IDLE
+                                    if (albumSummary != null) {
+                                        item(key = "_summary") {
+                                            GroupSummaryCard(
+                                                summary = albumSummary,
+                                                expanded = summaryExpanded,
+                                                generating = summaryStatus == GroupAlbumStore.SUMMARY_STATUS_GENERATING,
+                                                onToggle = { summaryExpanded = !summaryExpanded }
+                                            )
+                                        }
+                                    } else if (summaryStatus == GroupAlbumStore.SUMMARY_STATUS_GENERATING) {
+                                        item(key = "_summary_generating") {
+                                            GroupSummaryStatusCard(
+                                                message = "正在生成摘要...",
+                                                isError = false
+                                            )
+                                        }
+                                    } else if (summaryStatus == GroupAlbumStore.SUMMARY_STATUS_FAILED) {
+                                        item(key = "_summary_failed") {
+                                            GroupSummaryStatusCard(
+                                                message = "摘要生成失败，点击重试",
+                                                isError = true,
+                                                onClick = {
+                                                    openedAlbum?.let { album ->
+                                                        albumStore.updateSummaryStatus(album.albumId, GroupAlbumStore.SUMMARY_STATUS_GENERATING)
+                                                        albumList = albumStore.loadAlbums()
+                                                        GroupSummaryWorkScheduler.enqueue(albumContext, album.albumId)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
                                     items(items = openedRecords, key = { it.recordId }) { record ->
                                         val selected = selectedAlbumRecordIds.contains(record.recordId)
                                         RecordCard(
@@ -1002,6 +1063,26 @@ class GroupActivity : BaseComposeActivity() {
                                 }
                             ),
                             NoMemoMenuActionItem(
+                                iconRes = R.drawable.ic_nm_ai_assistant,
+                                label = "重新生成摘要",
+                                onClick = {
+                                    detailMoreExpanded = false
+                                    openedAlbum?.let { album ->
+                                        if (!settingsStore.isAiAvailable()) {
+                                            Toast.makeText(albumContext, "请先完成 AI 配置", Toast.LENGTH_SHORT).show()
+                                            return@NoMemoMenuActionItem
+                                        }
+                                        if (album.recordIds.isEmpty()) {
+                                            Toast.makeText(albumContext, "分组内还没有记忆", Toast.LENGTH_SHORT).show()
+                                            return@NoMemoMenuActionItem
+                                        }
+                                        albumStore.updateSummaryStatus(album.albumId, GroupAlbumStore.SUMMARY_STATUS_GENERATING)
+                                        albumList = albumStore.loadAlbums()
+                                        GroupSummaryWorkScheduler.enqueue(albumContext, album.albumId)
+                                    }
+                                }
+                            ),
+                            NoMemoMenuActionItem(
                                 iconRes = R.drawable.ic_nm_delete,
                                 label = "删除分组",
                                 destructive = true,
@@ -1096,6 +1177,11 @@ class GroupActivity : BaseComposeActivity() {
                                 albumList = albumStore.loadAlbums()
                                 if (added) {
                                     Toast.makeText(albumContext, "已添加到分组", Toast.LENGTH_SHORT).show()
+                                    if (settingsStore.isAiAvailable()) {
+                                        albumStore.updateSummaryStatus(targetAlbumId, GroupAlbumStore.SUMMARY_STATUS_GENERATING)
+                                        albumList = albumStore.loadAlbums()
+                                        GroupSummaryWorkScheduler.enqueue(albumContext, targetAlbumId)
+                                    }
                                 } else {
                                     Toast.makeText(albumContext, "未添加成功，请重试", Toast.LENGTH_SHORT).show()
                                     return@GroupAddExistingMemorySheet false
@@ -2393,6 +2479,210 @@ private tailrec fun Context.findActivity(): Activity? {
         val start = if (isDark) colors[0].copy(alpha = 0.78f) else colors[0].copy(alpha = 0.92f)
         val end = if (isDark) colors[1].copy(alpha = 0.88f) else colors[1].copy(alpha = 0.98f)
         return Brush.linearGradient(listOf(start, end))
+    }
+
+    @Composable
+    private fun GroupSummaryCard(
+        summary: String,
+        expanded: Boolean,
+        generating: Boolean = false,
+        onToggle: () -> Unit
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        val cardSurface = noMemoThemeSyncedContentSurface(
+            palette = palette,
+            isDark = isDark,
+            darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
+            lightDefault = Color.White.copy(alpha = 0.995f),
+            lightMix = 0.24f
+        )
+
+        val contentColor = palette.textPrimary.copy(alpha = 0.88f)
+        val toggleColor = if (isDark) Color(0xFF4A9DFF) else Color(0xFF1677FF)
+        val collapsedText = remember(summary) {
+            val firstParagraph = summary.split("\n").firstOrNull { it.isNotBlank() }.orEmpty()
+            if (firstParagraph.length > 120) firstParagraph.take(120) + "..." else firstParagraph
+        }
+        val expandAnim = expandVertically(animationSpec = tween(320, easing = FastOutSlowInEasing))
+        val collapseAnim = shrinkVertically(animationSpec = tween(320, easing = FastOutSlowInEasing))
+
+        Card(
+            shape = noMemoG2RoundedShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = cardSurface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onToggle
+                    )
+                    .padding(horizontal = 18.dp, vertical = 12.dp)
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_nm_ai_assistant),
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp),
+                        tint = Color.Unspecified
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "分组提要",
+                        color = palette.textPrimary,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    if (generating) {
+                        Spacer(modifier = Modifier.weight(1f))
+                        GroupSummaryFlowingText(color = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF))
+                    }
+                }
+                Spacer(modifier = Modifier.height(4.dp))
+                if (summary.length > 120) {
+                    AnimatedVisibility(
+                        visible = !expanded,
+                        enter = expandAnim + fadeIn(tween(240)),
+                        exit = collapseAnim + fadeOut(tween(200))
+                    ) {
+                        Column {
+                            Text(
+                                text = collapsedText,
+                                color = contentColor,
+                                fontSize = 15.sp,
+                                lineHeight = 24.sp,
+                                maxLines = 4,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "展开全文",
+                                color = toggleColor,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    AnimatedVisibility(
+                        visible = expanded,
+                        enter = expandAnim + fadeIn(tween(240)),
+                        exit = collapseAnim + fadeOut(tween(200))
+                    ) {
+                        Column {
+                            Text(
+                                text = summary,
+                                color = contentColor,
+                                fontSize = 15.sp,
+                                lineHeight = 24.sp
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "收起",
+                                color = toggleColor,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = summary,
+                        color = contentColor,
+                        fontSize = 15.sp,
+                        lineHeight = 24.sp
+                    )
+                }
+            }
+        }
+    }
+
+    @Composable
+    private fun GroupSummaryStatusCard(
+        message: String,
+        isError: Boolean,
+        onClick: (() -> Unit)? = null
+    ) {
+        val palette = rememberNoMemoPalette()
+        val isDark = isSystemInDarkTheme()
+        val cardSurface = noMemoThemeSyncedContentSurface(
+            palette = palette,
+            isDark = isDark,
+            darkDefault = noMemoCardSurfaceColor(true, palette.glassFill.copy(alpha = 0.96f)),
+            lightDefault = Color.White.copy(alpha = 0.995f),
+            lightMix = 0.24f
+        )
+
+        Card(
+            shape = noMemoG2RoundedShape(22.dp),
+            colors = CardDefaults.cardColors(containerColor = cardSurface),
+            elevation = CardDefaults.cardElevation(
+                defaultElevation = if (isDark) 0.dp else 1.5.dp
+            ),
+            modifier = if (onClick != null) Modifier.clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = onClick
+            ) else Modifier
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_nm_ai_assistant),
+                    contentDescription = null,
+                    modifier = Modifier.size(20.dp),
+                    tint = Color.Unspecified
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = message,
+                    color = if (isError) Color(0xFFFF4D4F) else palette.textPrimary.copy(alpha = 0.68f),
+                    fontSize = 15.sp,
+                    lineHeight = 24.sp
+                )
+            }
+        }
+    }
+
+    @Composable
+    private fun GroupSummaryFlowingText(color: Color) {
+        val transition = rememberInfiniteTransition(label = "summaryFlow")
+        val flowOffset by transition.animateFloat(
+            initialValue = -180f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(durationMillis = 1500, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            ),
+            label = "summaryFlowOffset"
+        )
+        val brush = remember(color, flowOffset) {
+            Brush.linearGradient(
+                colors = listOf(
+                    color.copy(alpha = 0.40f),
+                    color.copy(alpha = 0.88f),
+                    Color.White.copy(alpha = 0.92f),
+                    color.copy(alpha = 0.88f),
+                    color.copy(alpha = 0.40f)
+                ),
+                start = Offset(flowOffset - 180f, 0f),
+                end = Offset(flowOffset + 180f, 0f)
+            )
+        }
+        Text(
+            text = "分析中...",
+            style = TextStyle(
+                brush = brush,
+                fontSize = 14.sp,
+                fontWeight = FontWeight.Medium
+            )
+        )
     }
 
     @Composable

@@ -48,7 +48,8 @@
       "Bash(nslookup *)",
       "Bash(./gradlew assembleDebug testDebugUnitTest --tests \"com.han.nomemo.AiCloudFailureClassifierTest\")",
       "Bash(python3 *)",
-      "Bash(python *)"
+      "Bash(python *)",
+      "Bash(gh repo *)"
     ]
   }
 }

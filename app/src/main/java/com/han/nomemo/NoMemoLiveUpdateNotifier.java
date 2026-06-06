@@ -235,6 +235,44 @@ public final class NoMemoLiveUpdateNotifier {
                 .cancel(buildGroupNotificationId(albumId));
     }
 
+    public static void notifyGroupSummaryGenerating(
+            Context context,
+            GroupAlbumStore.GroupAlbum album
+    ) {
+        if (album == null || !canNotify(context)) {
+            return;
+        }
+        Context appContext = context.getApplicationContext();
+        ensureChannel(appContext);
+
+        String albumName = firstNonBlank(album.getName(), "当前分组");
+        String title = "正在生成分组提要";
+        String content = "AI 正在分析「" + albumName + "」的记忆内容...";
+
+        NotificationCompat.Builder builder = baseBuilder(appContext)
+                .setSmallIcon(R.drawable.ic_nm_ai_assistant)
+                .setContentTitle(title)
+                .setContentText(content)
+                .setStyle(new NotificationCompat.BigTextStyle()
+                        .setBigContentTitle(title)
+                        .bigText(content)
+                        .setSummaryText("生成分组提要"))
+                .setContentIntent(buildGroupDetailPendingIntent(appContext, album.getAlbumId()))
+                .setWhen(System.currentTimeMillis())
+                .setShowWhen(true)
+                .setUsesChronometer(true);
+
+        safeNotify(appContext, buildGroupSummaryNotificationId(album.getAlbumId()), builder);
+    }
+
+    public static void cancelGroupSummary(Context context, String albumId) {
+        if (albumId == null || albumId.trim().isEmpty()) {
+            return;
+        }
+        NotificationManagerCompat.from(context.getApplicationContext())
+                .cancel(buildGroupSummaryNotificationId(albumId));
+    }
+
     public static void notifyMemoryLiveStatus(Context context, MemoryRecord record) {
         if (record == null || !record.isLiveStatusActive() || record.isArchived() || !canNotify(context)) {
             return;
@@ -468,6 +506,10 @@ public final class NoMemoLiveUpdateNotifier {
 
     private static int buildGroupNotificationId(String albumId) {
         return ("live:group:" + albumId).hashCode();
+    }
+
+    private static int buildGroupSummaryNotificationId(String albumId) {
+        return ("live:group_summary:" + albumId).hashCode();
     }
 
     private static int buildAssistantAiNotificationId(String sessionId) {

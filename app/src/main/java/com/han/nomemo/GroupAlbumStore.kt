@@ -14,7 +14,9 @@ class GroupAlbumStore(context: Context) {
         val description: String,
         val createdAt: Long,
         val recordIds: List<String>,
-        val organizeStatus: String
+        val organizeStatus: String,
+        val summary: String = "",
+        val summaryStatus: String = SUMMARY_STATUS_IDLE
     )
 
     companion object {
@@ -25,6 +27,10 @@ class GroupAlbumStore(context: Context) {
         const val ORGANIZE_STATUS_PROCESSING = "processing"
         const val ORGANIZE_STATUS_COMPLETED = "completed"
         const val ORGANIZE_STATUS_FAILED = "failed"
+
+        const val SUMMARY_STATUS_IDLE = "idle"
+        const val SUMMARY_STATUS_GENERATING = "generating"
+        const val SUMMARY_STATUS_FAILED = "failed"
     }
 
     private val prefs =
@@ -47,7 +53,9 @@ class GroupAlbumStore(context: Context) {
                 description = obj.optString("description").trim(),
                 createdAt = obj.optLong("created_at"),
                 recordIds = parseRecordIds(obj.optJSONArray("record_ids")),
-                organizeStatus = normalizeOrganizeStatus(obj.optString("organize_status"))
+                organizeStatus = normalizeOrganizeStatus(obj.optString("organize_status")),
+                summary = obj.optString("summary", "").orEmpty(),
+                summaryStatus = normalizeSummaryStatus(obj.optString("summary_status"))
             )
         }
         return result
@@ -147,6 +155,33 @@ class GroupAlbumStore(context: Context) {
             name = trimmedName,
             description = trimmedDescription
         )
+        saveAlbums(albums)
+        return true
+    }
+
+    fun updateSummary(albumId: String, summary: String): Boolean {
+        val trimmedId = albumId.trim()
+        if (trimmedId.isEmpty()) return false
+        val albums = loadAlbums().toMutableList()
+        val index = albums.indexOfFirst { it.albumId == trimmedId }
+        if (index < 0) return false
+        val current = albums[index]
+        if (current.summary == summary) return false
+        albums[index] = current.copy(summary = summary)
+        saveAlbums(albums)
+        return true
+    }
+
+    fun updateSummaryStatus(albumId: String, summaryStatus: String): Boolean {
+        val trimmedId = albumId.trim()
+        if (trimmedId.isEmpty()) return false
+        val albums = loadAlbums().toMutableList()
+        val index = albums.indexOfFirst { it.albumId == trimmedId }
+        if (index < 0) return false
+        val normalized = normalizeSummaryStatus(summaryStatus)
+        val current = albums[index]
+        if (current.summaryStatus == normalized) return false
+        albums[index] = current.copy(summaryStatus = normalized)
         saveAlbums(albums)
         return true
     }
@@ -255,6 +290,8 @@ class GroupAlbumStore(context: Context) {
                     .put("created_at", album.createdAt)
                     .put("record_ids", recordIdsJson)
                     .put("organize_status", normalizeOrganizeStatus(album.organizeStatus))
+                    .put("summary", album.summary)
+                    .put("summary_status", normalizeSummaryStatus(album.summaryStatus))
             )
         }
         prefs.edit().putString(KEY_ALBUMS, payload.toString()).apply()
@@ -281,6 +318,14 @@ class GroupAlbumStore(context: Context) {
             ORGANIZE_STATUS_COMPLETED -> ORGANIZE_STATUS_COMPLETED
             ORGANIZE_STATUS_FAILED -> ORGANIZE_STATUS_FAILED
             else -> ORGANIZE_STATUS_IDLE
+        }
+    }
+
+    private fun normalizeSummaryStatus(raw: String?): String {
+        return when (raw?.trim()?.lowercase()) {
+            SUMMARY_STATUS_GENERATING -> SUMMARY_STATUS_GENERATING
+            SUMMARY_STATUS_FAILED -> SUMMARY_STATUS_FAILED
+            else -> SUMMARY_STATUS_IDLE
         }
     }
 }
