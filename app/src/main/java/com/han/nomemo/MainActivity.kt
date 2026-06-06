@@ -656,31 +656,48 @@ class MainActivity : BaseComposeActivity() {
                 )
             }
             val value = progress.value.coerceIn(0f, 1f)
-            val motionProgress = AddMemoryTransitionEasing.transform(value)
-            val rect = addMemoryTransitionRect(
-                progress = motionProgress,
+            val handoffEnd = 0.13f
+            val miniPageRect = addMemoryTransitionMiniPageRect(
                 origin = origin,
                 screenWidthPx = screenWidthPx,
                 screenHeightPx = screenHeightPx,
-                bleedPx = bleedPx
+                marginPx = marginPx
             )
-            val contentRevealProgress = smootherStep((motionProgress - 0.68f) / 0.28f)
-            val contentAlpha = contentRevealProgress
-            val contentScale = lerp(0.985f, 1f, contentRevealProgress)
+            val fullRect = Rect(
+                -bleedPx,
+                -bleedPx,
+                screenWidthPx + bleedPx,
+                screenHeightPx + bleedPx
+            )
+            val handoffProgress = smootherStep(value / handoffEnd)
+            val pageProgress = AddMemoryTransitionEasing.transform(
+                ((value - handoffEnd) / (1f - handoffEnd)).coerceIn(0f, 1f)
+            )
+            val rect = if (value < handoffEnd) {
+                lerpRect(origin, miniPageRect, handoffProgress)
+            } else {
+                lerpRect(miniPageRect, fullRect, pageProgress)
+            }
+            val pageScale = (rect.width / screenWidthPx).coerceAtLeast(0.001f)
+            val contentAlpha = smootherStep((value - 0.08f) / 0.18f)
             val scrimMaxAlpha = if (isDark) 0.10f else 0.08f
-            val scrimAlpha = scrimMaxAlpha * smootherStep((motionProgress - 0.04f) / 0.42f)
+            val scrimAlpha = scrimMaxAlpha * smootherStep((value - 0.06f) / 0.42f)
             val transitionSurface = androidx.compose.ui.graphics.lerp(
                 addMemoryTransitionFabSurfaceColor(isDark),
                 pageBg,
-                smootherStep((motionProgress - 0.10f) / 0.52f)
+                smootherStep((value - 0.08f) / 0.40f)
             )
-            val transitionSurfaceAlpha = smootherStep(motionProgress / 0.18f)
-            val cornerRadiusPx =
-                addMemoryTransitionCornerRadiusPx(motionProgress, origin, deviceCornerRadiusPx)
+            val transitionSurfaceAlpha = smootherStep(value / 0.12f)
+            val cornerRadiusPx = addMemoryTransitionCornerRadiusPx(
+                progress = value,
+                handoffEnd = handoffEnd,
+                origin = origin,
+                deviceCornerRadiusPx = deviceCornerRadiusPx
+            )
             val fabIconAlpha = if (phase == AddMemoryFlowPhase.Opening) {
-                transitionSurfaceAlpha * (1f - smootherStep(motionProgress / 0.28f))
+                transitionSurfaceAlpha * (1f - smootherStep(value / 0.16f))
             } else if (phase == AddMemoryFlowPhase.Closing) {
-                1f - smootherStep(motionProgress / 0.22f)
+                1f - smootherStep(value / 0.14f)
             } else {
                 0f
             }
@@ -722,9 +739,11 @@ class MainActivity : BaseComposeActivity() {
                         .fillMaxSize()
                         .graphicsLayer {
                             alpha = contentAlpha
-                            transformOrigin = TransformOrigin.Center
-                            scaleX = contentScale
-                            scaleY = contentScale
+                            transformOrigin = TransformOrigin(0f, 0f)
+                            scaleX = pageScale
+                            scaleY = pageScale
+                            translationX = rect.left
+                            translationY = rect.top
                         }
                 ) {
                     content()
@@ -758,21 +777,24 @@ class MainActivity : BaseComposeActivity() {
         }
     }
 
-    private fun addMemoryTransitionRect(
-        progress: Float,
+    private fun addMemoryTransitionMiniPageRect(
         origin: Rect,
         screenWidthPx: Float,
         screenHeightPx: Float,
-        bleedPx: Float
+        marginPx: Float
     ): Rect {
-        val fullRect = Rect(-bleedPx, -bleedPx, screenWidthPx + bleedPx, screenHeightPx + bleedPx)
-        val horizontalProgress = progress.coerceIn(0f, 1f)
-        val verticalProgress = smootherStep((progress - 0.02f) / 0.98f)
+        val miniScale = 0.24f
+        val width = screenWidthPx * miniScale
+        val height = screenHeightPx * miniScale
+        val anchorX = origin.center.x
+        val anchorY = origin.center.y
+        val right = (anchorX + width / 2f).coerceIn(width + marginPx, screenWidthPx - marginPx)
+        val bottom = (anchorY + height / 2f).coerceIn(height + marginPx, screenHeightPx - marginPx)
         return Rect(
-            left = lerp(origin.left, fullRect.left, horizontalProgress),
-            top = lerp(origin.top, fullRect.top, verticalProgress),
-            right = lerp(origin.right, fullRect.right, horizontalProgress),
-            bottom = lerp(origin.bottom, fullRect.bottom, verticalProgress)
+            left = right - width,
+            top = bottom - height,
+            right = right,
+            bottom = bottom
         )
     }
 
@@ -783,12 +805,21 @@ class MainActivity : BaseComposeActivity() {
 
     private fun addMemoryTransitionCornerRadiusPx(
         progress: Float,
+        handoffEnd: Float,
         origin: Rect,
         deviceCornerRadiusPx: Float
     ): Float {
         val fabRadius = (origin.width.coerceAtMost(origin.height) / 2f).coerceAtLeast(1f)
-        val radiusProgress = smootherStep((progress - 0.12f) / 0.76f)
-        return lerp(fabRadius, deviceCornerRadiusPx, radiusProgress)
+        val miniPageRadius = deviceCornerRadiusPx * 1.35f
+        return if (progress < handoffEnd) {
+            lerp(fabRadius, miniPageRadius, smootherStep(progress / handoffEnd))
+        } else {
+            lerp(
+                miniPageRadius,
+                deviceCornerRadiusPx,
+                smootherStep((progress - handoffEnd) / (1f - handoffEnd))
+            )
+        }
     }
 
     private fun addMemoryTransitionFabSurfaceColor(isDark: Boolean): Color {
@@ -810,6 +841,15 @@ class MainActivity : BaseComposeActivity() {
     private fun lerp(start: Float, end: Float, fraction: Float): Float {
         val t = fraction.coerceIn(0f, 1f)
         return start + (end - start) * t
+    }
+
+    private fun lerpRect(start: Rect, end: Rect, fraction: Float): Rect {
+        return Rect(
+            left = lerp(start.left, end.left, fraction),
+            top = lerp(start.top, end.top, fraction),
+            right = lerp(start.right, end.right, fraction),
+            bottom = lerp(start.bottom, end.bottom, fraction)
+        )
     }
 
     private fun addMemoryTransitionOriginRect(
