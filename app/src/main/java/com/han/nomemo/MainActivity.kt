@@ -37,6 +37,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -1734,9 +1735,26 @@ class MainActivity : BaseComposeActivity() {
             ),
             label = "memoryFilterChipText_$text"
         )
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val pressAlpha by animateFloatAsState(
+            targetValue = if (pressed) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (pressed) 75 else 220,
+                easing = FastOutSlowInEasing
+            ),
+            label = "memoryFilterChipPress_$text"
+        )
+        val pressColor = if (isDark) {
+            Color.White.copy(alpha = 0.055f * pressAlpha)
+        } else {
+            Color.Black.copy(alpha = 0.04f * pressAlpha)
+        }
 
         PressScaleBox(
-            onClick = onClick
+            onClick = onClick,
+            pressedScale = 1f,
+            interactionSource = interaction
         ) {
             Box(
                 modifier = Modifier
@@ -1754,6 +1772,11 @@ class MainActivity : BaseComposeActivity() {
                         horizontal = if (spec.isNarrow) 18.dp else 24.dp,
                         vertical = if (spec.isNarrow) 11.dp else 12.dp
                     )
+                )
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(pressColor)
                 )
             }
         }
@@ -1825,45 +1848,72 @@ class MainActivity : BaseComposeActivity() {
             ),
             label = "primaryFilterEndPadding_$text"
         )
-        PressScaleBox(onClick = onClick) {
-            Row(
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val pressAlpha by animateFloatAsState(
+            targetValue = if (pressed) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (pressed) 75 else 220,
+                easing = FastOutSlowInEasing
+            ),
+            label = "primaryFilterChipPress_$text"
+        )
+        val pressColor = if (isDark) {
+            Color.White.copy(alpha = 0.055f * pressAlpha)
+        } else {
+            Color.Black.copy(alpha = 0.04f * pressAlpha)
+        }
+        PressScaleBox(
+            onClick = onClick,
+            pressedScale = 1f,
+            interactionSource = interaction
+        ) {
+            Box(
                 modifier = Modifier
                     .clip(NoMemoG2CapsuleShape)
                     .background(bg)
-                    .padding(
+            ) {
+                Row(
+                    modifier = Modifier.padding(
                         start = horizontalPadding,
                         end = endPadding,
                         top = if (spec.isNarrow) 11.dp else 12.dp,
                         bottom = if (spec.isNarrow) 11.dp else 12.dp
                     ),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = text,
-                    color = textColor,
-                    style = TextStyle(
-                        fontSize = (spec.chipTextSize.value + 1f).sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                )
-                Box(
-                    modifier = Modifier.width(chevronSlotWidth),
-                    contentAlignment = Alignment.CenterEnd
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_sheet_chevron_down),
-                        contentDescription = null,
-                        tint = textColor.copy(alpha = 0.9f),
-                        modifier = Modifier
-                            .size(12.dp)
-                            .graphicsLayer {
-                                alpha = chevronProgress
-                                scaleX = 0.78f + 0.22f * chevronProgress
-                                scaleY = 0.78f + 0.22f * chevronProgress
-                                rotationZ = chevronRotation
-                            }
+                    Text(
+                        text = text,
+                        color = textColor,
+                        style = TextStyle(
+                            fontSize = (spec.chipTextSize.value + 1f).sp,
+                            fontWeight = FontWeight.Bold
+                        )
                     )
+                    Box(
+                        modifier = Modifier.width(chevronSlotWidth),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_sheet_chevron_down),
+                            contentDescription = null,
+                            tint = textColor.copy(alpha = 0.9f),
+                            modifier = Modifier
+                                .size(12.dp)
+                                .graphicsLayer {
+                                    alpha = chevronProgress
+                                    scaleX = 0.78f + 0.22f * chevronProgress
+                                    scaleY = 0.78f + 0.22f * chevronProgress
+                                    rotationZ = chevronRotation
+                                }
+                        )
+                    }
                 }
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(pressColor)
+                )
             }
         }
     }
@@ -1918,42 +1968,69 @@ class MainActivity : BaseComposeActivity() {
             ),
             label = "secondaryFilterChipIconBg_$categoryCode"
         )
+        val interaction = remember { MutableInteractionSource() }
+        val pressed by interaction.collectIsPressedAsState()
+        val pressAlpha by animateFloatAsState(
+            targetValue = if (pressed) 1f else 0f,
+            animationSpec = tween(
+                durationMillis = if (pressed) 75 else 220,
+                easing = FastOutSlowInEasing
+            ),
+            label = "secondaryFilterChipPress_$categoryCode"
+        )
+        val pressColor = if (isDark) {
+            Color.White.copy(alpha = 0.055f * pressAlpha)
+        } else {
+            Color.Black.copy(alpha = 0.04f * pressAlpha)
+        }
 
-        PressScaleBox(onClick = onClick) {
-            Row(
+        PressScaleBox(
+            onClick = onClick,
+            pressedScale = 1f,
+            interactionSource = interaction
+        ) {
+            Box(
                 modifier = Modifier
                     .clip(NoMemoG2CapsuleShape)
                     .background(bg)
-                    .padding(
+            ) {
+                Row(
+                    modifier = Modifier.padding(
                         start = if (spec.isNarrow) 10.dp else 12.dp,
                         end = if (spec.isNarrow) 14.dp else 18.dp,
                         top = if (spec.isNarrow) 8.dp else 9.dp,
                         bottom = if (spec.isNarrow) 8.dp else 9.dp
                     ),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(20.dp)
-                        .clip(CircleShape)
-                        .background(iconContainer),
-                    contentAlignment = Alignment.Center
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(
-                        imageVector = secondaryCategoryIcon(categoryCode),
-                        contentDescription = null,
-                        tint = if (selected) textColor else accentColor,
-                        modifier = Modifier.size(13.dp)
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .background(iconContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = secondaryCategoryIcon(categoryCode),
+                            contentDescription = null,
+                            tint = if (selected) textColor else accentColor,
+                            modifier = Modifier.size(13.dp)
+                        )
+                    }
+                    Text(
+                        text = text,
+                        color = textColor,
+                        style = TextStyle(
+                            fontSize = spec.chipTextSize,
+                            fontWeight = FontWeight.SemiBold
+                        ),
+                        modifier = Modifier.padding(start = 6.dp)
                     )
                 }
-                Text(
-                    text = text,
-                    color = textColor,
-                    style = TextStyle(
-                        fontSize = spec.chipTextSize,
-                        fontWeight = FontWeight.SemiBold
-                    ),
-                    modifier = Modifier.padding(start = 6.dp)
+                Box(
+                    modifier = Modifier
+                        .matchParentSize()
+                        .background(pressColor)
                 )
             }
         }

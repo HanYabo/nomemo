@@ -114,9 +114,9 @@ class AiAssistantActionRouter {
         }
 
         return AiAssistantRoute(
-            intent = AiAssistantIntent.SEARCH_MEMORY,
+            intent = AiAssistantIntent.UNKNOWN,
             query = raw,
-            reason = "keyword_search_fallback"
+            reason = "no_keyword_match"
         )
     }
 

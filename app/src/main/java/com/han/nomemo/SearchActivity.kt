@@ -87,6 +87,11 @@ class SearchActivity : BaseComposeActivity() {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
         setContent {
+            val settingsStore = remember { SettingsStore(this) }
+            PredictiveBackGestureHandler(
+                enabled = settingsStore.predictiveBackGesture,
+                onBack = { finish() }
+            ) {
             SearchContent(
                 records = records,
                 hasLoadedRecords = hasLoadedRecords,
@@ -94,6 +99,7 @@ class SearchActivity : BaseComposeActivity() {
                 onOpenDetail = { record -> openDetailPage(record.recordId) },
                 onClose = { finish() }
             )
+            }
         }
         refreshRecords()
     }

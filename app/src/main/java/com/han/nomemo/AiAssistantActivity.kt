@@ -4,12 +4,24 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Build
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,12 +31,14 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -35,6 +49,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.AssignmentTurnedIn
+import androidx.compose.material.icons.outlined.Badge
+import androidx.compose.material.icons.outlined.CalendarMonth
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ConfirmationNumber
+import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.History
+import androidx.compose.material.icons.outlined.LocalShipping
+import androidx.compose.material.icons.outlined.Restaurant
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -49,6 +74,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
@@ -83,6 +109,11 @@ class AiAssistantActivity : BaseComposeActivity() {
             AiAssistantViewModel.Factory(application)
         )[AiAssistantViewModel::class.java]
         setContent {
+            val settingsStore = remember { SettingsStore(this) }
+            PredictiveBackGestureHandler(
+                enabled = settingsStore.predictiveBackGesture,
+                onBack = { finish() }
+            ) {
             AiAssistantContent(
                 viewModel = viewModel,
                 onClose = { finish() },
@@ -90,6 +121,7 @@ class AiAssistantActivity : BaseComposeActivity() {
                     startActivity(MemoryDetailActivity.createIntent(this, recordId))
                 }
             )
+            }
         }
     }
 }
@@ -188,15 +220,15 @@ private fun AiAssistantContent(
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .statusBarsPadding()
                     .imePadding()
+            ) {
+                Column(modifier = Modifier.fillMaxSize().statusBarsPadding()
                     .padding(
                         start = spec.pageHorizontalPadding,
+                        end = spec.pageHorizontalPadding,
                         top = (spec.pageTopPadding - 4.dp).coerceAtLeast(0.dp),
-                        end = spec.pageHorizontalPadding
-                    )
-            ) {
-                Column(modifier = Modifier.fillMaxSize()) {
+                        bottom = inputBarBottomClearance
+                    )) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -219,12 +251,9 @@ private fun AiAssistantContent(
                             modifier = Modifier.align(Alignment.Center)
                         )
                         GlassIconCircleButton(
-                            iconRes = R.drawable.ic_nm_delete,
-                            contentDescription = "清空输入",
-                            onClick = {
-                                inputText = ""
-                                selectedImageUri = null
-                            },
+                            iconRes = R.drawable.ic_nm_list_view,
+                            contentDescription = "会话历史",
+                            onClick = { viewModel.toggleHistoryPanel() },
                             modifier = Modifier.align(Alignment.CenterEnd),
                             size = spec.topActionButtonSize
                         )
@@ -266,11 +295,11 @@ private fun AiAssistantContent(
                                     )
                                 }
                                 if (uiState.isSending) {
-                                    item(key = "assistant_loading") {
-                                        AssistantTypingBubble(
+                                    item(key = "assistant_loading") { AssistantTypingBubble(
                                             palette = palette,
                                             surfaceColor = contentSurface,
-                                            subtleStroke = subtleStroke
+                                            subtleStroke = subtleStroke,
+                                            isDark = isDark
                                         )
                                     }
                                 }
@@ -382,6 +411,207 @@ private fun AiAssistantContent(
                     }
                 }
             }
+
+            // History panel overlay
+            BackHandler(enabled = uiState.showHistoryPanel) {
+                viewModel.closeHistoryPanel()
+            }
+
+            AnimatedVisibility(
+                visible = uiState.showHistoryPanel,
+                enter = fadeIn(tween(durationMillis = 250, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(durationMillis = 200, easing = FastOutSlowInEasing)),
+                modifier = Modifier.fillMaxSize()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = 0.3f))
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null,
+                            onClick = { viewModel.closeHistoryPanel() }
+                        )
+                )
+            }
+
+            AnimatedVisibility(
+                visible = uiState.showHistoryPanel,
+                enter = slideInHorizontally(initialOffsetX = { it }),
+                exit = slideOutHorizontally(targetOffsetX = { it }),
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                AssistantHistoryPanel(
+                    sessions = uiState.sessions,
+                    currentSessionId = uiState.currentSessionId,
+                    palette = palette,
+                    contentSurface = contentSurface,
+                    accent = accent,
+                    isDark = isDark,
+                    onSelectSession = { viewModel.loadSession(it) },
+                    onDeleteSession = { viewModel.deleteSession(it) },
+                    onNewSession = { viewModel.startNewSession() },
+                    onClose = { viewModel.closeHistoryPanel() }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AssistantHistoryPanel(
+    sessions: List<AiAssistantSession>,
+    currentSessionId: String?,
+    palette: NoMemoPalette,
+    contentSurface: Color,
+    accent: Color,
+    isDark: Boolean,
+    onSelectSession: (String) -> Unit,
+    onDeleteSession: (String) -> Unit,
+    onNewSession: () -> Unit,
+    onClose: () -> Unit
+) {
+    val dateFormat = remember { SimpleDateFormat("MM/dd HH:mm", Locale.getDefault()) }
+    val panelShape = noMemoG2RoundedShape(topStart = 20.dp, bottomStart = 20.dp)
+    Box(
+        modifier = Modifier
+            .fillMaxHeight()
+            .widthIn(max = 360.dp)
+            .fillMaxWidth()
+            .shadow(12.dp, panelShape, ambientColor = Color.Black.copy(alpha = 0.15f), spotColor = Color.Black.copy(alpha = 0.20f))
+            .clip(panelShape)
+            .background(contentSurface)
+    ) {
+        Column(modifier = Modifier.fillMaxSize()) {
+            Spacer(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .statusBarsPadding()
+            )
+
+            // Top bar
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+            ) {
+                Text(
+                    text = "会话历史",
+                    color = palette.textPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier.align(Alignment.CenterStart)
+                )
+                Row(
+                    modifier = Modifier.align(Alignment.CenterEnd),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(palette.glassFill)
+                            .clickable { onNewSession() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Add,
+                            contentDescription = "新建会话",
+                            tint = palette.textPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(palette.glassFill)
+                            .clickable { onClose() },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.Close,
+                            contentDescription = "关闭",
+                            tint = palette.textPrimary,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                }
+            }
+
+            // Divider
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(0.5.dp)
+                    .background(palette.textTertiary.copy(alpha = 0.12f))
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+
+            if (sessions.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Outlined.History,
+                            contentDescription = null,
+                            tint = palette.textTertiary.copy(alpha = 0.5f),
+                            modifier = Modifier.size(48.dp)
+                        )
+                        Text(
+                            text = "暂无会话记录",
+                            color = palette.textTertiary,
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Text(
+                            text = "开始新对话后记录将出现在这里",
+                            color = palette.textTertiary.copy(alpha = 0.6f),
+                            fontSize = 12.sp
+                        )
+                    }
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    items(sessions, key = { it.sessionId }) { session ->
+                        val isCurrent = session.sessionId == currentSessionId
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(noMemoG2RoundedShape(14.dp))
+                                .background(if (isCurrent) accent.copy(alpha = 0.12f) else Color.Transparent)
+                                .clickable { onSelectSession(session.sessionId) }
+                                .padding(horizontal = 12.dp, vertical = 10.dp)
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    text = session.title.ifBlank { "新会话" },
+                                    color = if (isCurrent) accent else palette.textPrimary,
+                                    fontSize = 14.sp,
+                                    fontWeight = if (isCurrent) FontWeight.SemiBold else FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = dateFormat.format(Date(session.createdAt)) + "  ·  ${session.messages.size} 条",
+                                    color = palette.textTertiary,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -419,7 +649,7 @@ private fun AssistantWelcome(
         }
         Spacer(modifier = Modifier.height(22.dp))
         Text(
-            text = "你好，我是 AI 助手",
+            text = "你好，我是NoMemoAI助手",
             color = palette.textPrimary,
             fontSize = if (isNarrow) 22.sp else 24.sp,
             fontWeight = FontWeight.Bold,
@@ -493,14 +723,13 @@ private fun AssistantMessageItem(
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 540.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
                 message.memoryCards.forEach { card ->
                     AssistantMemoryResultCard(
                         card = card,
                         palette = palette,
-                        surfaceColor = assistantSurface,
-                        subtleStroke = subtleStroke,
+                        isDark = isDark,
                         onClick = { onOpenMemory(card.recordId) }
                     )
                 }
@@ -582,71 +811,117 @@ private fun AssistantMessageImagePreview(
 private fun AssistantMemoryResultCard(
     card: AiAssistantMemoryCard,
     palette: NoMemoPalette,
-    surfaceColor: Color,
-    subtleStroke: Color,
+    isDark: Boolean,
     onClick: () -> Unit
 ) {
-    val accent = assistantCategoryAccent(card.categoryCode)
+    val cardColor = if (isDark) Color(0xFF1A1A1C) else Color.White
+    val summaryColor = if (isDark) {
+        palette.textSecondary.copy(alpha = 0.88f)
+    } else {
+        Color(0xFF697281)
+    }
+    val metaColor = if (isDark) {
+        Color.White.copy(alpha = 0.46f)
+    } else {
+        Color(0xFF98A1AE)
+    }
+    val showPreviewImage = !card.imageUri.isNullOrBlank()
+    val thumbnailBackground = if (isDark) Color.White.copy(alpha = 0.05f) else Color(0xFFF1F4F8)
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .clickable(onClick = onClick),
-        shape = noMemoG2RoundedShape(18.dp),
-        colors = CardDefaults.cardColors(containerColor = surfaceColor),
-        border = BorderStroke(1.dp, subtleStroke)
+        shape = noMemoG2RoundedShape(30.dp),
+        colors = CardDefaults.cardColors(containerColor = cardColor)
     ) {
-        Column(modifier = Modifier.padding(14.dp)) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Box(
-                    modifier = Modifier
-                        .clip(NoMemoG2CapsuleShape)
-                        .background(accent.copy(alpha = 0.16f))
-                        .padding(horizontal = 9.dp, vertical = 4.dp)
-                ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 18.dp, vertical = 17.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = card.title,
+                    color = palette.textPrimary,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (card.summary.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = card.summary,
+                        color = summaryColor,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Spacer(modifier = Modifier.height(10.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = formatAssistantTime(card.createdAt),
+                        color = metaColor,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(3.dp)
+                            .clip(CircleShape)
+                            .background(metaColor.copy(alpha = 0.72f))
+                    )
+                    Spacer(modifier = Modifier.width(7.dp))
+                    Icon(
+                        imageVector = assistantCategoryMetaIcon(card.categoryCode),
+                        contentDescription = null,
+                        tint = metaColor.copy(alpha = 0.86f),
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = card.categoryName,
-                        color = accent,
+                        color = metaColor,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
                 }
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = formatAssistantTime(card.createdAt),
-                    color = palette.textTertiary,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 1
-                )
             }
-            Spacer(modifier = Modifier.height(9.dp))
-            Text(
-                text = card.title,
-                color = palette.textPrimary,
-                fontSize = 16.sp,
-                lineHeight = 21.sp,
-                fontWeight = FontWeight.Bold,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            if (card.summary.isNotBlank()) {
-                Spacer(modifier = Modifier.height(5.dp))
-                Text(
-                    text = card.summary,
-                    color = palette.textSecondary,
-                    fontSize = 13.sp,
-                    lineHeight = 18.sp,
-                    fontWeight = FontWeight.Medium,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis
+            if (showPreviewImage) {
+                Spacer(modifier = Modifier.width(14.dp))
+                MemoryThumbnail(
+                    uriString = card.imageUri.orEmpty(),
+                    width = 82.dp,
+                    height = 108.dp,
+                    backgroundColor = thumbnailBackground,
+                    cornerRadius = 17.dp,
+                    modifier = Modifier
+                        .border(
+                            border = noMemoMemoryImageBorder(palette),
+                            shape = noMemoG2RoundedShape(17.dp)
+                        )
                 )
             }
         }
+    }
+}
+
+private fun assistantCategoryMetaIcon(categoryCode: String): androidx.compose.ui.graphics.vector.ImageVector {
+    return when (categoryCode) {
+        CategoryCatalog.CODE_LIFE_PICKUP -> Icons.Outlined.Restaurant
+        CategoryCatalog.CODE_LIFE_DELIVERY -> Icons.Outlined.LocalShipping
+        CategoryCatalog.CODE_LIFE_CARD -> Icons.Outlined.Badge
+        CategoryCatalog.CODE_LIFE_TICKET -> Icons.Outlined.ConfirmationNumber
+        CategoryCatalog.CODE_WORK_TODO -> Icons.Outlined.AssignmentTurnedIn
+        CategoryCatalog.CODE_WORK_SCHEDULE -> Icons.Outlined.CalendarMonth
+        else -> Icons.Outlined.Edit
     }
 }
 
@@ -806,8 +1081,10 @@ private fun ConfirmationActionButton(
 private fun AssistantTypingBubble(
     palette: NoMemoPalette,
     surfaceColor: Color,
-    subtleStroke: Color
+    subtleStroke: Color,
+    isDark: Boolean
 ) {
+    val flowColor = if (isDark) Color(0xFF2E8BFF) else Color(0xFF1677FF)
     Box(
         modifier = Modifier
             .widthIn(max = 240.dp)
@@ -815,9 +1092,9 @@ private fun AssistantTypingBubble(
             .background(surfaceColor)
             .padding(horizontal = 15.dp, vertical = 11.dp)
     ) {
-        Text(
-            text = "正在整理记忆...",
-            color = palette.textSecondary,
+        NoMemoFlowingText(
+            text = "思考中...",
+            color = flowColor,
             fontSize = 15.sp,
             fontWeight = FontWeight.Medium
         )

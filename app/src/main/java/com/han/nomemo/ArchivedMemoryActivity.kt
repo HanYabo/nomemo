@@ -100,6 +100,11 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
         super.onCreate(savedInstanceState)
         memoryStore = MemoryStore(this)
         setContent {
+            val settingsStore = remember { SettingsStore(this) }
+            PredictiveBackGestureHandler(
+                enabled = settingsStore.predictiveBackGesture,
+                onBack = { finish() }
+            ) {
             ArchivedContent(
                 records = records,
                 hasLoadedRecords = hasLoadedRecords,
@@ -112,6 +117,7 @@ class ArchivedMemoryActivity : BaseComposeActivity() {
                 onDeleteRecords = { recordIds -> deleteRecords(recordIds) },
                 onClose = { finish() }
             )
+            }
         }
         refreshRecords()
     }

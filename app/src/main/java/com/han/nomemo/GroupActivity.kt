@@ -162,6 +162,11 @@ class GroupActivity : BaseComposeActivity() {
         startupDockPulseTab = consumePrimaryDockPulse()
         memoryStore = MemoryStore(this)
         setContent {
+            val settingsStore = remember { SettingsStore(this) }
+            PredictiveBackGestureHandler(
+                enabled = settingsStore.predictiveBackGesture,
+                onBack = { finish() }
+            ) {
             GroupContent(
                 allRecords = allRecords,
                 hasLoadedRecords = hasLoadedRecords,
@@ -184,6 +189,7 @@ class GroupActivity : BaseComposeActivity() {
                 onOpenAlbumDetail = { albumId -> openAlbumDetailPage(albumId) },
                 onCloseAlbumDetail = { finish() }
             )
+            }
         }
         refreshContent()
     }

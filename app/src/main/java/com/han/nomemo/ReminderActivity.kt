@@ -133,6 +133,11 @@ class ReminderActivity : BaseComposeActivity() {
         startupDockPulseTab = consumePrimaryDockPulse()
         memoryStore = MemoryStore(this)
         setContent {
+            val settingsStore = remember { SettingsStore(this) }
+            PredictiveBackGestureHandler(
+                enabled = settingsStore.predictiveBackGesture,
+                onBack = { finish() }
+            ) {
             ReminderContent(
                 records = reminderRecords,
                 hasLoadedRecords = hasLoadedRecords,
@@ -157,6 +162,7 @@ class ReminderActivity : BaseComposeActivity() {
                 onDismissAddSheet = { showAddSheet = false },
                 startupDockPulseTab = startupDockPulseTab
             )
+            }
         }
         refreshReminders()
     }

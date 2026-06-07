@@ -16,6 +16,7 @@ enum class AiAssistantIntent {
     SET_REMINDER,
     OPEN_MEMORY,
     REANALYZE_MEMORY,
+    CHAT,
     UNKNOWN
 }
 
@@ -87,9 +88,19 @@ data class AiAssistantMessage(
     }
 }
 
+data class AiAssistantSession(
+    val sessionId: String = UUID.randomUUID().toString(),
+    val createdAt: Long = System.currentTimeMillis(),
+    val title: String = "",
+    val messages: List<AiAssistantMessage> = emptyList()
+)
+
 data class AiAssistantUiState(
     val messages: List<AiAssistantMessage> = emptyList(),
-    val isSending: Boolean = false
+    val isSending: Boolean = false,
+    val sessions: List<AiAssistantSession> = emptyList(),
+    val currentSessionId: String? = null,
+    val showHistoryPanel: Boolean = false
 )
 
 sealed class AiAssistantUiEvent {

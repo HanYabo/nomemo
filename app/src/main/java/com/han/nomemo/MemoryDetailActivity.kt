@@ -197,6 +197,11 @@ class MemoryDetailActivity : BaseComposeActivity() {
         val statusBarResourceId = resources.getIdentifier("status_bar_height", "dimen", "android")
         val statusBarHeightPx = if (statusBarResourceId > 0) resources.getDimensionPixelSize(statusBarResourceId) else 0
         setContent {
+            val settingsStore = remember { SettingsStore(this) }
+            PredictiveBackGestureHandler(
+                enabled = settingsStore.predictiveBackGesture,
+                onBack = { finish() }
+            ) {
             DetailContent(
                 record = record,
                 aiEnabled = aiEnabled,
@@ -209,6 +214,7 @@ class MemoryDetailActivity : BaseComposeActivity() {
                 onReanalyze = { currentRecord -> reanalyzeRecord(currentRecord) },
                 onCancelReanalyze = { cancelActiveAiAnalysis() }
             )
+            }
         }
     }
 

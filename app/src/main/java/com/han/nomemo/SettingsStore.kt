@@ -119,6 +119,10 @@ class SettingsStore(context: Context) {
         get() = prefs.getBoolean(KEY_ECONOMY_MODE, false)
         set(value) = prefs.edit().putBoolean(KEY_ECONOMY_MODE, value).apply()
 
+    var predictiveBackGesture: Boolean
+        get() = prefs.getBoolean(KEY_PREDICTIVE_BACK_GESTURE, true)
+        set(value) = prefs.edit().putBoolean(KEY_PREDICTIVE_BACK_GESTURE, value).apply()
+
     var bottomDockOrder: List<NoMemoDockTab>
         get() = decodeBottomDockOrder(prefs.getString(KEY_BOTTOM_DOCK_ORDER, DEFAULT_BOTTOM_DOCK_ORDER))
         set(value) = prefs.edit().putString(KEY_BOTTOM_DOCK_ORDER, encodeBottomDockOrder(value)).apply()
@@ -244,6 +248,7 @@ class SettingsStore(context: Context) {
         private const val DEFAULT_BOTTOM_DOCK_ORDER = "MEMORY,GROUP,REMINDER"
         private const val KEY_APP_ICON_STYLE = "app_icon_style"
         private const val KEY_VIEW_MODE = "view_mode"
+        private const val KEY_PREDICTIVE_BACK_GESTURE = "predictive_back_gesture"
 
         const val VIEW_MODE_LIST = "list"
         const val VIEW_MODE_GRID = "grid"

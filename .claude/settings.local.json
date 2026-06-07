@@ -49,7 +49,18 @@
       "Bash(./gradlew assembleDebug testDebugUnitTest --tests \"com.han.nomemo.AiCloudFailureClassifierTest\")",
       "Bash(python3 *)",
       "Bash(python *)",
-      "Bash(gh repo *)"
+      "Bash(gh repo *)",
+      "Bash(javap -p \"androidx.activity.compose.PredictiveBackHandlerKt\")",
+      "Bash(javap -p -cp \"/c/Users/MuY1eee/.gradle/caches/9.3.1/transforms/8dc7f8ea35b2ccf012ef89ea0ad09a4c/workspace/transformed/activity-compose-1.13.0/jars/classes.jar\" \"androidx.activity.compose.PredictiveBackHandlerKt\")",
+      "Bash(javap -p -cp \"/c/Users/MuY1eee/.gradle/caches/9.3.1/transforms/8dc7f8ea35b2ccf012ef89ea0ad09a4c/workspace/transformed/activity-compose-1.13.0/jars/classes.jar\" \"androidx.activity.BackEventCompat\")",
+      "Bash(javap -p -cp \"/c/Users/MuY1eee/.gradle/caches/9.3.1/transforms/6b09d213cc2f85fda06dbaa92fdfa83c/workspace/transformed/activity-1.13.0/jars/classes.jar\" \"androidx.activity.BackEventCompat\")",
+      "Bash(grep -n \"^    private fun SettingsRouteBody\\\\|^    private fun SettingsContent\\\\|^    }$\" app/src/main/java/com/han/nomemo/SettingsActivity.kt)",
+      "Bash(awk 'NR>=155 && NR<=175' app/src/main/java/com/han/nomemo/SettingsActivity.kt)",
+      "Bash(awk 'NR>=380 && NR<=420')",
+      "Bash(grep -B5 -A5 \"^+            }$\")",
+      "Bash(xxd)",
+      "Bash(awk 'NR>=588 && NR<=714' \"F:/AndroidProjects/NoMemo/app/src/main/java/com/han/nomemo/AiAssistantActivity.kt\")",
+      "Bash(awk 'NR>=232 && NR<=471' \"F:/AndroidProjects/NoMemo/app/src/main/java/com/han/nomemo/AiAssistantActivity.kt\")"
     ]
   }
 }

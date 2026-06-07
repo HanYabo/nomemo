@@ -155,6 +155,11 @@ class SettingsActivity : BaseComposeActivity() {
         settingsStore = SettingsStore(this)
         memoryStore = MemoryStore(this)
         setContent {
+            val settingsStore = remember { SettingsStore(this) }
+            PredictiveBackGestureHandler(
+                enabled = settingsStore.predictiveBackGesture,
+                onBack = { finish() }
+            ) {
             SettingsContent(
                 currentRoute = initialRoute,
                 onClose = { finish() },
@@ -229,6 +234,7 @@ class SettingsActivity : BaseComposeActivity() {
                     testApiConnection(target, baseUrl, apiKey, model, title, onResult)
                 }
             )
+            }
         }
     }
 
@@ -505,6 +511,7 @@ class SettingsActivity : BaseComposeActivity() {
         var multimodalModelPreset by remember { mutableStateOf(settingsStore.multimodalModelPreset) }
         var autoRetry by remember { mutableStateOf(settingsStore.autoRetry) }
         var economyMode by remember { mutableStateOf(settingsStore.economyMode) }
+        var predictiveBackGesture by remember { mutableStateOf(settingsStore.predictiveBackGesture) }
         var bottomDockOrder by remember { mutableStateOf(settingsStore.bottomDockOrder) }
         val pageBackgroundColor = palette.memoBgMid
         val dividerColor = if (showDividers) {
@@ -581,6 +588,7 @@ class SettingsActivity : BaseComposeActivity() {
                             SettingsRoute.Backup -> "备份与迁移"
                             SettingsRoute.StorageClean -> "存储空间清理"
                             SettingsRoute.Data -> "本地数据管理"
+                            SettingsRoute.Accessibility -> "辅助功能"
                         },
                         onBack = onClose,
                         titleColor = titleColor,
@@ -621,6 +629,11 @@ class SettingsActivity : BaseComposeActivity() {
                             themeAccent = themeAccent,
                             autoRetry = autoRetry,
                             economyMode = economyMode,
+                            predictiveBackGesture = predictiveBackGesture,
+                            onPredictiveBackGestureChange = {
+                                predictiveBackGesture = it
+                                settingsStore.predictiveBackGesture = it
+                            },
                             bottomDockOrder = bottomDockOrder,
                             testingTarget = testingTarget,
                             onNavigate = onNavigate,
@@ -801,6 +814,8 @@ class SettingsActivity : BaseComposeActivity() {
         onThemeAccentChange: (String) -> Unit,
         onAutoRetryChange: (Boolean) -> Unit,
         onEconomyModeChange: (Boolean) -> Unit,
+        predictiveBackGesture: Boolean,
+        onPredictiveBackGestureChange: (Boolean) -> Unit,
         onBottomDockOrderChange: (List<NoMemoDockTab>) -> Unit,
         onShowClearConfirm: () -> Unit,
         onShowResetConfirm: () -> Unit,
@@ -1446,14 +1461,15 @@ class SettingsActivity : BaseComposeActivity() {
                 fun performScan() {
                     if (isScanning) return
                     isScanning = true
+                    val activity = this@SettingsActivity
                     Thread {
-                        val results = StorageCleaner.scanAll(context, memoryStore)
+                        val results = StorageCleaner.scanAll(context, activity.memoryStore)
                         results.forEach { cat ->
                             if (cat.type == StorageCleanCategory.CleanType.UNUSED_IMAGES) {
-                                StorageCleaner.scanUnusedImages(context, memoryStore)
+                                StorageCleaner.scanUnusedImages(context, activity.memoryStore)
                             }
                         }
-                        runOnUiThread {
+                        activity.runOnUiThread {
                             storageCategories = results
                             isScanning = false
                         }
@@ -1463,17 +1479,18 @@ class SettingsActivity : BaseComposeActivity() {
                 fun performClean(category: StorageCleanCategory) {
                     if (cleaningType != null) return
                     cleaningType = category.type
+                    val activity = this@SettingsActivity
                     Thread {
                         var cleanedCount = 0
                         when (category.type) {
                             StorageCleanCategory.CleanType.BROKEN_IMAGE_REFS -> {
-                                cleanedCount = StorageCleaner.cleanBrokenImageRefs(memoryStore, category.recordIds)
+                                cleanedCount = StorageCleaner.cleanBrokenImageRefs(activity.memoryStore, category.recordIds)
                             }
                             else -> {
                                 cleanedCount = StorageCleaner.cleanFiles(category.files)
                             }
                         }
-                        runOnUiThread {
+                        activity.runOnUiThread {
                             cleaningType = null
                             if (cleanedCount > 0) {
                                 cleanResultMessage = "已清理 ${cleanedCount} 个项目，释放 ${StorageCleanCategory.formatSize(category.totalSize)}"
@@ -1575,6 +1592,33 @@ class SettingsActivity : BaseComposeActivity() {
                     )
                 }
             }
+
+            SettingsRoute.Accessibility -> {
+                Column {
+                    Spacer(modifier = Modifier.height(22.dp))
+                    SettingsSectionLabel("辅助功能", sectionLabelColor)
+                    SettingsSurfaceCard(
+                        surface = cardSurface,
+                        borderColor = borderColor,
+                        modifier = Modifier.padding(top = 10.dp)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 4.dp)
+                        ) {
+                            SettingsToggleRow(
+                                title = "预测性返回手势",
+                                subtitle = "从屏幕边缘滑动返回时，显示自定义动画预览",
+                                checked = predictiveBackGesture,
+                                titleColor = titleColor,
+                                subtitleColor = subtitleColor,
+                                accentColor = aiToggleColor,
+                                surface = softSurface,
+                                onCheckedChange = onPredictiveBackGestureChange
+                            )
+                        }
+                    }
+                }
+            }
         }
     }
 
@@ -1612,6 +1656,20 @@ class SettingsActivity : BaseComposeActivity() {
                 SettingsMenuItem("显示与主题", route = SettingsRoute.Appearance),
                 SettingsMenuItem("自定义图标", route = SettingsRoute.CustomIcon),
                 SettingsMenuItem("自定义底栏", route = SettingsRoute.CustomDock)
+            ),
+            titleColor = titleColor,
+            onClick = onNavigate
+        )
+
+        Spacer(modifier = Modifier.height(22.dp))
+        SettingsSectionLabel("辅助功能", sectionLabelColor)
+        SettingsMenuGroup(
+            surface = cardSurface,
+            borderColor = borderColor,
+            dividerColor = dividerColor,
+            modifier = Modifier.padding(top = 10.dp),
+            items = listOf(
+                SettingsMenuItem("预测性返回手势", route = SettingsRoute.Accessibility)
             ),
             titleColor = titleColor,
             onClick = onNavigate
@@ -3565,6 +3623,10 @@ class SettingsActivity : BaseComposeActivity() {
             override val key: String = "data"
         }
 
+        data object Accessibility : SettingsRoute {
+            override val key: String = "accessibility"
+        }
+
         companion object {
             fun fromKey(key: String): SettingsRoute {
                 return when (key) {
@@ -3577,6 +3639,7 @@ class SettingsActivity : BaseComposeActivity() {
                     Backup.key -> Backup
                     StorageClean.key -> StorageClean
                     Data.key -> Data
+                    Accessibility.key -> Accessibility
                     else -> Home
                 }
             }
